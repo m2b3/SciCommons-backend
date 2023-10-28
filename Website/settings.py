@@ -117,20 +117,20 @@ ASGI_APPLICATION = 'app.routing.application'
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': config('DBNAME'),
-#         'USER': config('DBUSER'),
-#         'PASSWORD': config('DBPASSWORD'),
-#         'HOST': config('DBHOST'),
-#         'PORT': config('DBPORT'),
-#     }
-# }
-
 DATABASES = {
-    'default':parse(config('DATABASE_URL'))
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DBNAME'),
+        'USER': config('DBUSER'),
+        'PASSWORD': config('DBPASSWORD'),
+        'HOST': config('DBHOST'),
+        'PORT': config('DBPORT'),
+    }
 }
+
+# DATABASES = {
+#     'default':parse(config('DATABASE_URL'))
+# }
 
 
 # Password validation
