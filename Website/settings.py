@@ -122,7 +122,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'scicommons',
         'USER': 'postgres',
-        'PASSWORD': 'Jyothiswaroop07',
+        'PASSWORD': config('DBPASSWORD'),
         'HOST': 'scicommons.cgdneardo4hm.ca-central-1.rds.amazonaws.com',
         'PORT': 5432,
     }
