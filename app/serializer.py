@@ -258,7 +258,7 @@ class UserActivitySerializer(serializers.ModelSerializer):
 # The `ForgotPasswordSerializer` class is a serializer for handling forgot password requests, with an
 # email field.
 class ForgotPasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.SerializerMethodField()
     
     class Meta:
         fields = ["email"]
