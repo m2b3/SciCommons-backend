@@ -2414,7 +2414,7 @@ class SocialPostCommentCreateSerializer(serializers.ModelSerializer):
         instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
         instance.save()
         if instance.parent_comment is None:
-            notification = Notification.objects.create(user=instance.User, message=f'someone replied to your post on {parse(config("CLIENT_URL"))} ', link=f'/article/{member.article.id}/{instance.id}')
+            notification = Notification.objects.create(user=instance.user, message=f'someone replied to your post on {parse(config("CLIENT_URL"))} ', link=f'/post/{instance.post.id}/{instance.id}')
             notification.save()
         return instance
     
