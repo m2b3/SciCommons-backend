@@ -87,7 +87,8 @@ This is the backend part of the SciCommons project, built with Django. It handle
 The backend server should now be running on http://localhost:8000.
 
 ## API Documentation
-You can access the API documentation and interact with the available endpoints by visiting http://localhost:8000/api/docs when the development server is running.
+You can access the API documentation and interact with the available endpoints by visiting http://localhost:8000/docs when the development server is running.
+You can see the documentation in swagger.
 
 ## Contributing
 Contributions are always welcome! Please read the contribution guidelines first.
