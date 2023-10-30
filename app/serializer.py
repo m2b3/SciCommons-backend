@@ -1210,6 +1210,7 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
             instance = self.Meta.model.objects.create(**validated_data,id=uuid.uuid4().hex)
             Author.objects.create(User=self.context['request'].user, article=instance)
             authorstr = ""
+            authorstr+= self.context['request'].user.first_name + '_' + self.context['request'].user.last_name + "_"+ self.context['request'].user.username + "||"
             if len(unregistered_authors)!=0:
                 with transaction.atomic():
                     for author in unregistered_authors:
