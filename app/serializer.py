@@ -258,9 +258,8 @@ class UserActivitySerializer(serializers.ModelSerializer):
 # The `ForgotPasswordSerializer` class is a serializer for handling forgot password requests, with an
 # email field.
 class ForgotPasswordSerializer(serializers.Serializer):
-    email = serializers.SerializerMethodField()
-    
     class Meta:
+        model = User
         fields = ["email"]
         
 # The class `ResetPasswordSerializer` is a serializer class in Python that is used for resetting a
