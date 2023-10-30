@@ -22,7 +22,6 @@ This is the backend part of the SciCommons project, built with Django. It handle
  
 Make a .env file with following variables:
 
-    ```bash
         EMAIL_HOST_USER = 
         EMAIL_HOST_PASSWORD = 
         EMAIL_PORT = 
@@ -43,10 +42,10 @@ Make a .env file with following variables:
         DBHOST = 
         DBPORT = 
         DATABASE_URL =
-    ```
 
-use DATABASE_URL, or default database based on your database connections.
-add aws s3 bucket configuration for media file storage.
+- Use DATABASE_URL, or default database based on your database connections.
+- Add aws s3 bucket configuration for media file storage.
+- Generate App Password for mail to use it for mail services.
 
 ### Installation
 
