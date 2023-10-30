@@ -1809,17 +1809,17 @@ class CommentCreateSerializer(serializers.ModelSerializer):
             member = CommentBase.objects.filter(id=validated_data['parent_comment'].id).first()
             notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
             notification.save()
-            send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
+            send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
 
         if validated_data["Type"] == "review" or validated_data["Type"] == "decision":
             emails = [author.User.email for author in authors ]
             for author in authors:
                 notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
                 notification.save()
-            send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
+            send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
 
             
-        send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
+        send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
         UserActivity.objects.create(user=self.context['request'].user, action=f"You have made a {instance.Type} on {instance.article.article_name}")
 
         return instance    
