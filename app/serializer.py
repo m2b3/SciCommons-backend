@@ -173,7 +173,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         rank = Rank.objects.create(rank=0, user_id=instance.id)
         rank.save()
         send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
-
+        send_mail("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         return instance
     
 # The UserUpdateSerializer class is a serializer that represents the User model and includes fields

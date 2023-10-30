@@ -112,6 +112,7 @@ GRAPH_MODELS = {
 
 WSGI_APPLICATION = 'Website.wsgi.application'
 ASGI_APPLICATION = 'app.routing.application'
+BASE_URL = 'https://www.scicommons.org'
 
 
 # Database
