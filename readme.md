@@ -85,6 +85,8 @@ Make a .env file with following variables:
 
 The backend server should now be running on http://localhost:8000.
 
+## [GSOC REPORT](https://gist.github.com/JyothiSwaroopReddy07/89c56164a48a833e2bfdc8a5256c46d1)
+
 ## API Documentation
 You can access the API documentation and interact with the available endpoints by visiting http://localhost:8000/docs when the development server is running.
 You can see the documentation in swagger.
