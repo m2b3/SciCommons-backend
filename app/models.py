@@ -315,10 +315,10 @@ class Rank(models.Model):
 # status, and a link.
 class Notification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    message = models.CharField(max_length=100)
+    message = models.CharField(max_length=500)
     date = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
-    link = models.CharField(max_length=100, null=True, blank=True)
+    link = models.CharField(max_length=500, null=True, blank=True)
     
     class Meta:
         db_table ='notification'
