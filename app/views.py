@@ -1286,7 +1286,8 @@ class CommentViewset(viewsets.ModelViewSet):
         
         elif request.data['Type'] == 'review':
             author = Author.objects.filter(User=request.user,article=request.data["article"]).first()
-            if author is not None:
+            article = Article.objects.filter(id=request.data['article']).first()
+            if author is not None and (article.link is None or article.link == ""):
                 return Response(data={"error": "You are Author of Article.You can't submit a review"}, status=status.HTTP_400_BAD_REQUEST)
             
             c = ArticleModerator.objects.filter(article=request.data["article"],moderator__user = request.user).count()
