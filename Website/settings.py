@@ -10,26 +10,27 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
+import os
 from datetime import timedelta
 from pathlib import Path
-import os 
-from decouple import config
-from dj_database_url import parse
+from environs import Env
+
+env = Env()
+env.read_env()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$$n^0_i1iuqd91m+dc_=)kj8o)q$o#)3m5#hl+h3n=vt-#mkz)'
+SECRET_KEY = env.str("SECRET_KEY", default="!jua45_n^v=kzcd.?sq*)^gz!as35z#7lh4j8pkj9jbo")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=False)
 
-ALLOWED_HOSTS = ["scicommons-backend-vkyc.onrender.com","127.0.0.1"]
-
+ALLOWED_HOSTS = ["scicommons-backend-vkyc.onrender.com", "127.0.0.1"]
 
 # Application definition
 
@@ -50,7 +51,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     'channels',
     'django_extensions'
-    
+
 ]
 
 REST_FRAMEWORK = {
@@ -59,7 +60,7 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.BasicAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
-    "DEFAULT_PARSER_CLASSES":[
+    "DEFAULT_PARSER_CLASSES": [
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.MultiPartParser'],
@@ -102,37 +103,34 @@ TEMPLATES = [
 
 AUTH_USER_MODEL = 'app.User'
 
-
 GRAPH_MODELS = {
-  'all_applications': True,
-  'group_models': True,
-  'app_labels': ["app"],
+    'all_applications': True,
+    'group_models': True,
+    'app_labels': ["app"],
 }
-
 
 WSGI_APPLICATION = 'Website.wsgi.application'
 ASGI_APPLICATION = 'app.routing.application'
 BASE_URL = 'https://www.scicommons.org'
 
-
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'scicommons',
-#         'USER': 'postgres',
-#         'PASSWORD': config('DBPASSWORD'),
-#         'HOST': 'scicommons.cgdneardo4hm.ca-central-1.rds.amazonaws.com',
-#         'PORT': 5432,
-#     }
-# }
-
-DATABASES = {
-    'default':parse(config('DATABASE_URL'))
-}
-
+if env.str("DATABASE_URL", default=None) is not None:
+    DATABASES = {
+        "default": env.dj_db_url("DATABASE_URL")
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env.str("POSTGRES_DB"),
+            "USER": env.str("POSTGRES_USER"),
+            "PASSWORD": env.str("POSTGRES_PASSWORD"),
+            "HOST": env.str("POSTGRES_HOST"),
+            "PORT": env.str("POSTGRES_PORT", default="5432"),
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
@@ -152,7 +150,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/4.1/topics/i18n/
 
@@ -164,12 +161,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-
-
-
-
-
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
@@ -179,17 +170,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # TOKEN_COOKIE_AGE = 60 * 60 * 24 * 7
 
 # Base url to serve media files  
-MEDIA_URL = '/media/'  
+MEDIA_URL = '/media/'
 STATIC_URL = '/static/'
+
 # Path where media is stored  
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media/') 
-STATIC_ROOT = os.path.join(BASE_DIR, 'static/') 
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
 
-
-
-CORS_ORIGIN_ALLOW_ALL=True
-
-
+CORS_ORIGIN_ALLOW_ALL = True
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -202,7 +190,6 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
     # 'Token', # Add any custom headers here
 ]
-
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=5),
@@ -230,19 +217,18 @@ CHANNEL_LAYERS = {
 }
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_HOST_USER = 'scicommons.updates@gmail.com'
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-EMAIL_PORT = 587
+EMAIL_HOST = env.str('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_HOST_USER = env.str('EMAIL_HOST_USER', default='scicommons.updates@gmail.com')
+EMAIL_HOST_PASSWORD = env.str('EMAIL_HOST_PASSWORD')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = 'scicommons.updates@gmail.com'
+DEFAULT_FROM_EMAIL = env.str('DEFAULT_FROM_EMAIL', default='scicommons.updates@gmail.com')
 
-
-AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
-AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
-AWS_S3_SIGNATURE_NAME = config('AWS_S3_SIGNATURE_NAME')
-AWS_S3_REGION_NAME = 'ca-central-1'
+AWS_ACCESS_KEY_ID = env.str('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = env.str('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = env.str('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_SIGNATURE_NAME = env.str('AWS_S3_SIGNATURE_NAME')
+AWS_S3_REGION_NAME = env.str('AWS_REGION_NAME', default='ca-central-1')
 AWS_S3_FILE_OVERWRITE = False
 AWS_DEFAULT_ACL = None
 AWS_S3_VERITY = True
