@@ -3,24 +3,20 @@ from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
 from rest_framework_swagger.views import get_swagger_view
-from rest_framework import permissions
 from drf_yasg import views, openapi
 from django.http import HttpResponse
-
-
 
 schema_view = get_swagger_view(title="APIs")
 
 redoc_schema_view = views.get_schema_view(
-   openapi.Info(
-      title="APIs",
-      default_version='v1',
-      description="API Documentation",
-      terms_of_service="#",
-   ),
-   public=True,
+    openapi.Info(
+        title="APIs",
+        default_version='v1',
+        description="API Documentation",
+        terms_of_service="#",
+    ),
+    public=True,
 )
-
 
 
 def myindex(request):
