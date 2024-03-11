@@ -7,16 +7,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import IntegrityError, transaction
 from faker import Faker
 from django.core.mail import send_mail
-from django.db.models import Avg, Sum , Q
+from django.db.models import Avg, Sum, Q
 from django.conf import settings
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
-from decouple import config
-from dj_database_url import parse
 
 import json
 
-
+from article.models import Author, ArticleModerator, ArticleReviewer, Article, CommentBase, HandlersBase, \
+    ArticleBlockedUser, LikeBase
 
 fake = Faker()
 
@@ -25,6 +22,8 @@ from app.models import *
 '''
 user serializers
 '''
+
+
 # The UserSerializer class is a serializer for the User model that includes various fields and methods
 # to retrieve additional information about the user such as rank, followers, following, whether the
 # user is being followed, number of posts, and whether the user is the currently authenticated user.
@@ -39,9 +38,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username','profile_pic_url', 'first_name', 'last_name', 'email', 'rank', 'followers',
-                  'google_scholar','pubmed','institute', 'following', 'isFollowing', 'posts', 'personal']
-        
+        fields = ['id', 'username', 'profile_pic_url', 'first_name', 'last_name', 'email', 'rank', 'followers',
+                  'google_scholar', 'pubmed', 'institute', 'following', 'isFollowing', 'posts', 'personal']
+
     def get_rank(self, obj):
         """
         The function `get_rank` retrieves the rank of a user from the Rank model and returns it as a
@@ -77,7 +76,7 @@ class UserSerializer(serializers.ModelSerializer):
             return url
 
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_following(self, obj):
         """
         The function `get_following` returns the number of users that are being followed by a given
@@ -103,7 +102,7 @@ class UserSerializer(serializers.ModelSerializer):
         if self.context['request'].user.is_authenticated is False:
             return False
         if (Follow.objects.filter(user=self.context['request'].user, followed_user=obj.id).count() > 0):
-            return True 
+            return True
         else:
             return False
 
@@ -117,8 +116,8 @@ class UserSerializer(serializers.ModelSerializer):
         """
         posts = SocialPost.objects.filter(user=obj.id).count()
         return posts
-    
-    def get_personal(self,obj):
+
+    def get_personal(self, obj):
         """
         The function checks if the given object is the same as the user making the request.
         
@@ -126,21 +125,20 @@ class UserSerializer(serializers.ModelSerializer):
         :return: a boolean value. If the `obj` parameter is equal to the user object stored in
         `self.context['request'].user`, then it returns `True`. Otherwise, it returns `False`.
         """
-        if(obj == self.context['request'].user):
+        if (obj == self.context['request'].user):
             return True
         else:
             return False
-    
+
 
 # The `UserCreateSerializer` class is a serializer in Python that creates a new user instance,
 # performs validation checks, sets the user's password, saves the user instance, creates a rank for
 # the user, sends a welcome email, and returns the created user instance.
 class UserCreateSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = User
         fields = ['username', 'profile_pic_url', 'first_name', 'last_name', 'email', 'password']
-        
+
     def create(self, validated_data):
         """
         The function creates a new user instance, sets their password, saves the instance, checks for
@@ -155,11 +153,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         user = self.Meta.model.objects.filter(email=validated_data['email']).first()
         if user:
-            raise serializers.ValidationError(detail={"error": "User with mail already exists.Please use another email or Login using this mail"})
+            raise serializers.ValidationError(
+                detail={"error": "User with mail already exists.Please use another email or Login using this mail"})
         user = self.Meta.model.objects.filter(username=validated_data['username']).first()
         if user:
-            raise serializers.ValidationError(detail={"error":"Username already exists.Please use another username!!!"})
-        
+            raise serializers.ValidationError(
+                detail={"error": "Username already exists.Please use another username!!!"})
+
         instance = self.Meta.model.objects.create(**validated_data)
         instance.set_password(password)
         instance.save()
@@ -169,23 +169,26 @@ class UserCreateSerializer(serializers.ModelSerializer):
                 with transaction.atomic():
                     Author.objects.create(User=instance, article=user.article)
                     user.delete()
-    
+
         rank = Rank.objects.create(rank=0, user_id=instance.id)
         rank.save()
-        send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
-        send_mail("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
+        send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time",
+                  settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
+        send_mail("Verify your Email",
+                  f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}",
+                  settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         return instance
-    
+
+
 # The UserUpdateSerializer class is a serializer that represents the User model and includes fields
 # for updating user information, including a read-only field for the profile picture URL.
 class UserUpdateSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'profile_pic_url', 'google_scholar', 'pubmed', 'institute']
         read_only_fields = ['id', 'email']
 
-        
+
 # The `LoginSerializer` class is a serializer used for validating and authenticating user login
 # credentials, and generating access and refresh tokens.
 class LoginSerializer(serializers.Serializer):
@@ -197,8 +200,7 @@ class LoginSerializer(serializers.Serializer):
 
     class Meta:
         model = User
-        fields = ['username', 'first_name', 'last_name', 'email','id']
-
+        fields = ['username', 'first_name', 'last_name', 'email', 'id']
 
     def validate(self, data):
         """
@@ -211,34 +213,35 @@ class LoginSerializer(serializers.Serializer):
         """
         request = self.context.get('request')
         username = request.data.get("username", None)
-        email = request.data.get("email",None)
+        email = request.data.get("email", None)
         password = request.data.get("password", None)
         if username is None and email is None:
-            raise serializers.ValidationError(detail={"error":"Username or email must be entered"})
+            raise serializers.ValidationError(detail={"error": "Username or email must be entered"})
 
         if username is None and email is not None:
             member = User.objects.filter(email=email).first()
             if member is None:
-                raise serializers.ValidationError(detail={"error":"Enter a valid email address"})
+                raise serializers.ValidationError(detail={"error": "Enter a valid email address"})
             username = member.username
 
         member = User.objects.filter(username=username).first()
         if member is None:
             raise serializers.ValidationError(
-                detail={"error":"Account does not exist. \nPlease try registering to scicommons first"}
+                detail={"error": "Account does not exist. \nPlease try registering to scicommons first"}
             )
         elif member.email_verified == False:
             raise serializers.ValidationError(detail={"error": "Please Verify your Email!!!"})
-        
+
         user = authenticate(username=username, password=password)
 
         if user and not user.is_active:
             raise serializers.ValidationError(
-                detail={"error":"Account has been deactivated. \n Please contact your company's admin to restore your account"}
+                detail={
+                    "error": "Account has been deactivated. \n Please contact your company's admin to restore your account"}
             )
 
         if not user:
-            raise serializers.ValidationError(detail={"error":"Username or Password is wrong"})
+            raise serializers.ValidationError(detail={"error": "Username or Password is wrong"})
 
         refresh = RefreshToken.for_user(user)
         data = {"access": str(refresh.access_token), "refresh": str(refresh)}
@@ -247,30 +250,34 @@ class LoginSerializer(serializers.Serializer):
 
         return data
 
+
 # The UserActivitySerializer class is a serializer for the UserActivity model, specifying the fields
 # to be included in the serialized representation.
 class UserActivitySerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = UserActivity
-        fields = ['id','user','action']
+        fields = ['id', 'user', 'action']
+
 
 # The `ForgotPasswordSerializer` class is a serializer for handling forgot password requests, with an
 # email field.
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.CharField()
+
     class Meta:
         fields = ["email"]
-        
+
+
 # The class `ResetPasswordSerializer` is a serializer class in Python that is used for resetting a
 # password and includes fields for OTP, password, and password confirmation.
 class ResetPasswordSerializer(serializers.Serializer):
     otp = serializers.IntegerField()
     password = serializers.CharField()
     password2 = serializers.CharField()
-    
+
     class Meta:
         fields = ['otp', 'password', 'password2']
+
 
 # The above class is a serializer class in Python used for verifying OTP and email.
 class VerifySerializer(serializers.Serializer):
@@ -279,18 +286,21 @@ class VerifySerializer(serializers.Serializer):
 
     class Meta:
         fields = ['otp', 'email']
-        
+
 
 '''
 community serializer
 '''
+
+
 # The CommunitySerializer class is a serializer for the Community model, specifying the fields to be
 # included in the serialized representation.
 class CommunitySerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = Community
-        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'user', 'members']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website',
+                  'user', 'members']
+
 
 # The `CommunitylistSerializer` class is a serializer that serializes the `Community` model and
 # includes additional fields for member count, evaluated count, published count, and subscription
@@ -300,12 +310,12 @@ class CommunitylistSerializer(serializers.ModelSerializer):
     evaluatedcount = serializers.SerializerMethodField()
     publishedcount = serializers.SerializerMethodField()
     subscribed = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Community
-        fields = ['id', 'Community_name','subtitle', 'description', 'evaluatedcount', 'subscribed',
-                    'membercount','publishedcount']
-    
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'evaluatedcount', 'subscribed',
+                  'membercount', 'publishedcount']
+
     def get_membercount(self, obj):
         """
         The function `get_membercount` returns the number of community members for a given object.
@@ -316,7 +326,7 @@ class CommunitylistSerializer(serializers.ModelSerializer):
         """
         count = CommunityMember.objects.filter(community=obj.id).count()
         return count
-    
+
     def get_evaluatedcount(self, obj):
         """
         The function `get_evaluatedcount` returns the count of CommunityMeta objects with a status of
@@ -326,9 +336,9 @@ class CommunitylistSerializer(serializers.ModelSerializer):
         :return: the count of CommunityMeta objects that have a status of 'accepted', 'rejected', or 'in
         review' and are associated with the given obj.
         """
-        count = CommunityMeta.objects.filter(community=obj.id,status__in=['accepted', 'rejected', 'in review']).count()
-        return count 
-    
+        count = CommunityMeta.objects.filter(community=obj.id, status__in=['accepted', 'rejected', 'in review']).count()
+        return count
+
     def get_publishedcount(self, obj):
         """
         The function `get_publishedcount` returns the count of accepted CommunityMeta objects associated
@@ -350,6 +360,7 @@ class CommunitylistSerializer(serializers.ModelSerializer):
         """
         count = Subscribe.objects.filter(community=obj.id).count()
         return count
+
 
 # The `CommunityGetSerializer` class is a serializer that serializes the `Community` model and
 # includes various fields and methods to determine if a user is a member, reviewer, moderator, or
@@ -366,12 +377,13 @@ class CommunityGetSerializer(serializers.ModelSerializer):
     evaluatedcount = serializers.SerializerMethodField()
     isSubscribed = serializers.SerializerMethodField()
     admins = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Community
-        fields = ['id', 'Community_name','subtitle', 'description','location','date','github','email', 'evaluatedcount', 'isSubscribed', 'admins',
-                    'website','user','membercount','publishedcount','isMember','isReviewer', 'isModerator', 'isAdmin','subscribed']
-    
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email',
+                  'evaluatedcount', 'isSubscribed', 'admins',
+                  'website', 'user', 'membercount', 'publishedcount', 'isMember', 'isReviewer', 'isModerator',
+                  'isAdmin', 'subscribed']
 
     def get_isMember(self, obj):
         """
@@ -385,9 +397,9 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        count = CommunityMember.objects.filter(community=obj.id,user = self.context["request"].user).count()
+        count = CommunityMember.objects.filter(community=obj.id, user=self.context["request"].user).count()
         return count
-    
+
     def get_isReviewer(self, obj):
         """
         The function `get_isReviewer` checks if a user is a reviewer for a specific community.
@@ -398,9 +410,10 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        count = CommunityMember.objects.filter(community=obj.id,user = self.context["request"].user, is_reviewer=True).count()
+        count = CommunityMember.objects.filter(community=obj.id, user=self.context["request"].user,
+                                               is_reviewer=True).count()
         return count
-    
+
     def get_isModerator(self, obj):
         """
         The function `get_isModerator` checks if the authenticated user is a moderator of a specific
@@ -413,9 +426,10 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        count = CommunityMember.objects.filter(community=obj.id,user = self.context["request"].user, is_moderator=True).count()
+        count = CommunityMember.objects.filter(community=obj.id, user=self.context["request"].user,
+                                               is_moderator=True).count()
         return count
-    
+
     def get_isAdmin(self, obj):
         """
         The function `get_isAdmin` checks if the authenticated user is an admin of a specific community.
@@ -426,9 +440,10 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        count = CommunityMember.objects.filter(community=obj.id,user = self.context["request"].user, is_admin=True).count()
+        count = CommunityMember.objects.filter(community=obj.id, user=self.context["request"].user,
+                                               is_admin=True).count()
         return count
-    
+
     def get_membercount(self, obj):
         """
         The function `get_membercount` returns the number of community members for a given object.
@@ -439,7 +454,7 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         count = CommunityMember.objects.filter(community=obj.id).count()
         return count
-    
+
     def get_evaluatedcount(self, obj):
         """
         The function `get_evaluatedcount` returns the count of CommunityMeta objects with a status of
@@ -449,9 +464,9 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         :return: the count of CommunityMeta objects that have a status of 'accepted', 'rejected', or 'in
         review' and are associated with the given obj.
         """
-        count = CommunityMeta.objects.filter(community=obj.id,status__in=['accepted', 'rejected', 'in review']).count()
-        return count 
-    
+        count = CommunityMeta.objects.filter(community=obj.id, status__in=['accepted', 'rejected', 'in review']).count()
+        return count
+
     def get_publishedcount(self, obj):
         """
         The function `get_publishedcount` returns the count of accepted CommunityMeta objects associated
@@ -463,7 +478,7 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         count = CommunityMeta.objects.filter(community=obj.id, status__in=['accepted']).count()
         return count
-    
+
     def get_isSubscribed(self, obj):
         """
         The function checks if a user is subscribed to a community.
@@ -476,12 +491,12 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        count = Subscribe.objects.filter(user=self.context['request'].user,community=obj.id).count()
+        count = Subscribe.objects.filter(user=self.context['request'].user, community=obj.id).count()
         if count > 0:
             return True
         else:
             return False
-    
+
     def get_admins(self, obj):
         """
         The function "get_admins" returns a list of usernames for community members who are admins in a
@@ -493,7 +508,7 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         members = CommunityMember.objects.filter(community=obj.id, is_admin=True)
         admins = [member.user.username for member in members]
         return admins
-        
+
     def get_subscribed(self, obj):
         """
         The function `get_subscribed` returns the count of subscribers for a given community object.
@@ -504,15 +519,15 @@ class CommunityGetSerializer(serializers.ModelSerializer):
         count = Subscribe.objects.filter(community=obj.id).count()
         return count
 
+
 # The `CommunityCreateSerializer` class is a serializer that creates a new community instance, sets
 # the community name, adds the user as an admin member, sends an email notification, and logs the
 # user's activity.
 class CommunityCreateSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Community
         fields = ['Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website']
-        
+
     def create(self, validated_data):
         """
         The function creates a new community, sets the community name by replacing spaces with
@@ -525,13 +540,15 @@ class CommunityCreateSerializer(serializers.ModelSerializer):
         :return: The instance of the created object is being returned.
         """
         community_name = validated_data.pop('Community_name', None)
-        validated_data['Community_name'] = community_name.replace(' ','_')
+        validated_data['Community_name'] = community_name.replace(' ', '_')
         instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
-        instance.members.add(self.context['request'].user, through_defaults={"is_admin":True})
+        instance.members.add(self.context['request'].user, through_defaults={"is_admin": True})
         instance.save()
-        
-        send_mail("you added new commnity", f"You have created a {instance.Community_name} community", settings.EMAIL_HOST_USER, [self.context['request'].user.email], fail_silently=False)        
-        UserActivity.objects.create(user=self.context['request'].user, action=f"you have created community {instance.Community_name} ")
+
+        send_mail("you added new commnity", f"You have created a {instance.Community_name} community",
+                  settings.EMAIL_HOST_USER, [self.context['request'].user.email], fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f"you have created community {instance.Community_name} ")
 
         return instance
 
@@ -539,7 +556,6 @@ class CommunityCreateSerializer(serializers.ModelSerializer):
 # The JoinRequestSerializer class is used to serialize and validate join requests for a community,
 # ensuring that the user is not already a member and has not already made a request.
 class JoinRequestSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = CommunityRequests
         fields = ['id', 'user', 'community', 'summary', 'about']
@@ -555,21 +571,22 @@ class JoinRequestSerializer(serializers.ModelSerializer):
         of the model associated with the serializer
         :return: The instance of the created object is being returned.
         """
-        member = CommunityMember.objects.filter(user=self.context['request'].user, community=validated_data['community']).first()
+        member = CommunityMember.objects.filter(user=self.context['request'].user,
+                                                community=validated_data['community']).first()
         if member is not None:
-            raise serializers.ValidationError(detail={"error":"you are already member of community"})
+            raise serializers.ValidationError(detail={"error": "you are already member of community"})
         requests = self.Meta.model.objects.filter(status='pending', user=self.context['request'].user).first()
         if requests:
-            raise serializers.ValidationError(detail={"error":"you already made request"})  
+            raise serializers.ValidationError(detail={"error": "you already made request"})
         instance = self.Meta.model.objects.create(**validated_data, status='pending', user=self.context['request'].user)
         instance.save()
 
         return instance
 
+
 # The CommunityRequestSerializer class is a serializer for the CommunityRequests model, specifying the
 # fields to be included in the serialized representation.
 class CommunityRequestSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = CommunityRequests
         fields = ['id', 'user', 'community', 'summary', 'about', 'status']
@@ -579,7 +596,6 @@ class CommunityRequestSerializer(serializers.ModelSerializer):
 # into JSON format, including additional fields such as the username, rank, and profile picture URL of
 # the user associated with the request.
 class CommunityRequestGetSerializer(serializers.ModelSerializer):
-
     username = serializers.SerializerMethodField()
     rank = serializers.SerializerMethodField()
     profile_pic_url = serializers.SerializerMethodField()
@@ -587,7 +603,7 @@ class CommunityRequestGetSerializer(serializers.ModelSerializer):
     class Meta:
         model = CommunityRequests
         fields = ['id', 'user', 'community', 'summary', 'about', 'status', 'username', 'rank', 'profile_pic_url']
-    
+
     def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user.
@@ -597,7 +613,7 @@ class CommunityRequestGetSerializer(serializers.ModelSerializer):
         :return: The username of the user associated with the given object.
         """
         return obj.user.username
-    
+
     def get_rank(self, obj):
         """
         The function `get_rank` retrieves the rank of a user from the `Rank` model.
@@ -607,7 +623,7 @@ class CommunityRequestGetSerializer(serializers.ModelSerializer):
         """
         member = Rank.objects.filter(user_id=obj.user.id).first()
         return member.rank
-    
+
     def get_profile_pic_url(self, obj):
         """
         The function `get_profile_pic_url` returns the profile picture URL of a given object's user.
@@ -626,7 +642,6 @@ class CommunityRequestGetSerializer(serializers.ModelSerializer):
 # The `ApproverequestSerializer` class is a serializer for the `CommunityRequests` model that allows
 # updating of its fields.
 class ApproverequestSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = CommunityRequests
         fields = ['id', 'user', 'community', 'summary', 'about', 'status']
@@ -648,7 +663,8 @@ class ApproverequestSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
-    
+
+
 # The `CommunityUpdateSerializer` class is a serializer that handles the updating of a community
 # instance, including adding new members, setting attributes, saving the instance, sending an email
 # notification, and creating a user activity log.
@@ -657,11 +673,12 @@ class CommunityUpdateSerializer(serializers.ModelSerializer):
         child=serializers.IntegerField(),
         write_only=True
     )
-    
+
     class Meta:
         model = Community
-        fields = ['id','Community_name','subtitle', 'description', 'location', 'github', 'email', 'website', 'members']
-        read_only_fields = ['Community_name','id']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'github', 'email', 'website',
+                  'members']
+        read_only_fields = ['Community_name', 'id']
 
     def update(self, instance, validated_data):
         """
@@ -687,31 +704,31 @@ class CommunityUpdateSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.members.set(members)
         instance.save()
-        send_mail("you have updated community" , f'You have updated {instance.Community_name} details', settings.EMAIL_HOST_USER,[instance.user.email], fail_silently=False)
-        UserActivity.objects.create(user=self.context['request'].user, action=f'you have updated deatils in {instance.Community_name}')
+        send_mail("you have updated community", f'You have updated {instance.Community_name} details',
+                  settings.EMAIL_HOST_USER, [instance.user.email], fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f'you have updated deatils in {instance.Community_name}')
         return instance
 
 
 # The SubscribeSerializer class is a serializer for the Subscribe model, with fields for id, user, and
 # community, and the id field is read-only.
 class SubscribeSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = Subscribe
         fields = ['id', 'user', 'community']
         read_only_fields = ['id']
 
-        
 
 class PromoteSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(write_only = True)
-    role = serializers.CharField(write_only = True)
-    
+    user_id = serializers.IntegerField(write_only=True)
+    role = serializers.CharField(write_only=True)
+
     class Meta:
         model = Community
         fields = ['user_id', 'role', 'Community_name', 'members']
         read_only_fields = ['Community_name', 'members']
-        
+
     def update(self, instance, validated_data):
         """
         The function updates the role of a user in a community and sends an email notification.
@@ -725,34 +742,37 @@ class PromoteSerializer(serializers.ModelSerializer):
         """
         user_id = validated_data.get('user_id', None)
         role = validated_data.get('role', None)
-        
+
         if user_id is None:
             raise serializers.ValidationError(detail={"error": "user id can't be None"})
         member = CommunityMember.objects.filter(community=instance, user_id=user_id).first()
-        
+
         if member is None:
-            
+
             if role == "member":
                 member = CommunityMember.objects.create(community=instance, user_id=user_id)
                 member.is_reviewer = False
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail("added member" , f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
-                UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to community')
+                send_mail("added member", f'You have been added as member to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to community')
             else:
                 raise serializers.ValidationError(detail={"error": "user isn't member of community"})
-        
+
         try:
-        
+
             if role is None:
                 raise serializers.ValidationError(detail={"error": "role can't be None"})
-            
+
             elif role == 'reviewer':
                 moderator = Moderator.objects.filter(user_id=user_id, community=instance)
                 article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
                 if article_moderator.exists():
-                    raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    raise serializers.ValidationError(
+                        detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
                 if moderator.exists():
                     moderator.delete()
                 OfficialReviewer.objects.create(User_id=user_id, community=instance, Official_Reviewer_name=fake.name())
@@ -760,14 +780,17 @@ class PromoteSerializer(serializers.ModelSerializer):
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail("you are Reviewer", f'You have been added as Official Reviewer to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
-                UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as reviewer')
-                
+                send_mail("you are Reviewer", f'You have been added as Official Reviewer to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as reviewer')
+
             elif role == 'moderator':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
                 article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
                 if article_reviewer.exists():
-                    raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                    raise serializers.ValidationError(
+                        detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                 if reviewer.exists():
                     reviewer.delete()
                 Moderator.objects.create(user_id=user_id, community=instance)
@@ -775,9 +798,11 @@ class PromoteSerializer(serializers.ModelSerializer):
                 member.is_reviewer = False
                 member.is_admin = False
                 member.save()
-                send_mail(" you are moderator", f'You have been added as Moderator to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
-                UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as moderator')
-                
+                send_mail(" you are moderator", f'You have been added as Moderator to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as moderator')
+
             elif role == 'admin':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
                 if reviewer is not None:
@@ -789,44 +814,53 @@ class PromoteSerializer(serializers.ModelSerializer):
                 member.is_reviewer = False
                 member.is_admin = True
                 member.save()
-                send_mail("you are now admin", f'You have been added as Admin to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
-                UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as admin')
-                                
+                send_mail("you are now admin", f'You have been added as Admin to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as admin')
+
             elif role == 'member':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
                 if reviewer.exists():
                     reviewer.delete()
-                
+
                 moderator = Moderator.objects.filter(user_id=user_id, community=instance)
                 if moderator.exists():
                     moderator.delete()
-                    
+
                 member.is_reviewer = False
                 member.is_moderator = False
                 member.save()
-                send_mail(f'you are added to {instance.Community_name}',f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
-                UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name}')
-                    
+                send_mail(f'you are added to {instance.Community_name}',
+                          f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER,
+                          [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name}')
+
             else:
-                raise serializers.ValidationError(detail={"error": " wrong role. role can be 'reviewer','moderator','member'"}) 
-            
+                raise serializers.ValidationError(
+                    detail={"error": " wrong role. role can be 'reviewer','moderator','member'"})
+
         except IntegrityError as e:
-            raise serializers.ValidationError(detail={"error": f'{member.user.username} is already {role}'}) 
-        
+            raise serializers.ValidationError(detail={"error": f'{member.user.username} is already {role}'})
+
         return instance
-        
-        
+
+
 '''
 article serializers
 '''
+
+
 # The `ArticleSerializer` class is a serializer for the `Article` model that includes a `rating` field
 # calculated based on the average rating of related `CommentBase` objects.
 class ArticleSerializer(serializers.ModelSerializer):
     rating = serializers.SerializerMethodField()
+
     class Meta:
         model = Article
         fields = ['id', 'article_name', 'Public_date', 'rating', 'authors']
-    
+
     def get_rating(self, obj):
         """
         The function `get_rating` calculates the average rating of comments with the type 'review' for a
@@ -835,31 +869,29 @@ class ArticleSerializer(serializers.ModelSerializer):
         :param obj: The "obj" parameter is an object that represents an article
         :return: the average rating of comments that have a type of 'review' for a given article object.
         """
-        rating = CommentBase.objects.filter(article_id=obj.id,Type='review').aggregate(Avg('rating'))['rating__avg']
+        rating = CommentBase.objects.filter(article_id=obj.id, Type='review').aggregate(Avg('rating'))['rating__avg']
         return rating
 
 
 # The class ArticlePublishSelectionSerializer is a serializer class in Python that defines the fields
 # to be included when serializing an Article model object.
 class ArticlePublishSelectionSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Article
-        fields = ['id', 'published','status']
+        fields = ['id', 'published', 'status']
+
 
 # The above class is a serializer for the Article model that includes fields for the license,
 # published article file, published date, and DOI.
 class ArticlePostPublishSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Article
-        fields = ["license","published_article_file", "published_date", "doi"]
+        fields = ["license", "published_article_file", "published_date", "doi"]
 
 
 # The `ArticlelistSerializer` class is a serializer that serializes the `Article` model and includes
 # additional fields such as rating, isFavourite, favourites, authors, and unregistered_authors.
 class ArticlelistSerializer(serializers.ModelSerializer):
-
     rating = serializers.SerializerMethodField()
     isFavourite = serializers.SerializerMethodField()
     favourites = serializers.SerializerMethodField()
@@ -868,8 +900,9 @@ class ArticlelistSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Article
-        fields = ['id', 'article_name', 'Public_date','views', 'authors','rating', 'isFavourite', 'keywords', 'favourites', 'unregistered_authors']
-    
+        fields = ['id', 'article_name', 'Public_date', 'views', 'authors', 'rating', 'isFavourite', 'keywords',
+                  'favourites', 'unregistered_authors']
+
     def get_rating(self, obj):
         """
         The function `get_rating` calculates the average rating of comments with the type 'review' for a
@@ -878,9 +911,9 @@ class ArticlelistSerializer(serializers.ModelSerializer):
         :param obj: The "obj" parameter is an object that represents an article
         :return: the average rating of comments that have a type of 'review' for a given article object.
         """
-        rating = CommentBase.objects.filter(article_id=obj.id,Type='review').aggregate(Avg('rating'))['rating__avg']
+        rating = CommentBase.objects.filter(article_id=obj.id, Type='review').aggregate(Avg('rating'))['rating__avg']
         return rating
-    
+
     def get_favourites(self, obj):
         """
         The function `get_favourites` returns the count of favourites for a given article.
@@ -890,7 +923,7 @@ class ArticlelistSerializer(serializers.ModelSerializer):
         """
         favourites = Favourite.objects.filter(article_id=obj.id).count()
         return favourites
-    
+
     def get_isFavourite(self, obj):
         """
         The function `get_isFavourite` checks if a user is authenticated and if they have favorited a
@@ -902,11 +935,11 @@ class ArticlelistSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        elif (Favourite.objects.filter(article=obj.id,user=self.context['request'].user).count() > 0):
-            return True 
+        elif (Favourite.objects.filter(article=obj.id, user=self.context['request'].user).count() > 0):
+            return True
         else:
             return False
-    
+
     def get_authors(self, obj):
         """
         The function "get_authors" returns a list of usernames for all the authors associated with a
@@ -918,8 +951,8 @@ class ArticlelistSerializer(serializers.ModelSerializer):
         """
         authors = [user.username for user in obj.authors.all()]
         return authors
-    
-    def get_unregistered_authors(self,obj):
+
+    def get_unregistered_authors(self, obj):
         """
         The function "get_unregistered_authors" returns a list of dictionaries containing the full name
         and email of unregistered users associated with a given article.
@@ -930,15 +963,14 @@ class ArticlelistSerializer(serializers.ModelSerializer):
         the author.
         """
         unregistered = UnregisteredUser.objects.filter(article=obj.id)
-        authors = [{'fullName':user.fullName, 'email':user.email} for user in unregistered]
+        authors = [{'fullName': user.fullName, 'email': user.email} for user in unregistered]
         return authors
 
-        
 
 class ArticleGetSerializer(serializers.ModelSerializer):
     versions = serializers.SerializerMethodField()
     rating = serializers.SerializerMethodField()
-    isArticleReviewer = serializers.SerializerMethodField()           
+    isArticleReviewer = serializers.SerializerMethodField()
     isArticleModerator = serializers.SerializerMethodField()
     isFavourite = serializers.SerializerMethodField()
     isAuthor = serializers.SerializerMethodField()
@@ -952,10 +984,13 @@ class ArticleGetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Article
-        fields = ['id', 'article_name', 'article_file', 'Public_date', 'Code', 'Abstract','views','video','doi', 'published_article_file',
-                    'link', 'authors','rating','versions','isArticleReviewer','isArticleModerator','isAuthor','status',
-                    'isFavourite', 'userrating','commentcount', 'favourites','license','published_date', 'published','unregistered_authors' ]
-    
+        fields = ['id', 'article_name', 'article_file', 'Public_date', 'Code', 'Abstract', 'views', 'video', 'doi',
+                  'published_article_file',
+                  'link', 'authors', 'rating', 'versions', 'isArticleReviewer', 'isArticleModerator', 'isAuthor',
+                  'status',
+                  'isFavourite', 'userrating', 'commentcount', 'favourites', 'license', 'published_date', 'published',
+                  'unregistered_authors']
+
     def get_versions(self, obj):
         """
         The function `get_versions` returns serialized data of child articles based on whether the given
@@ -966,28 +1001,28 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         returns the serialized versions of the object. If the object has a parent article, it returns
         the serialized child articles that have the same parent article as the given object.
         """
-        
+
         if not obj.parent_article:
-            serialized_child_articles  = ArticleGetSerializer(obj.versions.all(), many=True)
+            serialized_child_articles = ArticleGetSerializer(obj.versions.all(), many=True)
             return serialized_child_articles.data
-        
+
         else:
             child_articles = Article.objects.exclude(id=obj.id).filter(parent_article=obj.parent_article)
-            serialized_child_articles  = ArticleGetSerializer(child_articles, many=True)
+            serialized_child_articles = ArticleGetSerializer(child_articles, many=True)
             return serialized_child_articles.data
-    
+
     def get_article_file(self, obj):
         if obj.article_file:
             url = obj.article_file.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
-    def get_published_article_file(self,obj):
+
+    def get_published_article_file(self, obj):
         if obj.published_article_file:
             url = obj.published_article_file.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_commentcount(self, obj):
         """
         The function `get_commentcount` returns the count of top-level comments for a given article.
@@ -995,9 +1030,9 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         :param obj: The `obj` parameter is an object that represents an article
         :return: the count of comments that meet the specified criteria.
         """
-        count = CommentBase.objects.filter(article_id=obj.id,parent_comment=None,version=None).count()
+        count = CommentBase.objects.filter(article_id=obj.id, parent_comment=None, version=None).count()
         return count
-    
+
     def get_favourites(self, obj):
         """
         The function `get_favourites` returns the count of favourites for a given article.
@@ -1007,7 +1042,7 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         favourites = Favourite.objects.filter(article_id=obj.id).count()
         return favourites
-    
+
     def get_rating(self, obj):
         """
         The function `get_rating` calculates the average rating of comments with the type 'review' for a
@@ -1016,7 +1051,7 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         :param obj: The `obj` parameter is an object that represents an article
         :return: the average rating of all the review comments associated with the given object.
         """
-        rating = CommentBase.objects.filter(article_id=obj.id,Type='review').aggregate(Avg('rating'))['rating__avg']
+        rating = CommentBase.objects.filter(article_id=obj.id, Type='review').aggregate(Avg('rating'))['rating__avg']
         return rating
 
     def get_isArticleReviewer(self, obj):
@@ -1029,11 +1064,12 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        if (ArticleReviewer.objects.filter(article=obj.id,officialreviewer__User_id=self.context['request'].user).count()>0):
+        if (ArticleReviewer.objects.filter(article=obj.id,
+                                           officialreviewer__User_id=self.context['request'].user).count() > 0):
             return True
         else:
             return False
-    
+
     def get_isArticleModerator(self, obj):
         """
         The function checks if the authenticated user is a moderator for a specific article.
@@ -1044,11 +1080,12 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        if(ArticleModerator.objects.filter(article=obj.id,moderator__user_id=self.context['request'].user).count()>0):
+        if (ArticleModerator.objects.filter(article=obj.id,
+                                            moderator__user_id=self.context['request'].user).count() > 0):
             return True
         else:
             return False
-    
+
     def get_isAuthor(self, obj):
         """
         The function checks if the authenticated user is the author of a given article.
@@ -1059,11 +1096,11 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        if(Author.objects.filter(article=obj.id,User=self.context['request'].user).count()>0):
+        if (Author.objects.filter(article=obj.id, User=self.context['request'].user).count() > 0):
             return True
         else:
             return False
-    
+
     def get_isFavourite(self, obj):
         """
         The function `get_isFavourite` checks if a user has favorited an article.
@@ -1074,11 +1111,11 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return False
-        if (Favourite.objects.filter(article=obj.id,user=self.context['request'].user).count() > 0):
-            return True 
+        if (Favourite.objects.filter(article=obj.id, user=self.context['request'].user).count() > 0):
+            return True
         else:
             return False
-    
+
     def get_userrating(self, obj):
         """
         The function "get_userrating" returns the rating given by the authenticated user for a specific
@@ -1091,11 +1128,11 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         """
         if self.context['request'].user.is_authenticated is False:
             return 0
-        rating = CommentBase.objects.filter(article_id=obj.id,Type='review',User=self.context['request'].user).first()
+        rating = CommentBase.objects.filter(article_id=obj.id, Type='review', User=self.context['request'].user).first()
         if rating is None:
             return 0
         return f'{rating.rating}'
-    
+
     def get_authors(self, obj):
         """
         The function "get_authors" returns a list of usernames for all the authors associated with a
@@ -1108,7 +1145,7 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         authors = [user.username for user in obj.authors.all()]
         return authors
 
-    def get_unregistered_authors(self,obj):
+    def get_unregistered_authors(self, obj):
         """
         The function "get_unregistered_authors" returns a list of dictionaries containing the full name
         and email of unregistered users associated with a given article.
@@ -1120,13 +1157,15 @@ class ArticleGetSerializer(serializers.ModelSerializer):
         the author.
         """
         unregistered = UnregisteredUser.objects.filter(article=obj.id)
-        authors = [{'fullName':user.fullName} for user in unregistered]
+        authors = [{'fullName': user.fullName} for user in unregistered]
         return authors
+
 
 # The `ArticleBlockUserSerializer` class is a serializer that allows users to be added to the
 # `blocked_users` field of an `Article` instance.
 class ArticleBlockUserSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = Article
         fields = ["id", "article_name", "blocked_users", 'user_id']
@@ -1149,7 +1188,7 @@ class ArticleBlockUserSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
-        
+
 
 # The `ArticleViewsSerializer` class is a serializer for the `Article` model that includes the `views`
 # field.
@@ -1158,21 +1197,22 @@ class ArticleViewsSerializer(serializers.ModelSerializer):
         model = Article
         fields = ['views']
 
+
 # The `StatusSerializer` class is a serializer for the `Article` model that includes the `id` and
 # `status` fields.
 class StatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = Article
-        fields = ['id','status']
+        fields = ['id', 'status']
+
 
 # The class `ArticleUpdateSerializer` is a serializer for updating an `Article` model and includes
 # fields for `article_file`, `Code`, `Abstract`, `video`, `link`, and `status`.
 class ArticleUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Article
-        fields = ['article_file','Code','Abstract','video', 'link','status']
-        
-       
+        fields = ['article_file', 'Code', 'Abstract', 'video', 'link', 'status']
+
 
 class ArticleCreateSerializer(serializers.ModelSerializer):
     authors = serializers.ListField(child=serializers.IntegerField(), write_only=True)
@@ -1181,7 +1221,8 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Article
-        fields = ['id', 'article_name','keywords', 'article_file', 'Code', 'Abstract', 'authors','video','link', 'parent_article', 'communities','unregistered_authors']
+        fields = ['id', 'article_name', 'keywords', 'article_file', 'Code', 'Abstract', 'authors', 'video', 'link',
+                  'parent_article', 'communities', 'unregistered_authors']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -1204,33 +1245,38 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
             unregistered_authors.pop(0);
             name = validated_data.pop('article_name')
             keywords = validated_data.pop('keywords')
-            keywords.replace(' ','_')
-            validated_data['article_name'] = name.replace(' ','_')
+            keywords.replace(' ', '_')
+            validated_data['article_name'] = name.replace(' ', '_')
             validated_data['keywords'] = keywords
-            instance = self.Meta.model.objects.create(**validated_data,id=uuid.uuid4().hex)
+            instance = self.Meta.model.objects.create(**validated_data, id=uuid.uuid4().hex)
             Author.objects.create(User=self.context['request'].user, article=instance)
             authorstr = ""
-            authorstr+= self.context['request'].user.first_name + '_' + self.context['request'].user.last_name + "_"+ self.context['request'].user.username + "||"
-            if len(unregistered_authors)!=0:
+            authorstr += self.context['request'].user.first_name + '_' + self.context['request'].user.last_name + "_" + \
+                         self.context['request'].user.username + "||"
+            if len(unregistered_authors) != 0:
                 with transaction.atomic():
                     for author in unregistered_authors:
                         data = json.loads(author)
                         user = User.objects.filter(email=data["email"]).first()
                         if user is not None:
                             Author.objects.create(User=user, article=instance)
-                            authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
+                            authorstr += author.User.first_name + '_' + author.User.last_name + "_" + author.username + "||"
                         else:
-                            UnregisteredUser.objects.create(email=data["email"],article = instance, fullName=data["fullName"])
+                            UnregisteredUser.objects.create(email=data["email"], article=instance,
+                                                            fullName=data["fullName"])
                             authorstr += data["fullName"] + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
-        
-            if len(authors)!=0:
+                        send_mail("Article added", f"You have added an article {instance.article_name} to SciCommons",
+                                  settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
+
+            if len(authors) != 0:
                 with transaction.atomic():
                     for author in authors:
                         author = Author.objects.create(User_id=author, article=instance)
-                        authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
-                        UserActivity.objects.create(user=self.context['request'].user, action=f'you added article {instance.article_name}')
+                        authorstr += author.User.first_name + '_' + author.User.last_name + "_" + author.username + "||"
+                        send_mail("Article added", f"You have added an article {instance.article_name} to SciCommons",
+                                  settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
+                        UserActivity.objects.create(user=self.context['request'].user,
+                                                    action=f'you added article {instance.article_name}')
             instance.authorstring = authorstr
             if len(communities) > 0 and instance.link is not None:
                 raise serializers.ValidationError(detail={"error": "you can not submit external article"})
@@ -1238,13 +1284,16 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
             if len(communities) > 0:
                 with transaction.atomic():
                     for community in communities:
-                        community_meta = CommunityMeta.objects.create(community_id=community, article=instance, status='submitted')
+                        community_meta = CommunityMeta.objects.create(community_id=community, article=instance,
+                                                                      status='submitted')
                         community_meta.save()
-                        
+
                         community = Community.objects.filter(id=community).first()
 
-                        emails = [member.user.email for member in CommunityMember.objects.filter(community_id=community)]
-                        send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                        emails = [member.user.email for member in
+                                  CommunityMember.objects.filter(community_id=community)]
+                        send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}',
+                                  settings.EMAIL_HOST_USER, emails, fail_silently=False)
             instance.save()
             return instance
         else:
@@ -1255,58 +1304,66 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
             unregistered_authors.pop(0)
             name = validated_data.pop('article_name')
             keywords = validated_data.pop('keywords')
-            keywords.replace(' ','_')
-            validated_data['article_name'] = name.replace(' ','_')
+            keywords.replace(' ', '_')
+            validated_data['article_name'] = name.replace(' ', '_')
             validated_data['keywords'] = keywords
-            instance = self.Meta.model.objects.create(**validated_data,id=uuid.uuid4().hex)
+            instance = self.Meta.model.objects.create(**validated_data, id=uuid.uuid4().hex)
             Author.objects.create(User=self.context['request'].user, article=instance)
             authorstr = ""
-            authorstr+= self.context['request'].user.first_name + '_' + self.context['request'].user.last_name + "_"+ self.context['request'].user.username + "||"
-            if len(unregistered_authors)!=0:
+            authorstr += self.context['request'].user.first_name + '_' + self.context['request'].user.last_name + "_" + \
+                         self.context['request'].user.username + "||"
+            if len(unregistered_authors) != 0:
                 with transaction.atomic():
                     for author in unregistered_authors:
                         data = json.loads(author)
                         user = User.objects.filter(email=data["email"]).first()
                         if user is not None:
                             Author.objects.create(User=user, article=instance)
-                            authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
+                            authorstr += author.User.first_name + '_' + author.User.last_name + "_" + author.username + "||"
                         else:
-                            UnregisteredUser.objects.create(email=data["email"],article = instance, fullName=data["fullName"])
+                            UnregisteredUser.objects.create(email=data["email"], article=instance,
+                                                            fullName=data["fullName"])
                             authorstr += data["fullName"] + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
-        
-            if len(authors)!=0:
+                        send_mail("Article added", f"You have added an article {instance.article_name} to SciCommons",
+                                  settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
+
+            if len(authors) != 0:
                 with transaction.atomic():
                     for author in authors:
                         author = Author.objects.create(User_id=author, article=instance)
-                        authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
-                        UserActivity.objects.create(user=self.context['request'].user, action=f'you added article {instance.article_name}')
+                        authorstr += author.User.first_name + '_' + author.User.last_name + "_" + author.username + "||"
+                        send_mail("Article added", f"You have added an article {instance.article_name} to SciCommons",
+                                  settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
+                        UserActivity.objects.create(user=self.context['request'].user,
+                                                    action=f'you added article {instance.article_name}')
             instance.authorstring = authorstr
             communities = [community for community in parentinstance.communities]
             instance.communities.set(communities)
             instance.parent_article = parent_article
-            
+
             with transaction.atomic():
                 for community in communities:
-                    community_meta = CommunityMeta.objects.create(community_id=community, article=instance, status='submitted')
+                    community_meta = CommunityMeta.objects.create(community_id=community, article=instance,
+                                                                  status='submitted')
                     community_meta.save()
-                    
+
                     community = Community.objects.get(id=community)
 
                     emails = [member.user.email for member in CommunityMember.objects.filter(community=community)]
-                    send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                    send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}',
+                              settings.EMAIL_HOST_USER, emails, fail_silently=False)
             instance.save()
             return instance
-            
-    
+
+
 class SubmitArticleSerializer(serializers.Serializer):
     communities = serializers.ListField(child=serializers.CharField(), write_only=True)
     meta_id = serializers.ListField(child=serializers.CharField(), read_only=True)
     article_id = serializers.CharField()
+
     class Meta:
-        fields = ['article_id','communities', 'meta_id']
-        
+        fields = ['article_id', 'communities', 'meta_id']
+
     def create(self, validated_data):
         """
         The `create` function creates a CommunityMeta object for an Article, checks for various
@@ -1320,37 +1377,42 @@ class SubmitArticleSerializer(serializers.Serializer):
 
         communities = validated_data.get('communities', [])
         instance = Article.objects.filter(id=validated_data['article_id']).first()
-        
+
         if CommunityMeta.objects.filter(article=instance).first():
             raise serializers.ValidationError(detail={"error": "article already submitted"})
 
         authors = Author.objects.filter(article=instance)
-        
+
         meta_id = []
-        if len(communities)==0:
+        if len(communities) == 0:
             raise serializers.ValidationError(detail={"error": "communities can't be empty or None"})
-        
+
         if len(instance.link):
             raise serializers.ValidationError(detail={"error": "you can not submit external article"})
-        
+
         with transaction.atomic():
             for community in communities:
-                admin_users = CommunityMember.objects.filter(community_id=community, is_admin=True).values_list('user_id', flat=True)
+                admin_users = CommunityMember.objects.filter(community_id=community, is_admin=True).values_list(
+                    'user_id', flat=True)
                 author_users = authors.values_list('User_id', flat=True)
                 intersection_users = set(admin_users) & set(author_users)
                 if len(intersection_users) > 0:
-                    raise serializers.ValidationError(detail={"error": "you can not submit article to community where you are admin!!!"})
-                
-                community_meta = CommunityMeta.objects.create(community_id=community, article=instance, status='submitted')
+                    raise serializers.ValidationError(
+                        detail={"error": "you can not submit article to community where you are admin!!!"})
+
+                community_meta = CommunityMeta.objects.create(community_id=community, article=instance,
+                                                              status='submitted')
                 community_meta.save()
-                
+
                 community = Community.objects.get(id=community)
 
                 emails = [member.user.email for member in CommunityMember.objects.filter(community=community)]
-                send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}',
+                          settings.EMAIL_HOST_USER, emails, fail_silently=False)
                 meta_id.append(community_meta.id)
-        
-        return {"meta_id":meta_id}
+
+        return {"meta_id": meta_id}
+
 
 class InReviewSerializer(serializers.Serializer):
     reviewers = serializers.ListField(
@@ -1361,12 +1423,11 @@ class InReviewSerializer(serializers.Serializer):
         child=serializers.IntegerField(),
         read_only=True
     )
-    
+
     class Meta:
         fields = ['status', 'community', 'reviewers', 'moderator']
 
-        
-    def update(self, instance ,validated_data):
+    def update(self, instance, validated_data):
         """
         The `update` function updates the status of an article, assigns reviewers and moderators to the
         article, and sends email notifications to the assigned reviewers and moderators.
@@ -1385,28 +1446,31 @@ class InReviewSerializer(serializers.Serializer):
         community_data = request.data.get('community')
         community_meta = CommunityMeta.objects.filter(community_id=community_data, article=instance).first()
         if community_meta is None:
-            raise serializers.ValidationError(detail={"error":f'article is not submitted for review {community_meta.community.Community_name}'})
-        elif community_meta.status== "in review":
-            raise serializers.ValidationError(detail={"error":f'article is already submitted for review'})
-        elif community_meta.status == "accepted" or community_meta.status=="rejected":
+            raise serializers.ValidationError(
+                detail={"error": f'article is not submitted for review {community_meta.community.Community_name}'})
+        elif community_meta.status == "in review":
+            raise serializers.ValidationError(detail={"error": f'article is already submitted for review'})
+        elif community_meta.status == "accepted" or community_meta.status == "rejected":
             raise serializers.ValidationError(detail={"error": "article is already processed in this community"})
-        
+
         authors = [User.id for User in Author.objects.filter(article=instance)]
-        reviewers_arr = [reviewer for reviewer in OfficialReviewer.objects.filter(community_id = community_data).exclude(User__in=authors)]
-        moderators_arr = [moderator for moderator in Moderator.objects.filter(community_id = community_data).exclude(user__in=authors)]
+        reviewers_arr = [reviewer for reviewer in
+                         OfficialReviewer.objects.filter(community_id=community_data).exclude(User__in=authors)]
+        moderators_arr = [moderator for moderator in
+                          Moderator.objects.filter(community_id=community_data).exclude(user__in=authors)]
 
-        if len(reviewers_arr)<3:
-            raise serializers.ValidationError(detail={"error":"Insufficient reviewers on Community"})
+        if len(reviewers_arr) < 3:
+            raise serializers.ValidationError(detail={"error": "Insufficient reviewers on Community"})
 
-        if len(moderators_arr)==0:
-            raise serializers.ValidationError(detail={"error":"No Moderators on Community"})
+        if len(moderators_arr) == 0:
+            raise serializers.ValidationError(detail={"error": "No Moderators on Community"})
 
-        if len(reviewers_arr)>=3:
+        if len(reviewers_arr) >= 3:
             reviewers_arr = random.sample(reviewers_arr, 3)
 
-        if len(moderators_arr)>=1:
+        if len(moderators_arr) >= 1:
             moderators_arr = random.sample(moderators_arr, 1)
-        
+
         community_meta.status = 'in review'
         community_meta.save()
 
@@ -1414,18 +1478,23 @@ class InReviewSerializer(serializers.Serializer):
         instance.moderator.add(*[moderator.id for moderator in moderators_arr])
 
         emails = [member.User.email for member in reviewers_arr]
-        send_mail("New Article Alerts",f'You have been added as an Official Reviewer to {instance.article_name} on {community_meta.community.Community_name}', settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        send_mail("New Article Alerts",
+                  f'You have been added as an Official Reviewer to {instance.article_name} on {community_meta.community.Community_name}',
+                  settings.EMAIL_HOST_USER, emails, fail_silently=False)
 
         emails = [member.user.email for member in moderators_arr]
-        send_mail("New Article Alerts", f'You have been added as a Moderator to {instance.article_name} on {community_meta.community.Community_name}', settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        send_mail("New Article Alerts",
+                  f'You have been added as a Moderator to {instance.article_name} on {community_meta.community.Community_name}',
+                  settings.EMAIL_HOST_USER, emails, fail_silently=False)
 
-        return {"status":community_meta.status, 'reviewers':instance.reviewer, 'moderator':instance.moderator}
+        return {"status": community_meta.status, 'reviewers': instance.reviewer, 'moderator': instance.moderator}
 
 
 class ApproveSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     community = serializers.SerializerMethodField()
-    article = serializers.SerializerMethodField(read_only=True)    
+    article = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         fields = ['status', 'community', 'article']
 
@@ -1444,20 +1513,25 @@ class ApproveSerializer(serializers.Serializer):
         request = self.context.get('request')
         community_data = request.data.get('community')
         communitymeta = CommunityMeta.objects.filter(article_id=instance.id,
-                                                community_id=community_data,
-                                                article=instance).first()
+                                                     community_id=community_data,
+                                                     article=instance).first()
         communitymeta.status = 'accepted'
         communitymeta.save()
         emails = [member.email for member in instance.authors.all()]
-        send_mail(f"Article is approved", f"Your article: {instance.article_name} is approved by {communitymeta.community.Community_name}", settings.EMAIL_HOST_USER , emails, fail_silently=False)
-        UserActivity.objects.create(user=self.context['request'].user, action=f'you have approved the {instance.article_name} to {communitymeta.community.Community_name}')
+        send_mail(f"Article is approved",
+                  f"Your article: {instance.article_name} is approved by {communitymeta.community.Community_name}",
+                  settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f'you have approved the {instance.article_name} to {communitymeta.community.Community_name}')
 
         return communitymeta
+
 
 class RejectSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
     community = serializers.SerializerMethodField()
-    article = serializers.SerializerMethodField(read_only=True)    
+    article = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         fields = ['status', 'community', 'article']
 
@@ -1475,19 +1549,25 @@ class RejectSerializer(serializers.Serializer):
         request = self.context.get('request')
         community_data = request.data.get('community')
         communitymeta = CommunityMeta.objects.filter(article_id=instance.id,
-                                                community_id=community_data,
-                                                article=instance).first()
+                                                     community_id=community_data,
+                                                     article=instance).first()
         communitymeta.status = 'rejected'
         communitymeta.save()
         emails = [member.email for member in instance.authors.all()]
-        send_mail(f"Article is rejected", f"Your article: {instance.article_name} is rejected by {communitymeta.community.Community_name}", settings.EMAIL_HOST_USER , emails, fail_silently=False)
-        UserActivity.objects.create(user=self.context['request'].user, action=f'you have rejected the {instance.article_name} to {communitymeta.community.Community_name}')
+        send_mail(f"Article is rejected",
+                  f"Your article: {instance.article_name} is rejected by {communitymeta.community.Community_name}",
+                  settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f'you have rejected the {instance.article_name} to {communitymeta.community.Community_name}')
 
         return communitymeta
+
 
 '''
 comments serializers
 '''
+
+
 class CommentlistSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField(read_only=True)
     rank = serializers.SerializerMethodField(read_only=True)
@@ -1501,10 +1581,10 @@ class CommentlistSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CommentBase
-        fields = ['id', 'article', 'Comment', 'Title','Type','rating','confidence', 'replies','role','blocked',
-                        'tag','comment_type', 'user','Comment_date', 'commentrating', 'versions',
-                    'parent_comment','rank','personal','userrating']
-        
+        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'rating', 'confidence', 'replies', 'role', 'blocked',
+                  'tag', 'comment_type', 'user', 'Comment_date', 'commentrating', 'versions',
+                  'parent_comment', 'rank', 'personal', 'userrating']
+
     def get_user(self, obj):
         """
         The function `get_user` returns the handle name of a user based on the given object.
@@ -1513,7 +1593,7 @@ class CommentlistSerializer(serializers.ModelSerializer):
         :return: The handle_name of the first HandlersBase object that matches the User and article of
         the given obj.
         """
-        handle = HandlersBase.objects.filter(User=obj.User,article=obj.article).first()
+        handle = HandlersBase.objects.filter(User=obj.User, article=obj.article).first()
         return handle.handle_name
 
     def get_rank(self, obj):
@@ -1525,147 +1605,7 @@ class CommentlistSerializer(serializers.ModelSerializer):
         """
         rank = Rank.objects.filter(user=obj.User).first()
         return f'{int(rank.rank)}'
-    
-    def get_personal(self, obj): 
-        """
-        The function checks if the authenticated user is the same as the user associated with the
-        object.
-        
-        :param obj: The `obj` parameter is an object that represents a user
-        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
-        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
-        it returns False.
-        """
-        if self.context['request'].user.is_authenticated is False:
-            return False
-        if obj.User == self.context['request'].user:
-            return True
-        else:
-            return False
-    
-    def get_role(self,obj):
-        """
-        The function `get_role` determines the role of a user based on their ID and the objects
-        associated with them.
-        
-        :param obj: The `obj` parameter is an object that represents a user. It is used to determine the
-        role of the user in relation to an article
-        :return: a string indicating the role of the user. The possible return values are "author",
-        "reviewer", "moderator", or "none".
-        """
-        if obj.User_id in [author.User_id for author in Author.objects.filter(article=obj.article)]:
-            return "author"
-        elif (OfficialReviewer.objects.filter(User_id=obj.User_id).first() is not None) and (OfficialReviewer.objects.filter(User_id=obj.User_id).first().id in [reviewer.officialreviewer_id for reviewer in ArticleReviewer.objects.filter(article=obj.article)]):
-            return "reviewer"
-        elif (Moderator.objects.filter(user_id=obj.User_id).first() is not None) and (Moderator.objects.filter(user_id=obj.User_id).first().id in [member.moderator_id for member in ArticleModerator.objects.filter(article=obj.article)]):
-            return "moderator"
-        else:
-            return "none"
-    
-    def get_blocked(self,obj):
-        """
-        The function checks if a user is blocked from accessing an article.
-        
-        :param obj: The `obj` parameter is an object that represents an article
-        :return: a boolean value. If the user ID of the given object is found in the list of user IDs of
-        blocked users for the corresponding article, then it returns True. Otherwise, it returns False.
-        """
-        if obj.User_id in [user.user_id for user in ArticleBlockedUser.objects.filter(article=obj.article)]:
-            return True
-        else:
-            return False
-    
-    def get_replies(self,obj):
-        """
-        The function `get_replies` returns the number of replies to a given comment object.
-        
-        :param obj: The `obj` parameter is an object of the `CommentBase` model
-        :return: The number of CommentBase objects that have a parent_comment equal to the given obj.
-        """
-        member = CommentBase.objects.filter(parent_comment=obj).count()
-        return member
-    
-    def get_commentrating(self,obj):
-        """
-        The function `get_commentrating` calculates the total rating of a post based on the sum of the
-        values of all the likes associated with that post.
-        
-        :param obj: The "obj" parameter in the "get_commentrating" function is referring to the object
-        for which you want to calculate the rating. It could be a post, comment, or any other object for
-        which you have defined a rating system
-        :return: the sum of the values of all the likes associated with the given post object.
-        """
-        rating = LikeBase.objects.filter(post=obj).aggregate(Sum('value'))['value__sum']
-        return rating
 
-    def get_userrating(self,obj):
-        """
-        The function `get_userrating` returns the rating value of a user for a given object, or 0 if the
-        user is not authenticated or has not rated the object.
-        
-        :param obj: The `obj` parameter is referring to a post object
-        :return: the user's rating for a given object. If the user is not authenticated, it returns 0.
-        If the user is authenticated, it checks if the user has a rating for the object. If the user has
-        a rating, it returns the rating value. If the user does not have a rating, it returns 0.
-        """
-        if self.context['request'].user.is_authenticated is False:
-            return 0
-        member = LikeBase.objects.filter(user=self.context['request'].user, post=obj).first()
-        if member is not None:
-            return member.value
-        else:
-            return 0
-    
-    def get_versions(self, obj):
-        """
-        The function "get_versions" retrieves the versions of a given object and returns the serialized
-        data of the associated comments.
-        
-        :param obj: The `obj` parameter is an object that represents a version. It is used to filter the
-        `CommentBase` objects based on the version
-        :return: the serialized data of the comments that match the given version.
-        """
-        comment = CommentBase.objects.filter(version=obj)
-        serializer = CommentSerializer(comment,many=True, context={'request': self.context['request']})
-        return serializer.data
-
-class CommentSerializer(serializers.ModelSerializer):
-    user = serializers.SerializerMethodField(read_only=True)
-    rank = serializers.SerializerMethodField(read_only=True)
-    personal = serializers.SerializerMethodField(read_only=True)
-    userrating = serializers.SerializerMethodField(read_only=True)
-    commentrating = serializers.SerializerMethodField(read_only=True)
-    replies = serializers.SerializerMethodField(read_only=True)
-    versions = serializers.SerializerMethodField(read_only=True)
-    role = serializers.SerializerMethodField(read_only=True)
-    blocked = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = CommentBase
-        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag','comment_type', 'user','Comment_date', 'versions', 'role', 'blocked',
-                    'parent_comment','rank','personal', 'replies', 'rating','confidence','version','commentrating','userrating']
-        
-    def get_user(self, obj):
-        """
-        The function `get_user` returns the handle name of a user based on the given object.
-        
-        :param obj: The `obj` parameter is an object that contains the following attributes:
-        :return: The handle_name of the first HandlersBase object that matches the User and article of
-        the given obj.
-        """
-        handle = HandlersBase.objects.filter(User=obj.User,article=obj.article).first()
-        return handle.handle_name
-
-    def get_rank(self, obj):
-        """
-        The function retrieves the rank of a user and returns it as a string.
-        
-        :param obj: The `obj` parameter is an object that represents a user
-        :return: The code is returning the rank of the user as a string.
-        """
-        rank = Rank.objects.filter(user=obj.User).first()
-        return f'{int(rank.rank)}'
-    
     def get_personal(self, obj):
         """
         The function checks if the authenticated user is the same as the user associated with the
@@ -1682,21 +1622,8 @@ class CommentSerializer(serializers.ModelSerializer):
             return True
         else:
             return False
-        
-    def get_blocked(self,obj):
-        """
-        The function checks if a user is blocked from accessing an article.
-        
-        :param obj: The `obj` parameter is an object that represents an article
-        :return: a boolean value. If the user ID of the given object is found in the list of user IDs of
-        blocked users for the corresponding article, then it returns True. Otherwise, it returns False.
-        """
-        if obj.User_id in [user.user_id for user in ArticleBlockedUser.objects.filter(article=obj.article)]:
-            return True
-        else:
-            return False
-    
-    def get_role(self,obj):
+
+    def get_role(self, obj):
         """
         The function `get_role` determines the role of a user based on their ID and the objects
         associated with them.
@@ -1708,14 +1635,34 @@ class CommentSerializer(serializers.ModelSerializer):
         """
         if obj.User_id in [author.User_id for author in Author.objects.filter(article=obj.article)]:
             return "author"
-        elif (OfficialReviewer.objects.filter(User_id=obj.User_id).first() is not None) and (OfficialReviewer.objects.filter(User_id=obj.User_id).first().id in [reviewer.officialreviewer_id for reviewer in ArticleReviewer.objects.filter(article=obj.article)]):
+        elif (OfficialReviewer.objects.filter(User_id=obj.User_id).first() is not None) and (
+                OfficialReviewer.objects.filter(User_id=obj.User_id).first().id in [reviewer.officialreviewer_id for
+                                                                                    reviewer in
+                                                                                    ArticleReviewer.objects.filter(
+                                                                                        article=obj.article)]):
             return "reviewer"
-        elif (Moderator.objects.filter(user_id=obj.User_id).first() is not None) and (Moderator.objects.filter(user_id=obj.User_id).first().id in [member.moderator_id for member in ArticleModerator.objects.filter(article=obj.article)]):
+        elif (Moderator.objects.filter(user_id=obj.User_id).first() is not None) and (
+                Moderator.objects.filter(user_id=obj.User_id).first().id in [member.moderator_id for member in
+                                                                             ArticleModerator.objects.filter(
+                                                                                 article=obj.article)]):
             return "moderator"
         else:
             return "none"
+
+    def get_blocked(self, obj):
+        """
+        The function checks if a user is blocked from accessing an article.
         
-    def get_replies(self,obj):
+        :param obj: The `obj` parameter is an object that represents an article
+        :return: a boolean value. If the user ID of the given object is found in the list of user IDs of
+        blocked users for the corresponding article, then it returns True. Otherwise, it returns False.
+        """
+        if obj.User_id in [user.user_id for user in ArticleBlockedUser.objects.filter(article=obj.article)]:
+            return True
+        else:
+            return False
+
+    def get_replies(self, obj):
         """
         The function `get_replies` returns the number of replies to a given comment object.
         
@@ -1724,20 +1671,21 @@ class CommentSerializer(serializers.ModelSerializer):
         """
         member = CommentBase.objects.filter(parent_comment=obj).count()
         return member
-    
-    def get_commentrating(self,obj):
+
+    def get_commentrating(self, obj):
         """
         The function `get_commentrating` calculates the total rating of a post based on the sum of the
         values of all the likes associated with that post.
         
-        :param obj: The "obj" parameter in the "get_commentrating" function is referring to the post
-        object for which you want to calculate the rating
+        :param obj: The "obj" parameter in the "get_commentrating" function is referring to the object
+        for which you want to calculate the rating. It could be a post, comment, or any other object for
+        which you have defined a rating system
         :return: the sum of the values of all the likes associated with the given post object.
         """
         rating = LikeBase.objects.filter(post=obj).aggregate(Sum('value'))['value__sum']
         return rating
 
-    def get_userrating(self,obj):
+    def get_userrating(self, obj):
         """
         The function `get_userrating` returns the rating value of a user for a given object, or 0 if the
         user is not authenticated or has not rated the object.
@@ -1754,7 +1702,156 @@ class CommentSerializer(serializers.ModelSerializer):
             return member.value
         else:
             return 0
-    
+
+    def get_versions(self, obj):
+        """
+        The function "get_versions" retrieves the versions of a given object and returns the serialized
+        data of the associated comments.
+        
+        :param obj: The `obj` parameter is an object that represents a version. It is used to filter the
+        `CommentBase` objects based on the version
+        :return: the serialized data of the comments that match the given version.
+        """
+        comment = CommentBase.objects.filter(version=obj)
+        serializer = CommentSerializer(comment, many=True, context={'request': self.context['request']})
+        return serializer.data
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField(read_only=True)
+    rank = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+    userrating = serializers.SerializerMethodField(read_only=True)
+    commentrating = serializers.SerializerMethodField(read_only=True)
+    replies = serializers.SerializerMethodField(read_only=True)
+    versions = serializers.SerializerMethodField(read_only=True)
+    role = serializers.SerializerMethodField(read_only=True)
+    blocked = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CommentBase
+        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag', 'comment_type', 'user', 'Comment_date',
+                  'versions', 'role', 'blocked',
+                  'parent_comment', 'rank', 'personal', 'replies', 'rating', 'confidence', 'version', 'commentrating',
+                  'userrating']
+
+    def get_user(self, obj):
+        """
+        The function `get_user` returns the handle name of a user based on the given object.
+        
+        :param obj: The `obj` parameter is an object that contains the following attributes:
+        :return: The handle_name of the first HandlersBase object that matches the User and article of
+        the given obj.
+        """
+        handle = HandlersBase.objects.filter(User=obj.User, article=obj.article).first()
+        return handle.handle_name
+
+    def get_rank(self, obj):
+        """
+        The function retrieves the rank of a user and returns it as a string.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: The code is returning the rank of the user as a string.
+        """
+        rank = Rank.objects.filter(user=obj.User).first()
+        return f'{int(rank.rank)}'
+
+    def get_personal(self, obj):
+        """
+        The function checks if the authenticated user is the same as the user associated with the
+        object.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
+        it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.User == self.context['request'].user:
+            return True
+        else:
+            return False
+
+    def get_blocked(self, obj):
+        """
+        The function checks if a user is blocked from accessing an article.
+        
+        :param obj: The `obj` parameter is an object that represents an article
+        :return: a boolean value. If the user ID of the given object is found in the list of user IDs of
+        blocked users for the corresponding article, then it returns True. Otherwise, it returns False.
+        """
+        if obj.User_id in [user.user_id for user in ArticleBlockedUser.objects.filter(article=obj.article)]:
+            return True
+        else:
+            return False
+
+    def get_role(self, obj):
+        """
+        The function `get_role` determines the role of a user based on their ID and the objects
+        associated with them.
+        
+        :param obj: The `obj` parameter is an object that represents a user. It is used to determine the
+        role of the user in relation to an article
+        :return: a string indicating the role of the user. The possible return values are "author",
+        "reviewer", "moderator", or "none".
+        """
+        if obj.User_id in [author.User_id for author in Author.objects.filter(article=obj.article)]:
+            return "author"
+        elif (OfficialReviewer.objects.filter(User_id=obj.User_id).first() is not None) and (
+                OfficialReviewer.objects.filter(User_id=obj.User_id).first().id in [reviewer.officialreviewer_id for
+                                                                                    reviewer in
+                                                                                    ArticleReviewer.objects.filter(
+                                                                                        article=obj.article)]):
+            return "reviewer"
+        elif (Moderator.objects.filter(user_id=obj.User_id).first() is not None) and (
+                Moderator.objects.filter(user_id=obj.User_id).first().id in [member.moderator_id for member in
+                                                                             ArticleModerator.objects.filter(
+                                                                                 article=obj.article)]):
+            return "moderator"
+        else:
+            return "none"
+
+    def get_replies(self, obj):
+        """
+        The function `get_replies` returns the number of replies to a given comment object.
+        
+        :param obj: The `obj` parameter is an object of the `CommentBase` model
+        :return: The number of CommentBase objects that have a parent_comment equal to the given obj.
+        """
+        member = CommentBase.objects.filter(parent_comment=obj).count()
+        return member
+
+    def get_commentrating(self, obj):
+        """
+        The function `get_commentrating` calculates the total rating of a post based on the sum of the
+        values of all the likes associated with that post.
+        
+        :param obj: The "obj" parameter in the "get_commentrating" function is referring to the post
+        object for which you want to calculate the rating
+        :return: the sum of the values of all the likes associated with the given post object.
+        """
+        rating = LikeBase.objects.filter(post=obj).aggregate(Sum('value'))['value__sum']
+        return rating
+
+    def get_userrating(self, obj):
+        """
+        The function `get_userrating` returns the rating value of a user for a given object, or 0 if the
+        user is not authenticated or has not rated the object.
+        
+        :param obj: The `obj` parameter is referring to a post object
+        :return: the user's rating for a given object. If the user is not authenticated, it returns 0.
+        If the user is authenticated, it checks if the user has a rating for the object. If the user has
+        a rating, it returns the rating value. If the user does not have a rating, it returns 0.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return 0
+        member = LikeBase.objects.filter(user=self.context['request'].user, post=obj).first()
+        if member is not None:
+            return member.value
+        else:
+            return 0
+
     def get_versions(self, obj):
         """
         The function `get_versions` retrieves the versions of a given object and returns the serialized
@@ -1765,15 +1862,15 @@ class CommentSerializer(serializers.ModelSerializer):
         :return: the serialized data of the comments that match the given version.
         """
         comment = CommentBase.objects.filter(version=obj)
-        serializer = CommentSerializer(comment,many=True, context={"request": self.context['request']})
+        serializer = CommentSerializer(comment, many=True, context={"request": self.context['request']})
         return serializer.data
 
 
 class CommentCreateSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = CommentBase
-        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag','comment_type','parent_comment','rating','confidence','version']
+        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag', 'comment_type', 'parent_comment', 'rating',
+                  'confidence', 'version']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -1786,59 +1883,77 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         submitted in the request and has been validated by the serializer
         :return: The `instance` object is being returned.
         """
-        authors = [author for author in Author.objects.filter(article=validated_data["article"],User=self.context["request"].user)]
-        reviewers_arr = [reviewer for reviewer in ArticleReviewer.objects.filter(article=validated_data["article"],officialreviewer__User = self.context["request"].user)]
-        moderators_arr = [moderator for moderator in ArticleModerator.objects.filter(article=validated_data["article"],moderator__user = self.context["request"].user)]
+        authors = [author for author in
+                   Author.objects.filter(article=validated_data["article"], User=self.context["request"].user)]
+        reviewers_arr = [reviewer for reviewer in ArticleReviewer.objects.filter(article=validated_data["article"],
+                                                                                 officialreviewer__User=self.context[
+                                                                                     "request"].user)]
+        moderators_arr = [moderator for moderator in ArticleModerator.objects.filter(article=validated_data["article"],
+                                                                                     moderator__user=self.context[
+                                                                                         "request"].user)]
 
-        if len(authors)> 0 or len(reviewers_arr)>0 or len(moderators_arr)>0:
+        if len(authors) > 0 or len(reviewers_arr) > 0 or len(moderators_arr) > 0:
             validated_data["comment_type"] = "OfficialComment"
         else:
             validated_data["comment_type"] = "PublicComment"
-        instance = self.Meta.model.objects.create(**validated_data,User=self.context["request"].user)
+        instance = self.Meta.model.objects.create(**validated_data, User=self.context["request"].user)
         instance.save()
-        
+
         handler = HandlersBase.objects.filter(User=instance.User, article=instance.article).first()
-        
-        if not handler: 
+
+        if not handler:
             handler = HandlersBase.objects.create(User=instance.User, article=instance.article, handle_name=fake.name())
             handler.save()
-        
+
         handler = HandlersBase.objects.filter(User=instance.User, article=instance.article).first()
 
         if validated_data["parent_comment"]:
             member = CommentBase.objects.filter(id=validated_data['parent_comment'].id).first()
-            notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
+            notification = Notification.objects.create(user=member.User,
+                                                       message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ',
+                                                       link=f'/article/{member.article.id}/{instance.id}')
             notification.save()
-            send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
+            send_mail(f"somebody replied to your comment",
+                      f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}",
+                      settings.EMAIL_HOST_USER, [member.User.email], fail_silently=False)
 
         if validated_data["Type"] == "review" or validated_data["Type"] == "decision":
-            emails = [author.User.email for author in authors ]
+            emails = [author.User.email for author in authors]
             for author in authors:
-                notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ', link=f'/article/{instance.article.id}/{instance.id}')
+                notification = Notification.objects.create(user=author.User,
+                                                           message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ',
+                                                           link=f'/article/{instance.article.id}/{instance.id}')
                 notification.save()
-            send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
+            send_mail(f"A new {validated_data['Type']} is added ",
+                      f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}",
+                      settings.EMAIL_HOST_USER, emails, fail_silently=False)
 
-            
-        send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
-        UserActivity.objects.create(user=self.context['request'].user, action=f"You have made a {instance.Type} on {instance.article.article_name}")
+        send_mail(f"you have made {instance.Type}",
+                  f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}",
+                  settings.EMAIL_HOST_USER, [instance.User.email], fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f"You have made a {instance.Type} on {instance.article.article_name}")
 
-        return instance    
-        
+        return instance
+
+
 class CommentUpdateSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = CommentBase
         fields = ['Comment', 'Title']
-        
+
+
 class LikeSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = LikeBase
         fields = ['post', 'value']
 
+
 '''
 Article Chat Serializers
 '''
+
+
 class ArticleChatSerializer(serializers.ModelSerializer):
     sender = serializers.SerializerMethodField(read_only=True)
     personal = serializers.SerializerMethodField(read_only=True)
@@ -1858,7 +1973,7 @@ class ArticleChatSerializer(serializers.ModelSerializer):
         user = User.objects.filter(id=obj.sender.id).first()
         return f"{user.username}"
 
-    def get_personal(self,obj):
+    def get_personal(self, obj):
         """
         The function checks if the authenticated user is the sender of a given object.
         
@@ -1888,7 +2003,7 @@ class ArticleChatUpdateSerializer(serializers.ModelSerializer):
 class ArticleChatCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ArticleMessage
-        fields = ["id","body", "article"]
+        fields = ["id", "body", "article"]
         read_only_fields = ["id"]
 
     def create(self, validated_data):
@@ -1914,28 +2029,33 @@ class ArticleChatCreateSerializer(serializers.ModelSerializer):
 
         return instance
 
- 
+
 '''
 notification serializer
 '''
+
+
 class NotificationSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = Notification
         fields = ["id", "user", "message", "date", "is_read", "link"]
-        
+
+
 '''
 favourite serializer
 '''
+
+
 class FavouriteSerializer(serializers.ModelSerializer):
     article_name = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Favourite
         fields = ['id', 'article_name', 'user']
-        
+
     def get_article_name(self, obj):
         return obj.article.article_name
+
 
 class FavouriteCreateSerializer(serializers.Serializer):
     article_name = serializers.CharField(write_only=True)
@@ -1944,7 +2064,7 @@ class FavouriteCreateSerializer(serializers.Serializer):
         model = Favourite
         fields = ['id', 'article', 'user']
         read_only_fields = ['id']
-        
+
     def create(self, validated_data):
         """
         The function creates a new Favourite object if it doesn't already exist and logs the user's
@@ -1955,34 +2075,39 @@ class FavouriteCreateSerializer(serializers.Serializer):
         keys:
         :return: The `create` method returns an instance of the `Favourite` model that was created.
         """
-        
+
         favourite = Favourite.objects.filter(article=validated_data['article'],
-                                           user=self.context['request'].user).first()
+                                             user=self.context['request'].user).first()
         if favourite:
-            raise serializers.ValidationError({"error":"already in favourites"})
-        
+            raise serializers.ValidationError({"error": "already in favourites"})
+
         instance = Favourite.objects.create(article=validated_data['article'],
-                                           user=self.context['request'].user)
+                                            user=self.context['request'].user)
         instance.save()
-        UserActivity.objects.create(user=self.context['request'].user, action=f"You added {instance.article.article_name} in favourite")
+        UserActivity.objects.create(user=self.context['request'].user,
+                                    action=f"You added {instance.article.article_name} in favourite")
 
         return instance
-               
+
+
 '''
 communitymeta serializers
 '''
+
+
 class CommunityMetaSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = CommunityMeta
         fields = ['community', 'article', 'status']
         depth = 1
 
+
 class CommunityMetaArticlesSerializer(serializers.ModelSerializer):
     class Meta:
         model = CommunityMeta
-        fields = ['article','status']
+        fields = ['article', 'status']
         depth = 1
+
 
 class CommunityMetaApproveSerializer(serializers.ModelSerializer):
     class Meta:
@@ -1990,9 +2115,12 @@ class CommunityMetaApproveSerializer(serializers.ModelSerializer):
         fields = ['community', 'status']
         depth = 1
 
+
 '''
 communitymembers serializer
 '''
+
+
 # The CommunityMemberSerializer class is a serializer that converts CommunityMember model instances
 # into JSON representations, including fields for username, email, profile picture URL, and user ID.
 class CommunityMemberSerializer(serializers.ModelSerializer):
@@ -2003,8 +2131,8 @@ class CommunityMemberSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CommunityMember
-        fields = ['username','is_reviewer','is_moderator','is_admin', 'profile_pic_url', 'user_id','email']
-    
+        fields = ['username', 'is_reviewer', 'is_moderator', 'is_admin', 'profile_pic_url', 'user_id', 'email']
+
     def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user.
@@ -2038,7 +2166,7 @@ class CommunityMemberSerializer(serializers.ModelSerializer):
             url = obj.user.profile_pic_url.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_user_id(self, obj):
         """
         The function `get_user_id` takes an object as input and returns the ID of the user associated
@@ -2053,38 +2181,47 @@ class CommunityMemberSerializer(serializers.ModelSerializer):
 '''
 AuthorSerializer
 '''
+
+
 class AuthorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Author
         fields = ['article']
         depth = 1
 
+
 '''
 OfficialReviewerSerializer
 '''
+
+
 class OfficialReviewerSerializer(serializers.ModelSerializer):
     class Meta:
         model = OfficialReviewer
-        fields = ['User','community']
+        fields = ['User', 'community']
         depth = 1
+
 
 '''
 ModeratorSerializer
 '''
+
+
 class ModeratorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Moderator
-        fields = ['user','community']
+        fields = ['user', 'community']
         depth = 1
 
 
 class SocialPostSerializer(serializers.ModelSerializer):
     image = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = SocialPost
         fields = ['id', 'user', 'body', 'created_at', 'image']
-        read_only_fields = ['user','id','created_at', 'image']
-    
+        read_only_fields = ['user', 'id', 'created_at', 'image']
+
     def get_image(self, obj):
         if obj.image:
             url = obj.image.url.split('?')[0]
@@ -2098,8 +2235,8 @@ class SocialPostUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SocialPost
-        fields = ['id', 'user', 'body', 'created_at','image']
-        read_only_fields = ['user','id','created_at']
+        fields = ['id', 'user', 'body', 'created_at', 'image']
+        read_only_fields = ['user', 'id', 'created_at']
 
     def update(self, instance, validated_data):
         """
@@ -2117,11 +2254,12 @@ class SocialPostUpdateSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+
 class SocialPostCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPost
         fields = ['id', 'user', 'body', 'created_at', 'image']
-        read_only_fields = ['user','id','created_at']
+        read_only_fields = ['user', 'id', 'created_at']
 
     def create(self, validated_data):
         """
@@ -2137,6 +2275,7 @@ class SocialPostCreateSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+
 class SocialPostListSerializer(serializers.ModelSerializer):
     comments_count = serializers.SerializerMethodField(read_only=True)
     likes = serializers.SerializerMethodField(read_only=True)
@@ -2150,9 +2289,10 @@ class SocialPostListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SocialPost
-        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'bookmarks','avatar', 'isbookmarked', 'image','personal']
+        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'bookmarks', 'avatar',
+                  'isbookmarked', 'image', 'personal']
 
-    def get_username(self,obj):
+    def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user attribute.
         
@@ -2160,8 +2300,8 @@ class SocialPostListSerializer(serializers.ModelSerializer):
         :return: The username of the user associated with the given object.
         """
         return obj.user.username
-    
-    def get_avatar(self,obj):
+
+    def get_avatar(self, obj):
         """
         The function `get_avatar` returns the profile picture URL of a user.
         
@@ -2188,9 +2328,9 @@ class SocialPostListSerializer(serializers.ModelSerializer):
         :param obj: The `obj` parameter is an object that represents a social post
         :return: the count of comments on a social post object.
         """
-        comments_count = SocialPostComment.objects.filter(post_id=obj.id,parent_comment=None).count()
+        comments_count = SocialPostComment.objects.filter(post_id=obj.id, parent_comment=None).count()
         return comments_count
-    
+
     def get_likes(self, obj):
         """
         The function "get_likes" returns the number of likes for a given social post object.
@@ -2213,8 +2353,8 @@ class SocialPostListSerializer(serializers.ModelSerializer):
             return False
         liked = SocialPostLike.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
         return liked
-    
-    def get_personal(self,obj):
+
+    def get_personal(self, obj):
         """
         The function checks if the authenticated user is the same as the user associated with the object.
         
@@ -2231,9 +2371,8 @@ class SocialPostListSerializer(serializers.ModelSerializer):
             return True
         else:
             return False
-    
 
-    def get_bookmarks(self,obj):
+    def get_bookmarks(self, obj):
         """
         The function "get_bookmarks" returns the number of bookmarks for a given post.
         
@@ -2243,7 +2382,7 @@ class SocialPostListSerializer(serializers.ModelSerializer):
         bookmarks = BookMark.objects.filter(post_id=obj.id).count()
         return bookmarks
 
-    def get_isbookmarked(self,obj):
+    def get_isbookmarked(self, obj):
         """
         The function `get_isbookmarked` checks if a user has bookmarked a specific post.
         
@@ -2254,6 +2393,7 @@ class SocialPostListSerializer(serializers.ModelSerializer):
             return False
         isbookmarked = BookMark.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
         return isbookmarked
+
 
 class SocialPostGetSerializer(serializers.ModelSerializer):
     comments = serializers.SerializerMethodField(read_only=True)
@@ -2269,9 +2409,10 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SocialPost
-        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'comments', 'bookmarks','avatar', 'isbookmarked', 'image','personal']
+        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'comments', 'bookmarks',
+                  'avatar', 'isbookmarked', 'image', 'personal']
 
-    def get_username(self,obj):
+    def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user attribute.
         
@@ -2279,8 +2420,8 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
         :return: The username of the user associated with the given object.
         """
         return obj.user.username
-    
-    def get_avatar(self,obj):
+
+    def get_avatar(self, obj):
         """
         The function `get_avatar` returns the profile picture URL of a user.
         
@@ -2292,13 +2433,13 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
             url = obj.user.profile_pic_url.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_image(self, obj):
         if obj.image:
             url = obj.image.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_comments(self, obj):
         """
         The function `get_comments` retrieves the top-level comments for a given post object and returns
@@ -2322,8 +2463,8 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
         """
         comments_count = SocialPostComment.objects.filter(post_id=obj.id).count()
         return comments_count
-    
-    def get_personal(self,obj):
+
+    def get_personal(self, obj):
         """
         The function checks if the authenticated user is the same as the user associated with the object.
         
@@ -2340,7 +2481,7 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
             return True
         else:
             return False
-    
+
     def get_likes(self, obj):
         """
         The function "get_likes" returns the number of likes for a given social post object.
@@ -2364,8 +2505,8 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
             return False
         liked = SocialPostLike.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
         return liked
-    
-    def get_bookmarks(self,obj):
+
+    def get_bookmarks(self, obj):
         """
         The function "get_bookmarks" returns the number of bookmarks associated with a given post object.
         
@@ -2375,7 +2516,7 @@ class SocialPostGetSerializer(serializers.ModelSerializer):
         bookmarks = BookMark.objects.filter(post_id=obj.id).count()
         return bookmarks
 
-    def get_isbookmarked(self,obj):
+    def get_isbookmarked(self, obj):
         """
         The function `get_isbookmarked` checks if a user has bookmarked a specific post.
         
@@ -2393,13 +2534,14 @@ class SocialPostCommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPostComment
         fields = ['id', 'user', 'post', 'comment', 'created_at']
-        read_only_fields = ['user','id','created_at']
+        read_only_fields = ['user', 'id', 'created_at']
+
 
 class SocialPostCommentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPostComment
-        fields = ['id', 'user', 'post', 'comment', 'created_at','parent_comment']
-        read_only_fields = ['user','id','created_at']
+        fields = ['id', 'user', 'post', 'comment', 'created_at', 'parent_comment']
+        read_only_fields = ['user', 'id', 'created_at']
 
     def create(self, validated_data):
         """
@@ -2414,15 +2556,17 @@ class SocialPostCommentCreateSerializer(serializers.ModelSerializer):
         instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
         instance.save()
         if instance.parent_comment is None:
-            notification = Notification.objects.create(user=instance.user, message=f'someone replied to your post', link=f'/post/{instance.post.id}/{instance.id}')
+            notification = Notification.objects.create(user=instance.user, message=f'someone replied to your post',
+                                                       link=f'/post/{instance.post.id}/{instance.id}')
             notification.save()
         return instance
-    
+
+
 class SocialPostCommentUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPostComment
-        fields = ['id', 'user', 'post', 'comment', 'created_at','parent_comment']
-        read_only_fields = ['user','id','created_at','post']
+        fields = ['id', 'user', 'post', 'comment', 'created_at', 'parent_comment']
+        read_only_fields = ['user', 'id', 'created_at', 'post']
 
     def update(self, instance, validated_data):
         """
@@ -2440,8 +2584,8 @@ class SocialPostCommentUpdateSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class SocialPostCommentListSerializer(serializers.ModelSerializer):
 
+class SocialPostCommentListSerializer(serializers.ModelSerializer):
     commentlikes = serializers.SerializerMethodField(read_only=True)
     commentliked = serializers.SerializerMethodField(read_only=True)
     commentavatar = serializers.SerializerMethodField(read_only=True)
@@ -2451,9 +2595,10 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SocialPostComment
-        fields = ['id', 'username', 'post', 'comment', 'created_at', 'commentlikes', 'commentliked', 'commentavatar','replies', 'personal']
-    
-    def get_username(self,obj):
+        fields = ['id', 'username', 'post', 'comment', 'created_at', 'commentlikes', 'commentliked', 'commentavatar',
+                  'replies', 'personal']
+
+    def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user.
         
@@ -2462,8 +2607,8 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
         :return: The username of the user object.
         """
         return obj.user.username
-    
-    def get_commentavatar(self,obj):
+
+    def get_commentavatar(self, obj):
         """
         The function `get_commentavatar` returns the profile picture URL of the user associated with the
         given object.
@@ -2485,7 +2630,7 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
         """
         likes = SocialPostCommentLike.objects.filter(comment_id=obj.id).count()
         return likes
-    
+
     def get_commentliked(self, obj):
         """
         The function "get_commentliked" checks if the authenticated user has liked a specific comment.
@@ -2498,8 +2643,8 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
             return False
         liked = SocialPostCommentLike.objects.filter(comment_id=obj.id, user=self.context['request'].user).count()
         return liked
-    
-    def get_personal(self,obj):
+
+    def get_personal(self, obj):
         """
         The function checks if the authenticated user is the same as the user associated with the object.
         
@@ -2515,9 +2660,9 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
         if obj.user == self.context['request'].user:
             return True
         else:
-            return False    
-    
-    def get_replies(self,obj):
+            return False
+
+    def get_replies(self, obj):
         """
         The function "get_replies" returns the number of replies for a given comment object.
         
@@ -2527,38 +2672,38 @@ class SocialPostCommentListSerializer(serializers.ModelSerializer):
         replies = SocialPostComment.objects.filter(parent_comment=obj).count()
         return replies
 
-    
+
 class SocialPostLikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPostLike
         fields = ['id', 'user', 'post']
-        read_only_fields = ['user','id']
+        read_only_fields = ['user', 'id']
 
 
 class SocialPostCommentLikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = SocialPostCommentLike
         fields = ['id', 'user', 'comment']
-        read_only_fields = ['user','id']
+        read_only_fields = ['user', 'id']
 
 
 class FollowSerializer(serializers.ModelSerializer):
     class Meta:
         model = Follow
         fields = ['id', 'user', 'followed_user']
-        read_only_fields = ['user','id']
+        read_only_fields = ['user', 'id']
+
 
 class FollowersSerializer(serializers.ModelSerializer):
-
     avatar = serializers.SerializerMethodField(read_only=True)
     username = serializers.SerializerMethodField(read_only=True)
     isFollowing = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Follow
-        fields = ['id', 'user', 'followed_user','avatar', 'username','isFollowing']
+        fields = ['id', 'user', 'followed_user', 'avatar', 'username', 'isFollowing']
         read_only_fields = ['user', 'id']
-    
+
     def get_username(self, obj):
         """
         The function `get_username` returns the username of a given object's user.
@@ -2569,7 +2714,7 @@ class FollowersSerializer(serializers.ModelSerializer):
         :return: The username of the user object.
         """
         return obj.user.username
-    
+
     def get_avatar(self, obj):
         """
         The function `get_avatar` returns the profile picture URL of a user object.
@@ -2582,7 +2727,7 @@ class FollowersSerializer(serializers.ModelSerializer):
             url = obj.user.profile_pic_url.url.split('?')[0]
             return url
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_isFollowing(self, obj):
         """
         The function checks if a user is following another user and returns True if they are, and False if
@@ -2600,17 +2745,17 @@ class FollowersSerializer(serializers.ModelSerializer):
         else:
             return False
 
-class FollowingSerializer(serializers.ModelSerializer):
 
+class FollowingSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField(read_only=True)
     username = serializers.SerializerMethodField(read_only=True)
     isFollowing = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Follow
-        fields = ['id', 'user', 'followed_user','avatar', 'username','isFollowing']
+        fields = ['id', 'user', 'followed_user', 'avatar', 'username', 'isFollowing']
         read_only_fields = ['user', 'id']
-    
+
     def get_username(self, obj):
         """
         The function `get_username` takes an object `obj` and returns the username of the followed user.
@@ -2619,7 +2764,7 @@ class FollowingSerializer(serializers.ModelSerializer):
         :return: The username of the followed user.
         """
         return obj.followed_user.username
-    
+
     def get_avatar(self, obj):
         """
         The function `get_avatar` takes an object `obj` and returns the profile picture URL of the user
@@ -2631,9 +2776,9 @@ class FollowingSerializer(serializers.ModelSerializer):
         if obj.followed_user.profile_pic_url:
             url = obj.followed_user.profile_pic_url.url.split('?')[0]
             return url
-    
+
         return 'https://scicommons.s3.amazonaws.com/None'
-    
+
     def get_isFollowing(self, obj):
         """
         The function checks if a user is following another user.
@@ -2650,11 +2795,12 @@ class FollowingSerializer(serializers.ModelSerializer):
         else:
             return False
 
+
 class FollowCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Follow
         fields = ['id', 'user', 'followed_user']
-        read_only_fields = ['user','id']
+        read_only_fields = ['user', 'id']
 
     def create(self, validated_data):
         """
@@ -2670,17 +2816,19 @@ class FollowCreateSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class SocialPostBookmarkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BookMark
-        fields = ['id', 'user', 'post']
-        read_only_fields = ['user','id']
 
 class SocialPostBookmarkSerializer(serializers.ModelSerializer):
     class Meta:
         model = BookMark
         fields = ['id', 'user', 'post']
-        read_only_fields = ['user','id']
+        read_only_fields = ['user', 'id']
+
+
+class SocialPostBookmarkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookMark
+        fields = ['id', 'user', 'post']
+        read_only_fields = ['user', 'id']
 
     def create(self, validated_data):
         """
@@ -2695,11 +2843,13 @@ class SocialPostBookmarkSerializer(serializers.ModelSerializer):
         instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
         instance.save()
         return instance
-    
+
+
 '''
 Message Serailizer
 '''
-    
+
+
 class MessageSerializer(serializers.ModelSerializer):
     receiver = serializers.SerializerMethodField(read_only=True)
     sender = serializers.SerializerMethodField(read_only=True)
@@ -2707,7 +2857,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalMessage
-        fields = ["id","sender", "receiver", "media", "body", "created_at", "avatar","channel"]
+        fields = ["id", "sender", "receiver", "media", "body", "created_at", "avatar", "channel"]
 
     def get_receiver(self, obj):
         """
@@ -2721,8 +2871,8 @@ class MessageSerializer(serializers.ModelSerializer):
 
         user = User.objects.filter(id=obj.receiver.id).first()
         return f"{user.username}"
-    
-    def get_sender(self,obj):
+
+    def get_sender(self, obj):
         """
         The function `get_sender` takes an object `obj` and returns the username of the sender of that
         object.
@@ -2732,8 +2882,8 @@ class MessageSerializer(serializers.ModelSerializer):
         """
         user = User.objects.filter(id=obj.sender.id).first()
         return f"{user.username}"
-    
-    def get_avatar(self,obj):
+
+    def get_avatar(self, obj):
         """
         The function `get_avatar` returns the profile picture URL of the sender if the sender is the
         current user, otherwise it returns the profile picture URL of the receiver.
@@ -2754,7 +2904,6 @@ class MessageSerializer(serializers.ModelSerializer):
                 url = obj.sender.profile_pic_url.url.split('?')[0]
                 return url
             return 'https://scicommons.s3.amazonaws.com/None'
-
 
 
 class MessageUpdateSerializer(serializers.ModelSerializer):
@@ -2783,7 +2932,7 @@ class MessageCreateSerializer(serializers.ModelSerializer):
 
         receiver = validated_data("receiver", None)
 
-        temp = [f"{self.context['request'].user}",f"{receiver}"]
+        temp = [f"{self.context['request'].user}", f"{receiver}"]
         temp.sort()
         channel = f"chat_{temp[0]}_{temp[1]}"
 
@@ -2797,7 +2946,7 @@ class MessageCreateSerializer(serializers.ModelSerializer):
                 "sender": instance.sender,
                 "receiver": instance.receiver,
                 "body": instance.body,
-                "media":instance.media.url
+                "media": instance.media.url
             }
 
         # Send the message via websockets
@@ -2807,7 +2956,8 @@ class MessageCreateSerializer(serializers.ModelSerializer):
         )
 
         return instance
-    
+
+
 class MessageListSerializer(serializers.ModelSerializer):
     receiver = serializers.SerializerMethodField(read_only=True)
     avatar = serializers.SerializerMethodField(read_only=True)
@@ -2815,7 +2965,7 @@ class MessageListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalMessage
-        fields = ["id", "receiver", "media", "body", "created_at", "avatar","channel", "unread_count"]
+        fields = ["id", "receiver", "media", "body", "created_at", "avatar", "channel", "unread_count"]
 
     def get_receiver(self, obj):
         """
@@ -2831,8 +2981,8 @@ class MessageListSerializer(serializers.ModelSerializer):
             return f"{user.username}"
         user = User.objects.filter(id=obj.sender.id).first()
         return f"{user.username}"
-    
-    def get_avatar(self,obj):
+
+    def get_avatar(self, obj):
         """
         The function `get_avatar` returns the profile picture URL of the sender if the sender is the
         current user, otherwise it returns the profile picture URL of the receiver.
@@ -2853,7 +3003,7 @@ class MessageListSerializer(serializers.ModelSerializer):
                 return url
             return 'https://scicommons.s3.amazonaws.com/None'
 
-    def get_unread_count(self,obj):
+    def get_unread_count(self, obj):
         """
         The function `get_unread_count` returns the number of unread personal messages for a given user.
         
@@ -2861,6 +3011,6 @@ class MessageListSerializer(serializers.ModelSerializer):
         and can be removed from the method signature
         :return: the count of unread personal messages for the specified user.
         """
-        count = PersonalMessage.objects.filter(Q(sender=self.context['request'].user) | Q(receiver=self.context['request'].user), is_read=False).count()
+        count = PersonalMessage.objects.filter(
+            Q(sender=self.context['request'].user) | Q(receiver=self.context['request'].user), is_read=False).count()
         return count
-
