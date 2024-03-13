@@ -1,6 +1,5 @@
 channels
 Django
-dj-database-url
 daphne
 django-cors-headers
 django-rest-swagger
@@ -11,9 +10,9 @@ Faker
 gunicorn
 psycopg2
 psycopg2-binary
-python-decouple
 django-extensions
 django-filter
 Pillow
 django-storages
 boto3
+django-environ
