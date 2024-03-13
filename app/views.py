@@ -1,4 +1,4 @@
-import random
+import secrets
 from django.shortcuts import get_object_or_404, redirect, render
 from rest_framework.decorators import action
 from rest_framework import parsers, viewsets, permissions, status
@@ -234,7 +234,7 @@ class UserViewset(viewsets.ModelViewSet):
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        otp = random.randint(100000, 999999)
+        otp = secrets.randbelow(999999 - 100000 + 1) + 100000
         user = User.objects.filter(email=serializer.data['email']).first()
         if user is None:
             return Response(data={"error": "Please Enter valid email address!!!"}, status=status.HTTP_400_BAD_REQUEST)
@@ -288,7 +288,7 @@ class UserViewset(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        otp = random.randint(100000, 999999)
+        otp = secrets.randbelow(999999 - 100000 + 1) + 100000
 
         user = User.objects.filter(email=serializer.data['email']).first()
         if user is None:
