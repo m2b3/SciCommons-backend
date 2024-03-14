@@ -3,7 +3,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from rest_framework.decorators import action
 from rest_framework import parsers, viewsets, permissions, status
 from rest_framework.response import Response
-from django.core.mail import send_mail
 from django.contrib import messages
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -17,6 +16,7 @@ from app.permissions import *
 from app.filters import *
 from rest_framework import filters
 from django_filters import rest_framework as django_filters 
+from .tasks import send_email_task
 
 class UserViewset(viewsets.ModelViewSet):
     # The above code is defining a Django view for handling user-related operations.
@@ -244,7 +244,7 @@ class UserViewset(viewsets.ModelViewSet):
         email_from = settings.EMAIL_HOST_USER
         email_subject = "Email Verification"
         email_body = "Your One Time Password is " + str(otp)
-        send_mail(email_subject, email_body, email_from, [serializer.data['email']], fail_silently=False)
+        send_email_task.delay(email_subject, email_body, [serializer.data['email']])
         return Response(data={"success": "code sent to your email"})
     
     @action(methods=['post'],url_path="verify_email",detail=False,permission_classes=[permissions.AllowAny,])
@@ -300,10 +300,9 @@ class UserViewset(viewsets.ModelViewSet):
         forget = ForgetPassword.objects.create(user=user, otp=otp)
         forget.save()
 
-        email_from = settings.EMAIL_HOST_USER
         email_subject = "Reset Password"
         email_body = "You have forgot you account password. Your One Time Password is " + str(otp)
-        send_mail(email_subject, email_body, email_from, [serializer.data['email']], fail_silently=False)
+        send_email_task.delay(email_subject, email_body, [serializer.data['email']])
         return Response(data={"success": "code sent to your email"})
 
         
@@ -688,8 +687,7 @@ class CommunityViewset(viewsets.ModelViewSet):
             if member is None:
                 return Response(data={"error": "Not member of community"}, status=status.HTTP_404_NOT_FOUND)
             member.delete()
-            send_mail(f'you are removed from {obj}',f'You have been removed from {obj}.Due to inappropriate behaviour', settings.EMAIL_HOST_USER , emails, fail_silently=False)
-
+            send_email_task.delay(f'You are removed from {obj}', f'You have been removed from {obj} due to inappropriate behavior.', emails)
             
         except Exception as e:
             return Response(data={'error': 'unable to delete it.Please try again later!!!'}, status=status.HTTP_400_BAD_REQUEST)
