@@ -758,7 +758,7 @@ class CommunityViewset(viewsets.ModelViewSet):
         :return: The code is returning a Response object with the data {"success": serializer.data}.
         """
         obj = self.get_object()
-        joinrequest = CommunityRequests.objects.get(community=obj)
+        joinrequest = CommunityRequests.objects.filter(community=obj).first()
 
         serializer = self.get_serializer(joinrequest, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
