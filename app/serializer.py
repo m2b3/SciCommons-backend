@@ -1630,3 +1630,1328 @@ class CommentlistSerializer(serializers.ModelSerializer):
         return serializer.data
 
 
+class CommentSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField(read_only=True)
+    rank = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+    userrating = serializers.SerializerMethodField(read_only=True)
+    commentrating = serializers.SerializerMethodField(read_only=True)
+    replies = serializers.SerializerMethodField(read_only=True)
+    versions = serializers.SerializerMethodField(read_only=True)
+    role = serializers.SerializerMethodField(read_only=True)
+    blocked = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CommentBase
+        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag','comment_type', 'user','Comment_date', 'versions', 'role', 'blocked',
+                    'parent_comment','rank','personal', 'replies', 'rating','confidence','version','commentrating','userrating']
+        
+    def get_user(self, obj):
+        """
+        The function `get_user` returns the handle name of a user based on the given object.
+        
+        :param obj: The `obj` parameter is an object that contains the following attributes:
+        :return: The handle_name of the first HandlersBase object that matches the User and article of
+        the given obj.
+        """
+        handle = HandlersBase.objects.filter(User=obj.User,article=obj.article).first()
+        return handle.handle_name
+
+    def get_rank(self, obj):
+        """
+        The function retrieves the rank of a user and returns it as a string.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: The code is returning the rank of the user as a string.
+        """
+        rank = Rank.objects.filter(user=obj.User).first()
+        return f'{int(rank.rank)}'
+    
+    def get_personal(self, obj):
+        """
+        The function checks if the authenticated user is the same as the user associated with the
+        object.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
+        it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.User == self.context['request'].user:
+            return True
+        else:
+            return False
+        
+    def get_blocked(self,obj):
+        """
+        The function checks if a user is blocked from accessing an article.
+        
+        :param obj: The `obj` parameter is an object that represents an article
+        :return: a boolean value. If the user ID of the given object is found in the list of user IDs of
+        blocked users for the corresponding article, then it returns True. Otherwise, it returns False.
+        """
+        if obj.User_id in [user.user_id for user in ArticleBlockedUser.objects.filter(article=obj.article)]:
+            return True
+        else:
+            return False
+    
+    def get_role(self,obj):
+        """
+        The function `get_role` determines the role of a user based on their ID and the objects
+        associated with them.
+        
+        :param obj: The `obj` parameter is an object that represents a user. It is used to determine the
+        role of the user in relation to an article
+        :return: a string indicating the role of the user. The possible return values are "author",
+        "reviewer", "moderator", or "none".
+        """
+        if obj.User_id in [author.User_id for author in Author.objects.filter(article=obj.article)]:
+            return "author"
+        elif (OfficialReviewer.objects.filter(User_id=obj.User_id).first() is not None) and (OfficialReviewer.objects.filter(User_id=obj.User_id).first().id in [reviewer.officialreviewer_id for reviewer in ArticleReviewer.objects.filter(article=obj.article)]):
+            return "reviewer"
+        elif (Moderator.objects.filter(user_id=obj.User_id).first() is not None) and (Moderator.objects.filter(user_id=obj.User_id).first().id in [member.moderator_id for member in ArticleModerator.objects.filter(article=obj.article)]):
+            return "moderator"
+        else:
+            return "none"
+        
+    def get_replies(self,obj):
+        """
+        The function `get_replies` returns the number of replies to a given comment object.
+        
+        :param obj: The `obj` parameter is an object of the `CommentBase` model
+        :return: The number of CommentBase objects that have a parent_comment equal to the given obj.
+        """
+        member = CommentBase.objects.filter(parent_comment=obj).count()
+        return member
+    
+    def get_commentrating(self,obj):
+        """
+        The function `get_commentrating` calculates the total rating of a post based on the sum of the
+        values of all the likes associated with that post.
+        
+        :param obj: The "obj" parameter in the "get_commentrating" function is referring to the post
+        object for which you want to calculate the rating
+        :return: the sum of the values of all the likes associated with the given post object.
+        """
+        rating = LikeBase.objects.filter(post=obj).aggregate(Sum('value'))['value__sum']
+        return rating
+
+    def get_userrating(self,obj):
+        """
+        The function `get_userrating` returns the rating value of a user for a given object, or 0 if the
+        user is not authenticated or has not rated the object.
+        
+        :param obj: The `obj` parameter is referring to a post object
+        :return: the user's rating for a given object. If the user is not authenticated, it returns 0.
+        If the user is authenticated, it checks if the user has a rating for the object. If the user has
+        a rating, it returns the rating value. If the user does not have a rating, it returns 0.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return 0
+        member = LikeBase.objects.filter(user=self.context['request'].user, post=obj).first()
+        if member is not None:
+            return member.value
+        else:
+            return 0
+    
+    def get_versions(self, obj):
+        """
+        The function `get_versions` retrieves the versions of a given object and returns the serialized
+        data of the associated comments.
+        
+        :param obj: The `obj` parameter is an object that represents a version. It is used to filter the
+        `CommentBase` objects based on their version
+        :return: the serialized data of the comments that match the given version.
+        """
+        comment = CommentBase.objects.filter(version=obj)
+        serializer = CommentSerializer(comment,many=True, context={"request": self.context['request']})
+        return serializer.data
+
+
+class CommentCreateSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = CommentBase
+        fields = ['id', 'article', 'Comment', 'Title', 'Type', 'tag','comment_type','parent_comment','rating','confidence','version']
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        """
+        The `create` function creates a comment instance based on the validated data and saves it to the
+        database, while also handling notifications and sending emails to relevant users.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for creating a new instance of the model. It typically includes the data that was
+        submitted in the request and has been validated by the serializer
+        :return: The `instance` object is being returned.
+        """
+        authors = [author for author in Author.objects.filter(article=validated_data["article"],User=self.context["request"].user)]
+        reviewers_arr = [reviewer for reviewer in ArticleReviewer.objects.filter(article=validated_data["article"],officialreviewer__User = self.context["request"].user)]
+        moderators_arr = [moderator for moderator in ArticleModerator.objects.filter(article=validated_data["article"],moderator__user = self.context["request"].user)]
+
+        if len(authors)> 0 or len(reviewers_arr)>0 or len(moderators_arr)>0:
+            validated_data["comment_type"] = "OfficialComment"
+        else:
+            validated_data["comment_type"] = "PublicComment"
+        instance = self.Meta.model.objects.create(**validated_data,User=self.context["request"].user)
+        instance.save()
+        
+        handler = HandlersBase.objects.filter(User=instance.User, article=instance.article).first()
+        
+        if not handler: 
+            handler = HandlersBase.objects.create(User=instance.User, article=instance.article, handle_name=fake.name())
+            handler.save()
+        
+        handler = HandlersBase.objects.filter(User=instance.User, article=instance.article).first()
+
+        if validated_data["parent_comment"]:
+            member = CommentBase.objects.filter(id=validated_data['parent_comment'].id).first()
+            notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
+            notification.save()
+            send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
+
+        if validated_data["Type"] == "review" or validated_data["Type"] == "decision":
+            emails = [author.User.email for author in authors ]
+            for author in authors:
+                notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
+                notification.save()
+            send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
+
+            
+        send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {parse(config('CLIENT_URL'))}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
+        UserActivity.objects.create(user=self.context['request'].user, action=f"You have made a {instance.Type} on {instance.article.article_name}")
+
+        return instance    
+        
+class CommentUpdateSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = CommentBase
+        fields = ['Comment', 'Title']
+        
+class LikeSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = LikeBase
+        fields = ['post', 'value']
+
+'''
+Article Chat Serializers
+'''
+class ArticleChatSerializer(serializers.ModelSerializer):
+    sender = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ArticleMessage
+        fields = ["id", "sender", "body", "media", "article", "created_at", "personal"]
+
+    def get_sender(self, obj):
+        """
+        The function `get_sender` takes an object and returns the username of the sender associated with
+        that object.
+        
+        :param obj: The `obj` parameter is an object that represents the sender of a message
+        :return: the username of the sender of the given object.
+        """
+        user = User.objects.filter(id=obj.sender.id).first()
+        return f"{user.username}"
+
+    def get_personal(self,obj):
+        """
+        The function checks if the authenticated user is the sender of a given object.
+        
+        :param obj: The `obj` parameter is an object that represents some kind of data or model
+        instance. It is used to check if the sender of the object is the same as the authenticated user
+        making the request
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the sender of the object is the same as the authenticated user, it returns
+        True. Otherwise, it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.sender == self.context['request'].user:
+            return True
+        else:
+            return False
+
+
+class ArticleChatUpdateSerializer(serializers.ModelSerializer):
+    sender = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ArticleMessage
+        fields = ["body", "media", "sender"]
+
+
+class ArticleChatCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ArticleMessage
+        fields = ["id","body", "article"]
+        read_only_fields = ["id"]
+
+    def create(self, validated_data):
+        """
+        The function creates a new instance of a model, assigns a related article and channel, and saves
+        it.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for creating a new instance of the model. It typically includes the data that was
+        submitted in a request and has been validated against the model's fields
+        :return: The instance of the created object is being returned.
+        """
+        article_id = validated_data.get("article")
+        print(article_id)
+        validated_data.pop("article")
+        article = Article.objects.filter(article_name=article_id).first()
+        channel = f"{article.id}"
+
+        instance = self.Meta.model.objects.create(
+            **validated_data, article=article, channel=channel, sender=self.context["request"].user
+        )
+        instance.save()
+
+        return instance
+
+ 
+'''
+notification serializer
+'''
+class NotificationSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = Notification
+        fields = ["id", "user", "message", "date", "is_read", "link"]
+        
+'''
+favourite serializer
+'''
+class FavouriteSerializer(serializers.ModelSerializer):
+    article_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Favourite
+        fields = ['id', 'article_name', 'user']
+        
+    def get_article_name(self, obj):
+        return obj.article.article_name
+
+class FavouriteCreateSerializer(serializers.Serializer):
+    article_name = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = Favourite
+        fields = ['id', 'article', 'user']
+        read_only_fields = ['id']
+        
+    def create(self, validated_data):
+        """
+        The function creates a new Favourite object if it doesn't already exist and logs the user's
+        activity.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for the serializer fields. In this case, it is expected to contain the following
+        keys:
+        :return: The `create` method returns an instance of the `Favourite` model that was created.
+        """
+        
+        favourite = Favourite.objects.filter(article=validated_data['article'],
+                                           user=self.context['request'].user).first()
+        if favourite:
+            raise serializers.ValidationError({"error":"already in favourites"})
+        
+        instance = Favourite.objects.create(article=validated_data['article'],
+                                           user=self.context['request'].user)
+        instance.save()
+        UserActivity.objects.create(user=self.context['request'].user, action=f"You added {instance.article.article_name} in favourite")
+
+        return instance
+               
+'''
+communitymeta serializers
+'''
+class CommunityMetaSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = CommunityMeta
+        fields = ['community', 'article', 'status']
+        depth = 1
+
+class CommunityMetaArticlesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommunityMeta
+        fields = ['article','status']
+        depth = 1
+
+class CommunityMetaApproveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommunityMeta
+        fields = ['community', 'status']
+        depth = 1
+
+'''
+communitymembers serializer
+'''
+# The CommunityMemberSerializer class is a serializer that converts CommunityMember model instances
+# into JSON representations, including fields for username, email, profile picture URL, and user ID.
+class CommunityMemberSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField(read_only=True)
+    email = serializers.SerializerMethodField(read_only=True)
+    profile_pic_url = serializers.SerializerMethodField(read_only=True)
+    user_id = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CommunityMember
+        fields = ['username','is_reviewer','is_moderator','is_admin', 'profile_pic_url', 'user_id','email']
+    
+    def get_username(self, obj):
+        """
+        The function `get_username` returns the username of a given object's user.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute. The `user` attribute
+        is expected to have a `username` attribute
+        :return: The username of the user associated with the given object.
+        """
+        return obj.user.username
+
+    def get_email(self, obj):
+        """
+        The function `get_email` returns the email address of a user object.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute. The `user` attribute
+        is expected to have an `email` attribute
+        :return: The email of the user associated with the given object.
+        """
+        return obj.user.email
+
+    def get_profile_pic_url(self, obj):
+        """
+        The function `get_profile_pic_url` returns the profile picture URL of a given object's user.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute. The `user` attribute
+        is expected to have a `profile_pic_url` method that returns the URL of the user's profile
+        picture
+        :return: the profile picture URL of the user object.
+        """
+        if obj.user.profile_pic_url:
+            url = obj.user.profile_pic_url.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+    
+    def get_user_id(self, obj):
+        """
+        The function `get_user_id` takes an object as input and returns the ID of the user associated
+        with that object.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute
+        :return: The user ID of the given object.
+        """
+        return obj.user.id
+
+
+'''
+AuthorSerializer
+'''
+class AuthorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Author
+        fields = ['article']
+        depth = 1
+
+'''
+OfficialReviewerSerializer
+'''
+class OfficialReviewerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OfficialReviewer
+        fields = ['User','community']
+        depth = 1
+
+'''
+ModeratorSerializer
+'''
+class ModeratorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Moderator
+        fields = ['user','community']
+        depth = 1
+
+
+class SocialPostSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField(read_only=True)
+    class Meta:
+        model = SocialPost
+        fields = ['id', 'user', 'body', 'created_at', 'image']
+        read_only_fields = ['user','id','created_at', 'image']
+    
+    def get_image(self, obj):
+        if obj.image:
+            url = obj.image.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+
+
+class SocialPostUpdateSerializer(serializers.ModelSerializer):
+    body = serializers.CharField(required=False)
+    image = serializers.ImageField(required=False)
+
+    class Meta:
+        model = SocialPost
+        fields = ['id', 'user', 'body', 'created_at','image']
+        read_only_fields = ['user','id','created_at']
+
+    def update(self, instance, validated_data):
+        """
+        The function updates the attributes of an instance with the values from a validated data
+        dictionary and saves the instance.
+        
+        :param instance: The `instance` parameter refers to the object that you want to update. It could
+        be an instance of a model or any other object that you want to modify
+        :param validated_data: A dictionary containing the validated data that needs to be updated in
+        the instance
+        :return: The updated instance is being returned.
+        """
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+class SocialPostCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPost
+        fields = ['id', 'user', 'body', 'created_at', 'image']
+        read_only_fields = ['user','id','created_at']
+
+    def create(self, validated_data):
+        """
+        The function creates a new instance of a model with the provided validated data and associates
+        it with the current user.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for creating a new instance of the model. This data is typically obtained from
+        the request data after it has been validated by the serializer
+        :return: The instance that was created and saved.
+        """
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+
+class SocialPostListSerializer(serializers.ModelSerializer):
+    comments_count = serializers.SerializerMethodField(read_only=True)
+    likes = serializers.SerializerMethodField(read_only=True)
+    liked = serializers.SerializerMethodField(read_only=True)
+    bookmarks = serializers.SerializerMethodField(read_only=True)
+    isbookmarked = serializers.SerializerMethodField(read_only=True)
+    username = serializers.SerializerMethodField(read_only=True)
+    avatar = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+    image = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = SocialPost
+        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'bookmarks','avatar', 'isbookmarked', 'image','personal']
+
+    def get_username(self,obj):
+        """
+        The function `get_username` returns the username of a given object's user attribute.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute
+        :return: The username of the user associated with the given object.
+        """
+        return obj.user.username
+    
+    def get_avatar(self,obj):
+        """
+        The function `get_avatar` returns the profile picture URL of a user.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute, which in turn has a
+        `profile_pic_url` method
+        :return: the profile picture URL of the user.
+        """
+        if obj.user.profile_pic_url:
+            url = obj.user.profile_pic_url.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.awsamazon.com/None'
+
+    def get_image(self, obj):
+        if obj.image:
+            url = obj.image.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.awsamazon.com/None'
+
+    def get_comments_count(self, obj):
+        """
+        The function `get_comments_count` returns the count of top-level comments for a given
+        `SocialPostComment` object.
+        
+        :param obj: The `obj` parameter is an object that represents a social post
+        :return: the count of comments on a social post object.
+        """
+        comments_count = SocialPostComment.objects.filter(post_id=obj.id,parent_comment=None).count()
+        return comments_count
+    
+    def get_likes(self, obj):
+        """
+        The function "get_likes" returns the number of likes for a given social post object.
+        
+        :param obj: The `obj` parameter is an object that represents a social post
+        :return: The number of likes for the given object.
+        """
+        likes = SocialPostLike.objects.filter(post_id=obj.id).count()
+        return likes
+
+    def get_liked(self, obj):
+        """
+        The function `get_liked` checks if a user has liked a social post.
+        
+        :param obj: The `obj` parameter is an object that represents a social post
+        :return: the count of SocialPostLike objects where the post_id matches the id of the given obj
+        and the user is the authenticated user making the request.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        liked = SocialPostLike.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
+        return liked
+    
+    def get_personal(self,obj):
+        """
+        The function checks if the authenticated user is the same as the user associated with the object.
+        
+        :param obj: The "obj" parameter is an object that represents some kind of personal data or
+        resource. It could be a user profile, a document, or any other object that is associated with a
+        specific user
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
+        it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.user == self.context['request'].user:
+            return True
+        else:
+            return False
+    
+
+    def get_bookmarks(self,obj):
+        """
+        The function "get_bookmarks" returns the number of bookmarks for a given post.
+        
+        :param obj: The `obj` parameter is an object that represents a post
+        :return: The number of bookmarks associated with the given object.
+        """
+        bookmarks = BookMark.objects.filter(post_id=obj.id).count()
+        return bookmarks
+
+    def get_isbookmarked(self,obj):
+        """
+        The function `get_isbookmarked` checks if a user has bookmarked a specific post.
+        
+        :param obj: The `obj` parameter is an object that represents a post
+        :return: the value of the variable "isbookmarked".
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        isbookmarked = BookMark.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
+        return isbookmarked
+
+class SocialPostGetSerializer(serializers.ModelSerializer):
+    comments = serializers.SerializerMethodField(read_only=True)
+    comments_count = serializers.SerializerMethodField(read_only=True)
+    likes = serializers.SerializerMethodField(read_only=True)
+    liked = serializers.SerializerMethodField(read_only=True)
+    bookmarks = serializers.SerializerMethodField(read_only=True)
+    isbookmarked = serializers.SerializerMethodField(read_only=True)
+    username = serializers.SerializerMethodField(read_only=True)
+    avatar = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+    image = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = SocialPost
+        fields = ['id', 'username', 'body', 'created_at', 'comments_count', 'likes', 'liked', 'comments', 'bookmarks','avatar', 'isbookmarked', 'image','personal']
+
+    def get_username(self,obj):
+        """
+        The function `get_username` returns the username of a given object's user attribute.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute
+        :return: The username of the user associated with the given object.
+        """
+        return obj.user.username
+    
+    def get_avatar(self,obj):
+        """
+        The function `get_avatar` returns the profile picture URL of a user.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute. The `user` attribute is
+        expected to have a `profile_pic_url` method that returns the URL of the user's profile picture
+        :return: the profile picture URL of the user.
+        """
+        if obj.user.profile_pic_url:
+            url = obj.user.profile_pic_url.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+    
+    def get_image(self, obj):
+        if obj.image:
+            url = obj.image.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+    
+    def get_comments(self, obj):
+        """
+        The function `get_comments` retrieves the top-level comments for a given post object and returns
+        them serialized.
+        
+        :param obj: The `obj` parameter is an object that represents a social post. It is used to filter
+        the comments based on the post's ID
+        :return: the serialized data of the comments that meet the specified criteria.
+        """
+        comments = SocialPostComment.objects.filter(post_id=obj.id, parent_comment__isnull=True).order_by('-created_at')
+        serializer = SocialPostCommentListSerializer(comments, many=True, context={'request': self.context['request']})
+        return serializer.data
+
+    def get_comments_count(self, obj):
+        """
+        The function `get_comments_count` returns the number of comments for a given `obj` (presumably a
+        social post).
+        
+        :param obj: The `obj` parameter is an object that represents a social post
+        :return: the count of comments for a given post object.
+        """
+        comments_count = SocialPostComment.objects.filter(post_id=obj.id).count()
+        return comments_count
+    
+    def get_personal(self,obj):
+        """
+        The function checks if the authenticated user is the same as the user associated with the object.
+        
+        :param obj: The "obj" parameter is an object that represents some kind of personal data or
+        resource. It could be a user profile, a document, or any other object that is associated with a
+        specific user
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
+        it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.user == self.context['request'].user:
+            return True
+        else:
+            return False
+    
+    def get_likes(self, obj):
+        """
+        The function "get_likes" returns the number of likes for a given social post object.
+        
+        :param obj: The `obj` parameter is an object that represents a social post
+        :return: The number of likes for the given object.
+        """
+        likes = SocialPostLike.objects.filter(post_id=obj.id).count()
+        return likes
+
+    def get_liked(self, obj):
+        """
+        The function `get_liked` checks if a user has liked a social post.
+        
+        :param obj: The `obj` parameter is an object that represents a post. It is used to filter the
+        `SocialPostLike` objects based on the `post_id` field
+        :return: the count of SocialPostLike objects where the post_id matches the id of the given obj
+        and the user is the authenticated user making the request.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        liked = SocialPostLike.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
+        return liked
+    
+    def get_bookmarks(self,obj):
+        """
+        The function "get_bookmarks" returns the number of bookmarks associated with a given post object.
+        
+        :param obj: The `obj` parameter is an object that represents a post
+        :return: The number of bookmarks associated with the given object.
+        """
+        bookmarks = BookMark.objects.filter(post_id=obj.id).count()
+        return bookmarks
+
+    def get_isbookmarked(self,obj):
+        """
+        The function `get_isbookmarked` checks if a user has bookmarked a specific post.
+        
+        :param obj: The `obj` parameter is an object that represents a post. It is used to check if the
+        post is bookmarked by the current user
+        :return: the value of the variable "isbookmarked".
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        isbookmarked = BookMark.objects.filter(post_id=obj.id, user=self.context['request'].user).count()
+        return isbookmarked
+
+
+class SocialPostCommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPostComment
+        fields = ['id', 'user', 'post', 'comment', 'created_at']
+        read_only_fields = ['user','id','created_at']
+
+class SocialPostCommentCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPostComment
+        fields = ['id', 'user', 'post', 'comment', 'created_at','parent_comment']
+        read_only_fields = ['user','id','created_at']
+
+    def create(self, validated_data):
+        """
+        The function creates a new instance of a model with the provided validated data and associates it
+        with the current user.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the validated
+        data that is passed to the `create` method. This data is typically obtained from the request
+        payload and has been validated against the serializer's fields
+        :return: The instance that was created and saved.
+        """
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        if instance.parent_comment is None:
+            notification = Notification.objects.create(user=instance.User, message=f'someone replied to your post on {parse(config("CLIENT_URL"))} ', link=f'/article/{member.article.id}/{instance.id}')
+            notification.save()
+        return instance
+    
+class SocialPostCommentUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPostComment
+        fields = ['id', 'user', 'post', 'comment', 'created_at','parent_comment']
+        read_only_fields = ['user','id','created_at','post']
+
+    def update(self, instance, validated_data):
+        """
+        The function updates the comment attribute of an instance with the value provided in the
+        validated_data dictionary.
+        
+        :param instance: The `instance` parameter refers to the object that you want to update. It is
+        the instance of the model that you are working with
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data that was passed to the serializer. It typically includes the data that was sent
+        in the request payload after it has been validated and cleaned by the serializer
+        :return: The updated instance is being returned.
+        """
+        instance.comment = validated_data.get('comment', instance.comment)
+        instance.save()
+        return instance
+
+class SocialPostCommentListSerializer(serializers.ModelSerializer):
+
+    commentlikes = serializers.SerializerMethodField(read_only=True)
+    commentliked = serializers.SerializerMethodField(read_only=True)
+    commentavatar = serializers.SerializerMethodField(read_only=True)
+    username = serializers.SerializerMethodField(read_only=True)
+    replies = serializers.SerializerMethodField(read_only=True)
+    personal = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = SocialPostComment
+        fields = ['id', 'username', 'post', 'comment', 'created_at', 'commentlikes', 'commentliked', 'commentavatar','replies', 'personal']
+    
+    def get_username(self,obj):
+        """
+        The function `get_username` returns the username of a given object's user.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute. The `user` attribute is
+        expected to have a `username` attribute
+        :return: The username of the user object.
+        """
+        return obj.user.username
+    
+    def get_commentavatar(self,obj):
+        """
+        The function `get_commentavatar` returns the profile picture URL of the user associated with the
+        given object.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: the profile picture URL of the user associated with the given object.
+        """
+        if obj.user.profile_pic_url:
+            url = obj.user.profile_pic_url.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+
+    def get_commentlikes(self, obj):
+        """
+        The function "get_commentlikes" returns the number of likes for a given comment.
+        
+        :param obj: The `obj` parameter is an instance of the `SocialPostComment` model
+        :return: The number of likes on a social post comment with the given object ID.
+        """
+        likes = SocialPostCommentLike.objects.filter(comment_id=obj.id).count()
+        return likes
+    
+    def get_commentliked(self, obj):
+        """
+        The function "get_commentliked" checks if the authenticated user has liked a specific comment.
+        
+        :param obj: The `obj` parameter is the comment object for which we want to check if the
+        authenticated user has liked it or not
+        :return: the number of likes for a specific comment made by the authenticated user.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        liked = SocialPostCommentLike.objects.filter(comment_id=obj.id, user=self.context['request'].user).count()
+        return liked
+    
+    def get_personal(self,obj):
+        """
+        The function checks if the authenticated user is the same as the user associated with the object.
+        
+        :param obj: The `obj` parameter is an object that represents some kind of personal data or
+        resource. It could be a user profile, a document, or any other object that is associated with a
+        specific user
+        :return: a boolean value. If the user is not authenticated, it returns False. If the user is
+        authenticated and the object's user is the same as the request user, it returns True. Otherwise,
+        it returns False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        if obj.user == self.context['request'].user:
+            return True
+        else:
+            return False    
+    
+    def get_replies(self,obj):
+        """
+        The function "get_replies" returns the number of replies for a given comment object.
+        
+        :param obj: The `obj` parameter is an instance of the `SocialPostComment` model
+        :return: The number of replies to the given object.
+        """
+        replies = SocialPostComment.objects.filter(parent_comment=obj).count()
+        return replies
+
+    
+class SocialPostLikeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPostLike
+        fields = ['id', 'user', 'post']
+        read_only_fields = ['user','id']
+
+
+class SocialPostCommentLikeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialPostCommentLike
+        fields = ['id', 'user', 'comment']
+        read_only_fields = ['user','id']
+
+
+class FollowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Follow
+        fields = ['id', 'user', 'followed_user']
+        read_only_fields = ['user','id']
+
+class FollowersSerializer(serializers.ModelSerializer):
+
+    avatar = serializers.SerializerMethodField(read_only=True)
+    username = serializers.SerializerMethodField(read_only=True)
+    isFollowing = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Follow
+        fields = ['id', 'user', 'followed_user','avatar', 'username','isFollowing']
+        read_only_fields = ['user', 'id']
+    
+    def get_username(self, obj):
+        """
+        The function `get_username` returns the username of a given object's user.
+        
+        :param obj: The parameter "obj" is an object that is passed to the function. It is expected to have
+        a property called "user" which is also an object. The "user" object is expected to have a property
+        called "username". The function returns the value of the "username" property of the
+        :return: The username of the user object.
+        """
+        return obj.user.username
+    
+    def get_avatar(self, obj):
+        """
+        The function `get_avatar` returns the profile picture URL of a user object.
+        
+        :param obj: The `obj` parameter is an object that has a `user` attribute, which in turn has a
+        `profile_pic_url` method
+        :return: the profile picture URL of the user object.
+        """
+        if obj.user.profile_pic_url:
+            url = obj.user.profile_pic_url.url.split('?')[0]
+            return url
+        return 'https://scicommons.s3.amazonaws.com/None'
+    
+    def get_isFollowing(self, obj):
+        """
+        The function checks if a user is following another user and returns True if they are, and False if
+        they are not.
+        
+        :param obj: The `obj` parameter is an object that represents a user
+        :return: a boolean value. If the user is authenticated and is following the specified object, it
+        will return True. Otherwise, it will return False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        member = Follow.objects.filter(user=self.context['request'].user, followed_user=obj.user).first()
+        if member is not None:
+            return True
+        else:
+            return False
+
+class FollowingSerializer(serializers.ModelSerializer):
+
+    avatar = serializers.SerializerMethodField(read_only=True)
+    username = serializers.SerializerMethodField(read_only=True)
+    isFollowing = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Follow
+        fields = ['id', 'user', 'followed_user','avatar', 'username','isFollowing']
+        read_only_fields = ['user', 'id']
+    
+    def get_username(self, obj):
+        """
+        The function `get_username` takes an object `obj` and returns the username of the followed user.
+        
+        :param obj: The `obj` parameter is an object that represents a followed user
+        :return: The username of the followed user.
+        """
+        return obj.followed_user.username
+    
+    def get_avatar(self, obj):
+        """
+        The function `get_avatar` takes an object `obj` and returns the profile picture URL of the user
+        that `obj` is following.
+        
+        :param obj: The `obj` parameter is an object that represents a followed user
+        :return: the profile picture URL of the followed user.
+        """
+        if obj.followed_user.profile_pic_url:
+            url = obj.followed_user.profile_pic_url.url.split('?')[0]
+            return url
+    
+        return 'https://scicommons.s3.amazonaws.com/None'
+    
+    def get_isFollowing(self, obj):
+        """
+        The function checks if a user is following another user.
+        
+        :param obj: The `obj` parameter is an object that represents the user being followed
+        :return: a boolean value. If the user is authenticated and there is a Follow object with the user
+        and the followed_user specified, it will return True. Otherwise, it will return False.
+        """
+        if self.context['request'].user.is_authenticated is False:
+            return False
+        member = Follow.objects.filter(user=self.context['request'].user, followed_user=obj.followed_user).first()
+        if member is not None:
+            return True
+        else:
+            return False
+
+class FollowCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Follow
+        fields = ['id', 'user', 'followed_user']
+        read_only_fields = ['user','id']
+
+    def create(self, validated_data):
+        """
+        The function creates a new instance of a model with the provided validated data and associates it
+        with the current user.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the validated
+        data that was passed to the serializer. This data has already been validated and is ready to be
+        used to create a new instance of the model
+        :return: The instance that was created and saved.
+        """
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+
+class SocialPostBookmarkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookMark
+        fields = ['id', 'user', 'post']
+        read_only_fields = ['user','id']
+
+class SocialPostBookmarkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookMark
+        fields = ['id', 'user', 'post']
+        read_only_fields = ['user','id']
+
+    def create(self, validated_data):
+        """
+        The function creates a new instance of a model with the provided validated data and associates it
+        with the current user.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the validated
+        data for creating a new instance of the model. This data has been validated against the model's
+        fields and any validation rules defined in the serializer
+        :return: The instance that was created and saved.
+        """
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+    
+'''
+Message Serailizer
+'''
+    
+class MessageSerializer(serializers.ModelSerializer):
+    receiver = serializers.SerializerMethodField(read_only=True)
+    sender = serializers.SerializerMethodField(read_only=True)
+    avatar = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = PersonalMessage
+        fields = ["id","sender", "receiver", "media", "body", "created_at", "avatar","channel"]
+
+    def get_receiver(self, obj):
+        """
+        The function `get_receiver` takes an object as input and returns the username of the receiver of
+        that object.
+        
+        :param obj: The `obj` parameter is an object that has a `receiver` attribute. The `receiver`
+        attribute is expected to be an object with an `id` attribute
+        :return: The username of the user associated with the receiver object.
+        """
+
+        user = User.objects.filter(id=obj.receiver.id).first()
+        return f"{user.username}"
+    
+    def get_sender(self,obj):
+        """
+        The function `get_sender` takes an object `obj` and returns the username of the sender of that
+        object.
+        
+        :param obj: The `obj` parameter is an object that represents the sender of a message
+        :return: the username of the sender of the given object.
+        """
+        user = User.objects.filter(id=obj.sender.id).first()
+        return f"{user.username}"
+    
+    def get_avatar(self,obj):
+        """
+        The function `get_avatar` returns the profile picture URL of the sender if the sender is the
+        current user, otherwise it returns the profile picture URL of the receiver.
+        
+        :param obj: The `obj` parameter is an object that represents a message. It likely has attributes
+        such as `sender` and `receiver`, which are objects representing the sender and receiver of the
+        message
+        :return: the profile picture URL of either the receiver or the sender, depending on whether the
+        sender is the current user or not.
+        """
+        if obj.sender == self.context['request'].user:
+            if obj.receiver.profile_pic_url:
+                url = obj.receiver.profile_pic_url.url.split('?')[0]
+                return url
+            return 'https://scicommons.s3.amazonaws.com/None'
+        else:
+            if obj.sender.profile_pic_url:
+                url = obj.sender.profile_pic_url.url.split('?')[0]
+                return url
+            return 'https://scicommons.s3.amazonaws.com/None'
+
+
+
+class MessageUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PersonalMessage
+        fields = ["body", "media"]
+
+
+class MessageCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PersonalMessage
+        fields = ["body", "receiver", "media"]
+
+    def create(self, validated_data):
+        """
+        The function creates a chat instance, saves it to the database, and sends a message via
+        websockets to a specific channel.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the validated
+        data for creating a new instance of the model. It typically includes the data that was submitted
+        in a request and has been validated against the model's fields
+        :return: The instance of the created object is being returned.
+        """
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+
+        receiver = validated_data("receiver", None)
+
+        temp = [f"{self.context['request'].user}",f"{receiver}"]
+        temp.sort()
+        channel = f"chat_{temp[0]}_{temp[1]}"
+
+        instance = self.Meta.model.objects.create(
+            **validated_data, channel=channel, sender=self.context["request"].user
+        )
+        instance.save()
+
+        if receiver:
+            message = {
+                "sender": instance.sender,
+                "receiver": instance.receiver,
+                "body": instance.body,
+                "media":instance.media.url
+            }
+
+        # Send the message via websockets
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            channel, {"type": "chat_message", "message": message}
+        )
+
+        return instance
+    
+class MessageListSerializer(serializers.ModelSerializer):
+    receiver = serializers.SerializerMethodField(read_only=True)
+    avatar = serializers.SerializerMethodField(read_only=True)
+    unread_count = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = PersonalMessage
+        fields = ["id", "receiver", "media", "body", "created_at", "avatar","channel", "unread_count"]
+
+    def get_receiver(self, obj):
+        """
+        The function returns the username of the receiver of a message object, based on the sender and
+        the current user.
+        
+        :param obj: The `obj` parameter is an object that has a `sender` and `receiver` attribute. These
+        attributes are expected to be instances of the `User` model
+        :return: the username of the receiver or sender, depending on the condition.
+        """
+        if obj.sender == self.context['request'].user:
+            user = User.objects.filter(id=obj.receiver.id).first()
+            return f"{user.username}"
+        user = User.objects.filter(id=obj.sender.id).first()
+        return f"{user.username}"
+    
+    def get_avatar(self,obj):
+        """
+        The function `get_avatar` returns the profile picture URL of the sender if the sender is the
+        current user, otherwise it returns the profile picture URL of the receiver.
+        
+        :param obj: The `obj` parameter is an object that represents a message. It is used to determine
+        the sender and receiver of the message
+        :return: the profile picture URL of either the receiver or the sender, depending on whether the
+        sender is the current user or not.
+        """
+        if obj.sender == self.context['request'].user:
+            if obj.receiver.profile_pic_url:
+                url = obj.receiver.profile_pic_url.url.split('?')[0]
+                return url
+            return 'https://scicommons.s3.amazonaws.com/None'
+        else:
+            if obj.sender.profile_pic_url:
+                url = obj.sender.profile_pic_url.url.split('?')[0]
+                return url
+            return 'https://scicommons.s3.amazonaws.com/None'
+
+    def get_unread_count(self,obj):
+        """
+        The function `get_unread_count` returns the number of unread personal messages for a given user.
+        
+        :param obj: The `obj` parameter is not used in the code snippet provided. It seems to be unused
+        and can be removed from the method signature
+        :return: the count of unread personal messages for the specified user.
+        """
+        count = PersonalMessage.objects.filter(Q(sender=self.context['request'].user) | Q(receiver=self.context['request'].user), is_read=False).count()
+        return count
+    
+
+class GroupSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Group
+        fields = ["id", "title", "user", "members" ]
+        read_only_fields = ["id"]
+    
+    
+class GroupUpdateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Group
+        fields = ["id", "title", "user", "members" ]
+        read_only_fields = ["id", "user", "title"]
+    
+    def update(self, instance, validated_data):
+
+        instance.title = validated_data.get('title', instance.title)
+        instance.save()
+        return instance
+
+class GroupCommentSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = GroupComment
+        fields = ["id", "user", "group", "comment", "created_at"]
+        read_only_fields = ["id", "user", "group", "created_at"]
+
+    def create(self, validated_data):
+
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+    
+class GroupCommentUpdateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = GroupComment
+        fields = ["id", "user", "group", "comment", "created_at"]
+        read_only_fields = ["id", "user", "group", "created_at"]
+
+    def update(self, instance, validated_data):
+
+        instance.comment = validated_data.get('comment', instance.comment)
+        instance.save()
+        return instance
+
+
+class GroupMemberSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = GroupMember
+        fields = ["id", "user", "group", "is_admin"]
+        read_only_fields = ["id", "user", "group"]
+    
+    def create(self, validated_data):
+            
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+    
+class GroupMetaSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = GroupMeta
+        fields = ["id", "group", "article"]
+        read_only_fields = ["id", "group"]
+    
+    def create(self, validated_data):
+            
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+
+class GroupRequestSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = GroupRequest
+        fields = ["id", "user", "group", "status"]
+        read_only_fields = ["id", "user", "group"]
+    
+    def create(self, validated_data):
+            
+        instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
+        instance.save()
+        return instance
+
+
+
