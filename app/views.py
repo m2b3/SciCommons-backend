@@ -1164,5 +1164,717 @@ class ArticleViewset(viewsets.ModelViewSet):
             return Response(data={"error":e}, status=status.HTTP_400_BAD_REQUEST)
     
 
-      
+     
+class CommentViewset(viewsets.ModelViewSet):
+    # The above code is defining a Django view for handling comments. It retrieves all instances of
+    # the CommentBase model from the database using the `objects.all()` method and assigns it to the
+    # `queryset` variable. It also retrieves all instances of the LikeBase model and assigns it to the
+    # `queryset2` variable.
+    queryset = CommentBase.objects.all()
+    queryset2 = LikeBase.objects.all()
+    permission_classes = [CommentPermission]    
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = CommentSerializer
+    filter_backends = [DjangoFilterBackend,filters.OrderingFilter]
+    filterset_class = CommentFilter
+    http_method_names = ['post', 'get', 'put', 'delete']
+    
+    action_serializer = {
+        "list": CommentlistSerializer,
+        "create":CommentCreateSerializer,
+        "update":CommentUpdateSerializer,
+        "retrieve": CommentSerializer,
+        "destroy": CommentSerializer,
+        "like":LikeSerializer,
+        "block_user": ArticleBlockUserSerializer,
+    }
+    
+    def get_serializer_class(self):
+        return self.action_serializer.get(self.action, self.serializer_class)
+    
+    def get_queryset(self):
+        """
+        The `get_queryset` function filters the queryset based on various query parameters.
+        :return: a queryset based on the provided query parameters. If the "article" parameter is not
+        provided, an empty queryset is returned. Otherwise, the queryset is filtered based on the provided
+        parameters (article, tag, Type, comment_type, parent_comment, and version).
+        """
+        article = self.request.query_params.get("article", None)
+        tag = self.request.query_params.get("Community_name",None)
+        Type = self.request.query_params.get("Type",None)
+        comment_type = self.request.query_params.get("comment_type",None)
+        parent_comment = self.request.query_params.get("parent_comment",None)
+        version = self.request.query_params.get("version",None)
+        if article is not None:
+            if Type is not None:
+                if tag is not None:
+                    if comment_type is not None:
+                        qs = self.queryset.filter(article=article,tag=tag,Type=Type,comment_type=comment_type,parent_comment=parent_comment,version=version)
+                    else:
+                        qs = self.queryset.filter(article=article,tag=tag,Type=Type,parent_comment=parent_comment,version=version)
+                else:
+                    if comment_type is not None:
+                        qs = self.queryset.filter(article=article,Type=Type,comment_type=comment_type,parent_comment=parent_comment,version=version)
+                    else:
+                        qs = self.queryset.filter(article=article,Type=Type,parent_comment=parent_comment,version=version)
+            else:
+                if tag is not None:
+                    if comment_type is not None:
+                        qs = self.queryset.filter(article=article,tag=tag,comment_type=comment_type,parent_comment=parent_comment,version=version)
+                    else:
+                        qs = self.queryset.filter(article=article,tag=tag,parent_comment=parent_comment,version=version)
+                else:
+                    if comment_type is not None:
+                        qs = self.queryset.filter(article=article,comment_type=comment_type,parent_comment=parent_comment,version=version)
+                    else:
+                        qs = self.queryset.filter(article_id=article,parent_comment=parent_comment,version=version)
+        else:
+            qs = CommentBase.objects.none()
+            
+        return qs
+    
+    def list(self, request):
+        
+        response = super(CommentViewset, self).list(request)
+
+        return Response(data={"success":response.data})
+    
+    def retrieve(self, request, pk):
+
+        response = super(CommentViewset, self).retrieve(request,pk=pk)
+
+        return Response(data={"success":response.data})
+
+    def create(self, request):
+        """
+        The `create` function checks various conditions and creates a comment, decision, or review based on
+        the request data.
+        
+        :param request: The `request` parameter is an object that contains information about the HTTP
+        request made by the client. It includes details such as the request method (GET, POST, etc.),
+        headers, body, and user information. In this code snippet, the `request` object is used to access
+        data sent in
+        :return: The code returns a response object with different data depending on the conditions in the
+        code. The possible responses are:
+        """
+        member = ArticleBlockedUser.objects.filter(article=request.data["article"],user=request.user).first()
+        if member is not None:
+            return Response(data={"error": "You are blocked from commenting on this article by article moderator!!!"}, status=status.HTTP_400_BAD_REQUEST)
+        if request.data["parent_comment"] or request.data["version"]:
+            request.data["Type"] = "comment"
+
+        if request.data["Type"] == 'decision':
+            moderators_arr = [moderator for moderator in ArticleModerator.objects.filter(article=request.data["article"],moderator__user = request.user)]
+            if len(moderators_arr)>0:
+                if self.queryset.filter(article=request.data["article"],User=request.user,Type="decision").first():
+                    return Response(data={"error": "You have already made decision!!!"}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    decision = request.data["decision"]
+                    request.data.pop("decision")
+                    communityName = request.data["tag"]
+                    community = Community.objects.filter(Community_name=communityName).first()
+                    member = CommunityMeta.objects.filter(article=request.data["article"],community_id=community.id).first()
+                    member.status = decision
+                    member.save()
+                    response = super(CommentViewset, self).create(request)
+                    member = CommentBase.objects.filter(id=response.data.get("id")).first()
+                    created = CommentSerializer(instance=member, context={'request': request})
+                    return Response(data={"success":"Decision successfully added", "comment": created.data})
+            
+            else: 
+                return Response(data={"error": "You can't write a decision on the article!!!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        elif request.data['Type'] == 'review':
+            author = Author.objects.filter(User=request.user,article=request.data["article"]).first()
+            if author is not None:
+                return Response(data={"error": "You are Author of Article.You can't submit a review"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            c = ArticleModerator.objects.filter(article=request.data["article"],moderator__user = request.user).count()
+            if c > 0:
+                return Response(data={"error": "You can't make a review over article"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            count = CommentBase.objects.filter(article=request.data["article"],User=request.user,tag=request.data['tag'],Type='review').count()
+            if count == 0:
+                response = super(CommentViewset, self).create(request)
+                member = CommentBase.objects.filter(id=response.data.get("id")).first()
+                created = CommentSerializer(instance=member, context={'request':request})
+                return Response(data={"success":"Review successfully added", "comment": created.data})
+            
+            else: 
+                return Response(data={"error":"Review already added by you!!!"}, status=status.HTTP_400_BAD_REQUEST)
+                
+        else:
+            if request.data['Type'] == 'comment' and (request.data['parent_comment'] or request.data['version']) is None:
+                return Response(data={"error":"Comment must have a parent instance"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            response = super(CommentViewset, self).create(request)
+            member = CommentBase.objects.filter(id=response.data.get("id")).first()
+            created = CommentSerializer(instance=member, context={'request': request})
+            return Response(data={"success":"Comment successfully added","comment": created.data})
+
+
+    def update(self, request, pk):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(data={"success":serializer.data})
+
+
+    def destroy(self, request, pk ):
+        member = CommentBase.objects.filter(id=pk).first()
+        if member is None:
+            return Response(data={"error":"Comment not found!!!"}, status=status.HTTP_404_NOT_FOUND)
+        member.delete()
+        return Response(data={"success":"Comment successfully deleted"})
+    
+    @action(methods=['post'], detail=False, permission_classes=[permissions.IsAuthenticated])
+    def like(self, request):
+        """
+        This function allows authenticated users to like or rate a comment, updating the rank of the
+        comment's user and the overall rank of the comment.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by the
+        client. It contains information such as the request method (e.g., POST), headers, user
+        authentication details, and the data sent in the request body. In this code snippet, the `request`
+        object is used to
+        :return: The code is returning a response in the form of a JSON object. If the condition `if member
+        is not None` is true, it returns a success message "Comment rated successfully." If the condition is
+        false, it creates a new `LikeBase` object, updates the rank of the comment's user, and returns the
+        success message "Comment rated successfully."
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        member = LikeBase.objects.filter(user=request.user, post=serializer.data['post']).first()
+        comment = CommentBase.objects.filter(id=serializer.data['post']).first()
+        if comment.User == request.user:
+            return Response(data={'error': "you can't rate your comment"}, status=status.HTTP_400_BAD_REQUEST)
+        handle = HandlersBase.objects.filter(User=request.user, article=comment.article).first()
+        if handle is None: 
+            handle = HandlersBase.objects.create(User=request.user, article=comment.article, handle_name=fake.name())
+            handle.save()
+        handle = HandlersBase.objects.filter(User=self.request.user,article=comment.article).first()
+        if member is not None:
+            rank = Rank.objects.filter(user=comment.User).first()
+            rank.rank -= member.value
+            rank.rank += serializer.data['value']
+            member.value = serializer.data['value']
+            member.save()
+            rank.save()
+            return Response({'success': 'Comment rated successfully.'})
+        else :
+
+            like = LikeBase.objects.create(user=self.request.user, post=comment, value=serializer.data['value'])
+            like.save()
+                
+            rank = Rank.objects.filter(user=comment.User).first()
+            if rank:
+                rank.rank += serializer.data['value']
+                rank.save()
+
+            else:
+                rank = Rank.objects.create(user=self.request.user, rank=serializer.data['value'])
+                rank.save()
+            
+            return Response({'success': 'Comment rated successfully.'})
+    
+    @action(methods=['post'],detail=False, url_path='(?P<pk>.+)/block_user', permission_classes=[CommentPermission])
+    def block_user(self, request, pk):
+        """
+        The above function blocks a user from accessing an article.
+        
+        :param request: The request object contains information about the current HTTP request, such as
+        the headers, body, and user authentication details
+        :param pk: The "pk" parameter in the above code refers to the primary key of the article object.
+        It is used to identify the specific article that the user wants to block a user from
+        :return: The code is returning a response in JSON format. If the user is already blocked, it
+        will return a response with an error message: {"error": "User already blocked!!!"}. If the user
+        is successfully blocked, it will return a response with a success message: {"success": "user
+        blocked successfully"}.
+        """
+        comment = CommentBase.objects.filter(id=pk).first()
+        member = ArticleBlockedUser.objects.filter(article=comment.article,user=comment.User).first()
+        if member is not None:
+            member.delete()
+            return Response(data={"success":"User is unblocked successfully!!!"})
+        ArticleBlockedUser.objects.create(article=comment.article,user=comment.User)
+        return Response(data={"success":f"user blocked successfully!!!"})
+ 
+    
+
+class NotificationViewset(viewsets.ModelViewSet):
+    # The above code is defining a Django view for handling notifications. It is using the
+    # `Notification` model to retrieve all notification objects from the database. The view has a
+    # permission class called `NotificationPermission` which controls access to the view. It also
+    # specifies the parser classes for handling different types of data formats (JSON, multipart, form
+    # data). The view uses the `NotificationSerializer` to serialize the notification objects and
+    # return them as a response. The allowed HTTP methods for this view are GET, PUT, and DELETE.
+    queryset = Notification.objects.all()
+    permission_classes = [NotificationPermission]    
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = NotificationSerializer
+    http_method_names = ['get','put', 'delete']
+        
+    def get_queryset(self):
+        qs = self.queryset.filter(user=self.request.user).order_by('-date')
+        return qs
+    
+    def list(self, request):
+        response = super(NotificationViewset , self).list(request)
+    
+        return Response(data={"success":response.data})
+    
+    def retrieve(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request,obj)
+        response = super(NotificationViewset, self).retrieve(request,pk=pk)
+    
+        return Response(data={"success":response.data})
+
+    def update(self, request, pk):
+        instance = Notification.objects.filter(id=pk).first()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(data={"success":"notification marked!!!"})
+    
+    def destroy(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request,obj)
+        response = super(NotificationViewset, self).destroy(request, pk)
+    
+        return Response(data={"success":"Notification deleted successfully."})
+
+
+
+class SocialPostViewset(viewsets.ModelViewSet):
+    # The above code is defining a Django view for handling social posts. It is using the `SocialPost`
+    # model as the queryset, applying the `SocialPostPermission` class for permission checks, and
+    # using various parsers for handling different types of data (JSON, multipart, form). It is also
+    # using the `SocialPostSerializer` class for serialization, and applying the `PostFilters` class
+    # for filtering the queryset. The allowed HTTP methods for this view are GET, POST, DELETE, and
+    # PUT.
+    queryset = SocialPost.objects.all()
+    permission_classes = [SocialPostPermission]    
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = SocialPostSerializer
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_class = PostFilters
+    http_method_names = ['get', 'post', 'delete', 'put']
+    
+    action_serializers = {
+        "create": SocialPostCreateSerializer,
+        "destroy": SocialPostSerializer,
+        "retrieve": SocialPostGetSerializer,
+        "list": SocialPostListSerializer,
+        "update": SocialPostUpdateSerializer,
+        "like": SocialPostLikeSerializer,
+        "unlike": SocialPostLikeSerializer,
+        "bookmark": SocialPostBookmarkSerializer,
+        "unbookmark": SocialPostBookmarkSerializer,
+        "bookmarks": SocialPostListSerializer,
+    }
+        
+    def get_serializer_class(self):
+        return self.action_serializers.get(self.action, self.serializer_class)
+    
+    def get_queryset(self):
+        if self.request.user.is_authenticated is False:
+            qs = self.queryset.order_by('-created_at')
+            return qs
+        qs = self.queryset.order_by('-created_at')
+        return qs
+    
+    def list(self, request):
+        response = super(SocialPostViewset , self).list(request)
+    
+        return Response(data={"success":response.data})
+    
+    def retrieve(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request,obj)
+        response = super(SocialPostViewset, self).retrieve(request,pk=pk)
+    
+        return Response(data={"success":response.data})
+    
+    
+    def create(self, request):
+
+        response = super(SocialPostViewset, self).create(request)
+    
+        return Response(data={"success":"Post Successfully added!!!"})
+    
+    def update(self, request, pk):
+        member = SocialPost.objects.filter(id=pk).first()
+        if member is None:
+            return Response(data={"error":"Post not found!!!"})
+        serializer = SocialPostUpdateSerializer(member, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(data={"success":serializer.data})
+    
+    def destroy(self, request, pk):
+        response = SocialPost.objects.filter(id=pk).first()
+        if response is None:
+            return Response(data={"error":"Post not found!!!"})
+        response.delete()
+        return Response(data={"success":"Post Successfuly removed!!!"})
+    
+    @action(methods=['get'],detail=False,url_path="timeline", permission_classes=[SocialPostPermission])
+    def timeline(self,request):
+        """
+        The above function retrieves the timeline of social posts for a user by filtering posts from
+        users they are following and returning the serialized data.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (GET, POST, etc.), headers, user
+        authentication details, and the request body
+        :return: The response will contain a JSON object with a "success" key and the serialized data of
+        the SocialPost objects in the "data" value.
+        """
+        following = Follow.objects.filter(user=request.user).values_list('followed_user', flat=True)
+        posts = SocialPost.objects.filter(user__in=following.all())
+        serializer = SocialPostListSerializer(posts, many=True,context={"request":request})
+        return Response(data={"success":serializer.data})
+    
+    @action(methods=['get'],detail=False,url_path="bookmarks", permission_classes=[SocialPostPermission])
+    def bookmarks(self,request):
+        """
+        This function retrieves the bookmarks of a user and returns the corresponding social posts.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the user making the request, the HTTP method used
+        (GET, POST, etc.), and any data or parameters sent with the request. In this case, the `request`
+        object is
+        :return: The code is returning a response with a JSON object containing the serialized data of
+        the SocialPost objects that are bookmarked by the current user. The serialized data is obtained
+        using the SocialPostListSerializer. The JSON object has a key "success" with the value being the
+        serialized data.
+        """
+        bookmarks = BookMark.objects.filter(user=request.user).values_list('post', flat=True)
+        posts = SocialPost.objects.filter(id__in=bookmarks.all())
+        serializer = SocialPostListSerializer(posts, many=True, context={"request":request})
+        return Response(data={"success":serializer.data})
+
+    @action(methods=['post'], detail=False,url_path="like", permission_classes=[SocialPostPermission])
+    def like(self, request):
+        """
+        This function allows a user to like a social post and returns a success message if the like is
+        successful, or an error message if the user has already liked the post.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, body,
+        and user authentication details. In this case, it is used to retrieve the data sent in the
+        request body (`
+        :return: The code is returning a response in JSON format. If the post has already been liked by
+        the user, it will return a response with an error message "Already Liked!!!". If the post has
+        not been liked by the user, it will create a new SocialPostLike object and return a response
+        with a success message "Liked!!!".
+        """
+        post = SocialPostLike.objects.filter(post_id=request.data["post"], user=request.user).first()
+        if post is not None:
+            return Response(data={"error":"Already Liked!!!"})
+        SocialPostLike.objects.create(post_id=request.data["post"], user=request.user)
+        return Response(data={"success":"Liked!!!"})
+
+    @action(methods=['post'], detail=False,url_path="unlike", permission_classes=[SocialPostPermission])
+    def unlike(self, request):
+        """
+        This function allows a user to unlike a social post by deleting their like entry from the
+        database.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, query
+        parameters, and the request body. In this case, it is used to access the data sent in the
+        request body
+        :return: The code is returning a response in JSON format. If the member is found and deleted
+        successfully, it returns a success message "DisLiked!!!". If the member is not found, it returns
+        an error message "Post not found!!!".
+        """
+        member = SocialPostLike.objects.filter(post_id=request.data["post"],user=request.user).first()
+        if member is not None:
+            member.delete()
+            return Response(data={"success":"DisLiked!!!"})
+        else:
+            return Response(data={"error":"Post not found!!!"})
+    
+    @action(methods=['post'], detail=False,url_path="bookmark", permission_classes=[SocialPostPermission])
+    def bookmark(self, request):
+        """
+        The above function allows a user to bookmark a post if it has not already been bookmarked.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, query
+        parameters, and the request body. In this case, it is used to access the data sent in the
+        request body
+        :return: The code is returning a Response object with either an error message or a success
+        message, depending on the outcome of the bookmarking operation. If the post has already been
+        bookmarked by the user, it will return an error message stating "Already Bookmarked!!!". If the
+        bookmarking operation is successful, it will return a success message stating "Bookmarked!!!".
+        """
+        post = BookMark.objects.filter(post_id=request.data["post"], user=request.user).first()
+        if post is not None:
+            return Response(data={"error":"Already Bookmarked!!!"})
+        BookMark.objects.create(post_id=request.data["post"], user=request.user)
+        return Response(data={"success":"Bookmarked!!!"})
+
+    @action(methods=['post'], detail=False,url_path="unbookmark", permission_classes=[SocialPostPermission])
+    def unbookmark(self, request):
+        """
+        The above function is a Django view that allows a user to unbookmark a post.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, query
+        parameters, and the request body. In this case, it is used to access the data sent in the
+        request body
+        :return: The code is returning a Response object with either a success message
+        ("UnBookmarked!!!") or an error message ("BookMark not found!!!").
+        """
+        member = BookMark.objects.filter(post_id=request.data["post"],user=request.user).first()
+        if member is not None:
+            member.delete()
+            return Response(data={"success":"UnBookmarked!!!"})
+        else:
+            return Response(data={"error":"BookMark not found!!!"})
+
+
+
+class SocialPostCommentViewset(viewsets.ModelViewSet):
+    # The above code is defining a Django view for handling social post comments. It is using the
+    # `SocialPostComment` model as the queryset for retrieving comments. The view has specified the
+    # `SocialPostCommentPermission` class as the permission class, which determines who can access the
+    # view. It is also using various parser classes to parse the incoming request data.
+    queryset = SocialPostComment.objects.all()
+    permission_classes = [SocialPostCommentPermission]    
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = SocialPostCommentSerializer
+    http_method_names = ['get', 'post', 'delete', 'put']
+    
+    action_serializers = {
+        "create": SocialPostCommentCreateSerializer,
+        "destroy": SocialPostCommentSerializer,
+        "retrieve": SocialPostCommentListSerializer,
+        "list": SocialPostCommentListSerializer,
+        "update": SocialPostCommentUpdateSerializer,
+        "like": SocialPostCommentLikeSerializer,
+        "unlike": SocialPostCommentLikeSerializer
+    }
+        
+    def get_serializer_class(self):
+        return self.action_serializers.get(self.action, self.serializer_class)
+    
+    def get_queryset(self):
+        # The above code is a Python function that filters a queryset based on the values of the
+        # "post" and "comment" query parameters.
+        post = self.request.query_params.get("post", None)
+        comment = self.request.query_params.get("comment", None)
+        if comment is not None:
+            qs = self.queryset.filter(post_id = post,parent_comment_id=comment)
+        elif post is not None:
+            qs = self.queryset.filter(post_id=post).exclude(parent_comment__isnull=False)
+        else:
+            qs = []
+        return qs
+    
+    def list(self, request):
+        response = super(SocialPostCommentViewset , self).list(request)
+    
+        return Response(data={"success":response.data})
+    
+    def retrieve(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request,obj)
+        response = super(SocialPostCommentViewset, self).retrieve(request,pk=pk)
+    
+        return Response(data={"success":response.data})
+    
+    
+    def create(self, request):
+        response = super(SocialPostCommentViewset, self).create(request)
+        created = response.data
+    
+        return Response(data={"success":"Comment Successfully added!!!","comment": created})
+    
+    def update(self, request, pk):
+
+        instance = SocialPostComment.objects.filter(id=pk).first()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(data={"success":serializer.data})
+    
+    def destroy(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request,obj)
+        response = super(SocialPostCommentViewset, self).destroy(request, pk)
+    
+        return Response(data={"success":"Comment Successfuly removed!!!"})
+
+    @action(methods=['post'], detail=False,url_path="like", permission_classes=[SocialPostCommentPermission])
+    def like(self, request):
+        """
+        The above function allows a user to like a social post comment, but returns an error message if
+        the user has already liked the comment.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, body,
+        and user authentication details. In this case, it is used to retrieve the data sent in the
+        request body,
+        :return: The response being returned is a JSON object with either an "error" key and value if
+        the comment has already been liked, or a "success" key and value if the like is successfully
+        created.
+        """
+        if SocialPostCommentLike.objects.filter(comment_id=request.data["comment"], user=request.user).first() is not None:
+            return Response(data={"error":"Already Liked!!!"})
+        SocialPostCommentLike.objects.create(comment_id=request.data["comment"], user=request.user)
+        return Response(data={"success":"Liked!!!"})
+
+    @action(methods=['post'], detail=False,url_path="unlike", permission_classes=[SocialPostCommentPermission])
+    def unlike(self, request):
+        """
+        The above function allows a user to unlike a comment on a social post.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, user
+        authentication details, and the request data (e.g., form data, JSON payload). In this case, the
+        `
+        :return: The code is returning a response in JSON format. If the comment is found and
+        successfully deleted, it will return a success message: {"success": "DisLiked!!!"}. If the
+        comment is not found, it will return an error message: {"error": "Comment not found!!!"}.
+        """
+        comment = SocialPostCommentLike.objects.filter(comment_id=request.data["comment"],user=request.user).first()
+        if comment is not None:
+            comment.delete()
+            return Response(data={"success":"DisLiked!!!"})
+        else:
+            return Response(data={"error":"Comment not found!!!"})
+  
+    
+
+
+class ArticleChatViewset(viewsets.ModelViewSet):
+    # The above code is defining a Django view for handling CRUD operations on ArticleMessage objects.
+    # It specifies the queryset to retrieve all ArticleMessage objects, sets the permission classes to
+    # ArticleChatPermissions, and sets the parser classes to JSONParser, MultiPartParser, and
+    # FormParser. The serializer_class is set to ArticleChatSerializer, which will be used to
+    # serialize and deserialize ArticleMessage objects. The http_method_names are set to allow POST,
+    # GET, PUT, and DELETE requests. The action_serializer dictionary maps different actions (create,
+    # retrieve, list, update, destroy) to different serializers for handling those actions.
+    queryset = ArticleMessage.objects.all()
+    permission_classes = [ArticleChatPermissions]
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = ArticleChatSerializer
+    http_method_names = ["post", "get", "put", "delete"]
+
+    action_serializer = {
+                        "create": ArticleChatCreateSerializer,
+                         "retrieve": ArticleChatSerializer,
+                         "list": ArticleChatSerializer,
+                         "update": ArticleChatUpdateSerializer,
+                         "destroy": ArticleChatSerializer
+                        }
+
+    def get_serializer_class(self):
+        return self.action_serializer.get(self.action, self.serializer_class)
+
+    def get_queryset(self):
+        article = self.request.query_params.get("article", None)
+        if article is not None:
+            qs = self.queryset.filter(article_id=article).order_by("created_at")
+            return qs
+        return ArticleMessage.objects.none()
+
+    def list(self, request):
+        response = super(ArticleChatViewset, self).list(request)
+
+        return Response(data={"success": response.data})
+
+    def retrieve(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request, obj)
+        response = super(ArticleChatViewset, self).retrieve(request, pk=pk)
+
+        return Response(data={"success": response.data})
+
+    def create(self, request):
+        response = super(ArticleChatViewset, self).create(request)
+        
+        return Response(data={"success": response.data})
+
+    def update(self, request, pk):
+        self.get_object()
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(data={"success": serializer.data})
+
+    def destroy(self, request, pk):
+        super(ArticleChatViewset, self).destroy(request, pk=pk)
+
+        return Response(data={"success": "chat successfully deleted"})
+
+
+class PersonalMessageViewset(viewsets.ModelViewSet):
+    queryset = PersonalMessage.objects.all()
+    permission_classes = [MessagePermissions]
+    parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+    serializer_class = MessageSerializer
+    http_method_names = ["get", "post", "delete", "put"]
+
+    action_serializers = {
+        "create": MessageCreateSerializer,
+        "retrieve": MessageSerializer,
+        "list": MessageSerializer,
+        "update": MessageUpdateSerializer,
+        "destroy": MessageSerializer,
+    }
+
+    def get_serializer_class(self):
+        return self.action_serializers.get(self.action, self.serializer_class)
+
+    def get_queryset(self):
+        qs = self.queryset.filter(Q(sender=self.request.user) | Q(receiver=self.request.user)).order_by('-created_at')
+        return qs
+
+    def list(self, request):
+        response = super(PersonalMessageViewset, self).list(request)
+
+        return Response(data={"success": response.data})
+
+    def retrieve(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request, obj)
+        response = super(PersonalMessageViewset, self).retrieve(request, pk=pk)
+
+        return Response(data={"success": response.data})
+
+    def create(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            data={"success": "Message Successfully sent", "message": serializer.data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, pk):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(data={"success": serializer.data})
+
+    def destroy(self, request, pk):
+        obj = self.get_object()
+        self.check_object_permissions(request, obj)
+        super(PersonalMessageViewset, self).destroy(request, pk)
+
+        return Response(data={"success": "Message Successfuly removed!!!"})
+   
 
