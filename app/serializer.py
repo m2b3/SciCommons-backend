@@ -803,12 +803,12 @@ class PromoteSerializer(serializers.ModelSerializer):
             elif role == 'member':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
                 moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
-                if reviewer.exists():
+                if reviewer is not None:
                     article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
                     if article_reviewer.exists():
                         raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
-                if moderator.exists():
+                if moderator is not None:
                     article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
                     if article_moderator.exists():
                         raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
@@ -816,6 +816,7 @@ class PromoteSerializer(serializers.ModelSerializer):
                         moderator.delete()
                 member.is_reviewer = False
                 member.is_moderator = False
+                member.is_admin = False
                 member.save()
                 send_mail(f'you are added to {instance.Community_name}',f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name}')
