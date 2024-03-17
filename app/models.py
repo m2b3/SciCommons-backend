@@ -2,7 +2,9 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
-
+from PIL import Image
+from io import BytesIO
+import os
 # Create your models here.
 
 from faker import Faker
@@ -51,6 +53,16 @@ class User(AbstractUser):
     institute = models.CharField(max_length=255,null=True,blank=True)
     email_notify = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if self.profile_pic_url:
+            image = Image.open(self.profile_pic_url)
+            webp_io = BytesIO()
+            image.save(webp_io, 'WEBP')
+            webp_io.seek(0)
+            webp_name = os.path.splitext(os.path.basename(self.profile_pic_url.name))[0] + ".webp"
+            self.profile_pic_url.save(webp_name, webp_io, save=False)
+        super().save(*args, **kwargs)
 
     objects = UserManager()
 
@@ -416,6 +428,15 @@ class SocialPost(models.Model):
     
     class Meta:
         db_table = 'social_post'
+    def save(self, *args, **kwargs):
+        if self.image:
+            image = Image.open(self.image)
+            webp_io = BytesIO()
+            image.save(webp_io, 'WEBP')
+            webp_io.seek(0)
+            webp_name = os.path.splitext(os.path.basename(self.image.name))[0] + ".webp"
+            self.image.save(webp_name, webp_io, save=False)
+        super().save(*args, **kwargs)
         
     def __str__(self):
         return self.post
