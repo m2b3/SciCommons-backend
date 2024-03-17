@@ -733,7 +733,7 @@ class PromoteSerializer(serializers.ModelSerializer):
         if member is None:
             
             if role == "member":
-                member = CommunityMember.objects.create(community=instance, user_id=user_id)
+                member = CommunityMember.objects.create(community=instance, user_id=user_id).first()
                 member.is_reviewer = False
                 member.is_moderator = False
                 member.is_admin = False
@@ -749,12 +749,13 @@ class PromoteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(detail={"error": "role can't be None"})
             
             elif role == 'reviewer':
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
-                article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
-                if article_moderator.exists():
-                    raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
-                if moderator.exists():
-                    moderator.delete()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if moderator is not None:
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else :
+                        moderator.delete()
                 OfficialReviewer.objects.create(User_id=user_id, community=instance, Official_Reviewer_name=fake.name())
                 member.is_reviewer = True
                 member.is_moderator = False
@@ -764,11 +765,11 @@ class PromoteSerializer(serializers.ModelSerializer):
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as reviewer')
                 
             elif role == 'moderator':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
-                article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
-                if article_reviewer.exists():
-                    raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
-                if reviewer.exists():
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
                 Moderator.objects.create(user_id=user_id, community=instance)
                 member.is_moderator = True
@@ -780,11 +781,18 @@ class PromoteSerializer(serializers.ModelSerializer):
                 
             elif role == 'admin':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
-                if reviewer is not None:
-                    reviewer.delete()
                 moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                    reviewer.delete()
                 if moderator is not None:
-                    moderator.delete()
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else :
+                        moderator.delete()
                 member.is_moderator = False
                 member.is_reviewer = False
                 member.is_admin = True
@@ -793,16 +801,22 @@ class PromoteSerializer(serializers.ModelSerializer):
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as admin')
                                 
             elif role == 'member':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
-                if reviewer.exists():
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
-                
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
-                if moderator.exists():
-                    moderator.delete()
-                    
+                if moderator is not None:
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else :
+                        moderator.delete()
                 member.is_reviewer = False
                 member.is_moderator = False
+                member.is_admin = False
                 member.save()
                 send_mail(f'you are added to {instance.Community_name}',f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name}')
@@ -1767,6 +1781,13 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = CommentBase.objects.filter(version=obj)
         serializer = CommentSerializer(comment,many=True, context={"request": self.context['request']})
         return serializer.data
+    
+class CommentParentSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = CommentBase
+        fields = ['id']
+        read_only_fields = ['id']
 
 
 class CommentCreateSerializer(serializers.ModelSerializer):
@@ -1807,16 +1828,16 @@ class CommentCreateSerializer(serializers.ModelSerializer):
 
         if validated_data["parent_comment"]:
             member = CommentBase.objects.filter(id=validated_data['parent_comment'].id).first()
-            notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
-            notification.save()
+            # notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on an article', link=f'/article/{member.article.id}/{instance.id}')
+            # notification.save()
             send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
 
         if validated_data["Type"] == "review" or validated_data["Type"] == "decision":
             emails = [author.User.email for author in authors ]
             for author in authors:
-                notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ', link=f'/article/{instance.article.id}/{instance.id}')
-                notification.save()
-            send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
+                # notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article', link=f'/article/{instance.article.id}/{instance.id}')
+                # notification.save()
+                send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
 
             
         send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
@@ -1902,7 +1923,6 @@ class ArticleChatCreateSerializer(serializers.ModelSerializer):
         :return: The instance of the created object is being returned.
         """
         article_id = validated_data.get("article")
-        print(article_id)
         validated_data.pop("article")
         article = Article.objects.filter(article_name=article_id).first()
         channel = f"{article.id}"

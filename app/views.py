@@ -648,13 +648,12 @@ class CommunityViewset(viewsets.ModelViewSet):
         """
         obj = self.get_object()
         self.check_object_permissions(request,obj)
-        member = User.objects.filter(username=request.data["username"]).first()
+        member = User.objects.filter(id=request.data["user_id"]).first()
         if member is None:
             return Response(data={"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-        admin = Community.objects.filter(user_id=member.id).first()
+        admin = Community.objects.filter(user_id=request.data["user_id"],Community_name=Community_name).first()
         if admin is not None:
             return Response(data={"error": "You cant perform this action"},status=status.HTTP_404_NOT_FOUND)
-        request.data["user_id"] = member.id
         serializer = self.get_serializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -1179,7 +1178,7 @@ class ArticleViewset(viewsets.ModelViewSet):
             return Response(data={"error":e}, status=status.HTTP_400_BAD_REQUEST)
     
 
-      
+     
 class CommentViewset(viewsets.ModelViewSet):
     # The above code is defining a Django view for handling comments. It retrieves all instances of
     # the CommentBase model from the database using the `objects.all()` method and assigns it to the
@@ -1301,8 +1300,7 @@ class CommentViewset(viewsets.ModelViewSet):
         
         elif request.data['Type'] == 'review':
             author = Author.objects.filter(User=request.user,article=request.data["article"]).first()
-            article = Article.objects.filter(id=request.data['article']).first()
-            if author is not None and (article.link is None or article.link == ""):
+            if author is not None:
                 return Response(data={"error": "You are Author of Article.You can't submit a review"}, status=status.HTTP_400_BAD_REQUEST)
             
             c = ArticleModerator.objects.filter(article=request.data["article"],moderator__user = request.user).count()
@@ -1892,3 +1890,5 @@ class PersonalMessageViewset(viewsets.ModelViewSet):
         super(PersonalMessageViewset, self).destroy(request, pk)
 
         return Response(data={"success": "Message Successfuly removed!!!"})
+   
+
