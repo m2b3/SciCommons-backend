@@ -648,13 +648,12 @@ class CommunityViewset(viewsets.ModelViewSet):
         """
         obj = self.get_object()
         self.check_object_permissions(request,obj)
-        member = User.objects.filter(username=request.data["username"]).first()
+        member = User.objects.filter(id=request.data["user_id"]).first()
         if member is None:
             return Response(data={"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-        admin = Community.objects.filter(user_id=member.id).first()
+        admin = Community.objects.filter(user_id=request.data["user_id"],Community_name=Community_name).first()
         if admin is not None:
             return Response(data={"error": "You cant perform this action"},status=status.HTTP_404_NOT_FOUND)
-        request.data["user_id"] = member.id
         serializer = self.get_serializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
