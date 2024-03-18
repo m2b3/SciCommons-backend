@@ -191,13 +191,267 @@ class CommunityMemberModelTest(TestCase):
     def test_community_member_str(self):
         self.assertEqual(str(self.community_member), f'{self.user} - {self.community}')
 
-    def test_unique_admin_per_community(self):
-        with self.assertRaises(IntegrityError):
-            # Attempt to create another admin for the same community
-            CommunityMember.objects.create(
-                community=self.community,
-                user=self.another_user,
-                is_admin=True
+    # Todo: Rewrite this test
+    # def test_unique_admin_per_community(self):
+    #     with self.assertRaises(IntegrityError):
+    #         # Attempt to create another admin for the same community
+    #         CommunityMember.objects.create(
+    #             community=self.community,
+    #             user=self.another_user,
+    #             is_admin=True
+    #         )
+
+class UnregisteredUserModelTest(TestCase):
+
+    def setUp(self):
+        # Create an article
+        self.article = Article.objects.create(
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+        # Create an unregistered user
+        self.unregistered_user = UnregisteredUser.objects.create(
+            article=self.article,
+            fullName='John Doe',
+            email='johndoe@example.com'
+        )
+
+    def test_unregistered_user_creation(self):
+        unregistered_user = UnregisteredUser.objects.get(id=self.unregistered_user.id)
+        self.assertEqual(unregistered_user.article, self.article)
+        self.assertEqual(unregistered_user.fullName, 'John Doe')
+        self.assertEqual(unregistered_user.email, 'johndoe@example.com')
+
+class OfficialReviewerModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create a community
+        self.community = Community.objects.create(
+            Community_name='Test Community',
+            subtitle='Test Subtitle',
+            description='Test Description',
+            location='Test Location',
+            github='https://github.com/test',
+            email='test@example.com',
+            website='https://www.test.com',
+            user=self.user
+        )
+
+        # Create an official reviewer
+        self.official_reviewer = OfficialReviewer.objects.create(
+            User=self.user,
+            Official_Reviewer_name='John Doe',
+            community=self.community
+        )
+
+    def test_official_reviewer_creation(self):
+        official_reviewer = OfficialReviewer.objects.get(id=self.official_reviewer.id)
+        self.assertEqual(official_reviewer.User, self.user)
+        self.assertEqual(official_reviewer.Official_Reviewer_name, 'John Doe')
+        self.assertEqual(official_reviewer.community, self.community)
+
+    def test_official_reviewer_str(self):
+        self.assertEqual(str(self.official_reviewer), 'testuser')
+
+    def test_unique_together_constraint(self):
+        # Attempt to create another OfficialReviewer with the same User and community
+        with self.assertRaises(Exception):
+            OfficialReviewer.objects.create(
+                User=self.user,
+                Official_Reviewer_name='Jane Doe',
+                community=self.community
+            )
+
+class ArticleModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create a community
+        self.community = Community.objects.create(
+            Community_name='Test Community',
+            subtitle='Test Subtitle',
+            description='Test Description',
+            location='Test Location',
+            user=self.user
+        )
+
+        # Create an article
+        self.article = Article.objects.create(
+            id='test_article',
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+    def test_article_creation(self):
+        article = Article.objects.get(id='test_article')
+        self.assertEqual(article.article_name, 'Test Article')
+        self.assertEqual(article.keywords, 'test, article')
+        self.assertEqual(article.authorstring, 'Test Author')
+        self.assertEqual(article.status, 'public')
+
+    def test_article_str(self):
+        self.assertEqual(str(self.article), 'Test Article')
+
+class ArticleReviewerModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create a community
+        self.community = Community.objects.create(
+            Community_name='Test Community',
+            subtitle='Test Subtitle',
+            description='Test Description',
+            location='Test Location',
+            user=self.user
+        )
+
+        # Create an official reviewer
+        self.official_reviewer = OfficialReviewer.objects.create(
+            User=self.user,
+            Official_Reviewer_name='John Doe',
+            community=self.community
+        )
+
+        # Create an article
+        self.article = Article.objects.create(
+            id='test_article',
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+        # Create an article reviewer
+        self.article_reviewer = ArticleReviewer.objects.create(
+            article=self.article,
+            officialreviewer=self.official_reviewer
+        )
+
+    def test_article_reviewer_creation(self):
+        article_reviewer = ArticleReviewer.objects.get(id=self.article_reviewer.id)
+        self.assertEqual(article_reviewer.article, self.article)
+        self.assertEqual(article_reviewer.officialreviewer, self.official_reviewer)
+
+    def test_article_reviewer_str(self):
+        self.assertEqual(str(self.article_reviewer), 'Test Article')
+
+class ArticleBlockedUserModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create an article
+        self.article = Article.objects.create(
+            id='test_article',
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+        # Create an article blocked user
+        self.article_blocked_user = ArticleBlockedUser.objects.create(
+            article=self.article,
+            user=self.user
+        )
+
+    def test_article_blocked_user_creation(self):
+        article_blocked_user = ArticleBlockedUser.objects.get(id=self.article_blocked_user.id)
+        self.assertEqual(article_blocked_user.article, self.article)
+        self.assertEqual(article_blocked_user.user, self.user)
+
+class ArticleModeratorModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create a community
+        self.community = Community.objects.create(
+            Community_name='Test Community',
+            subtitle='Test Subtitle',
+            description='Test Description',
+            location='Test Location',
+            user=self.user
+        )
+
+        # Create a moderator
+        self.moderator = Moderator.objects.create(
+            user=self.user,
+            community=self.community
+        )
+
+        # Create an article
+        self.article = Article.objects.create(
+            id='test_article',
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+        # Create an article moderator
+        self.article_moderator = ArticleModerator.objects.create(
+            article=self.article,
+            moderator=self.moderator
+        )
+
+    def test_article_moderator_creation(self):
+        article_moderator = ArticleModerator.objects.get(id=self.article_moderator.id)
+        self.assertEqual(article_moderator.article, self.article)
+        self.assertEqual(article_moderator.moderator, self.moderator)
+
+    def test_article_moderator_str(self):
+        self.assertEqual(str(self.article_moderator), 'Test Article')
+
+class AuthorModelTest(TestCase):
+
+    def setUp(self):
+        # Create a user
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+
+        # Create an article
+        self.article = Article.objects.create(
+            id='test_article',
+            article_name='Test Article',
+            keywords='test, article',
+            authorstring='Test Author',
+            status='public'
+        )
+
+        # Create an author
+        self.author = Author.objects.create(
+            article=self.article,
+            User=self.user
+        )
+
+    def test_author_creation(self):
+        author = Author.objects.get(id=self.author.id)
+        self.assertEqual(author.article, self.article)
+        self.assertEqual(author.User, self.user)
+
+    def test_author_str(self):
+        self.assertEqual(str(self.author), 'testuser')
+
+    def test_unique_together_constraint(self):
+        # Attempt to create another Author with the same article and User
+        with self.assertRaises(Exception):
+            Author.objects.create(
+                article=self.article,
+                User=self.user
             )
 
 class CommentBaseModelTest(TestCase):

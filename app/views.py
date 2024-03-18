@@ -879,9 +879,9 @@ class ArticleViewset(viewsets.ModelViewSet):
         if article is not None:
             return Response(data={"error": "Article with same name already exists!!!"}, status=status.HTTP_400_BAD_REQUEST)
         response = super(ArticleViewset, self).create(request)
-    
-        return Response(data={"success": "Article successfully submitted"})
-
+        
+        # send the response as a JSON object with a "success" key and the serialized data of the article
+        return Response(data={"success":response.data})
 
     def update(self, request, pk):
         obj = self.get_object()

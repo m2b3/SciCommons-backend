@@ -1,4 +1,4 @@
 myenv
-scic
 *.env
 venv
+__pycache__
