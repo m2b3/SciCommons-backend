@@ -1185,6 +1185,7 @@ class CommentViewset(viewsets.ModelViewSet):
         "retrieve": CommentSerializer,
         "destroy": CommentSerializer,
         "like":LikeSerializer,
+        "parents": CommentParentSerializer,
         "block_user": ArticleBlockUserSerializer,
     }
     
@@ -1377,6 +1378,31 @@ class CommentViewset(viewsets.ModelViewSet):
                 rank.save()
             
             return Response({'success': 'Comment rated successfully.'})
+        
+    @action(methods=['get'], detail=False, url_path='(?P<pk>.+)/parents', permission_classes=[permissions.IsAuthenticated,])
+    def parents(self, request, pk):
+        """
+        This function retrieves the parent comments of a given comment.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by the
+        client. It contains information such as the request method (e.g., GET, POST), headers, and any data
+        sent with the request
+        :param pk: The "pk" parameter in the above code refers to the primary key of the comment object. It
+        is used to identify the specific comment for which the parent comments need to be retrieved
+        :return: The code is returning a response in the form of a JSON object. The response contains the
+        serialized data of the parent comments of the given comment. The serialized data includes details
+        such as the content, author, and date of the parent comments.
+        """
+        print("swaroop",pk)
+        comment = pk
+        while True:
+            member = CommentBase.objects.filter(id=comment).first()
+            if member.parent_comment is None:
+                break
+            comment = member.parent_comment.id
+        response = CommentBase.objects.filter(id=comment).first()
+        serializer = CommentSerializer(response, context={'request': request})
+        return Response(data={"success":serializer.data})
     
     @action(methods=['post'],detail=False, url_path='(?P<pk>.+)/block_user', permission_classes=[CommentPermission])
     def block_user(self, request, pk):
