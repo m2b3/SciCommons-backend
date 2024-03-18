@@ -1401,7 +1401,7 @@ class CommentViewset(viewsets.ModelViewSet):
                 break
             comment = member.parent_comment.id
         response = CommentBase.objects.filter(id=comment).first()
-        serializer = CommentSerializer(response, context={'request': request})
+        serializer = CommentNestedSerializer(response, context={'request': request})
         return Response(data={"success":serializer.data})
     
     @action(methods=['post'],detail=False, url_path='(?P<pk>.+)/block_user', permission_classes=[CommentPermission])
