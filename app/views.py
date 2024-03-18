@@ -3,7 +3,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from rest_framework.decorators import action
 from rest_framework import parsers, viewsets, permissions, status
 from rest_framework.response import Response
-from django.core.mail import send_mail
 from django.contrib import messages
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -17,6 +16,7 @@ from app.permissions import *
 from app.filters import *
 from rest_framework import filters
 from django_filters import rest_framework as django_filters 
+from .tasks import send_email_task
 
 class UserViewset(viewsets.ModelViewSet):
     # The above code is defining a Django view for handling user-related operations.
@@ -244,7 +244,7 @@ class UserViewset(viewsets.ModelViewSet):
         email_from = settings.EMAIL_HOST_USER
         email_subject = "Email Verification"
         email_body = "Your One Time Password is " + str(otp)
-        send_mail(email_subject, email_body, email_from, [serializer.data['email']], fail_silently=False)
+        send_email_task.delay(email_subject, email_body, [serializer.data['email']])
         return Response(data={"success": "code sent to your email"})
     
     @action(methods=['post'],url_path="verify_email",detail=False,permission_classes=[permissions.AllowAny,])
@@ -300,10 +300,9 @@ class UserViewset(viewsets.ModelViewSet):
         forget = ForgetPassword.objects.create(user=user, otp=otp)
         forget.save()
 
-        email_from = settings.EMAIL_HOST_USER
         email_subject = "Reset Password"
         email_body = "You have forgot you account password. Your One Time Password is " + str(otp)
-        send_mail(email_subject, email_body, email_from, [serializer.data['email']], fail_silently=False)
+        send_email_task.delay(email_subject, email_body, [serializer.data['email']])
         return Response(data={"success": "code sent to your email"})
 
         
@@ -648,12 +647,13 @@ class CommunityViewset(viewsets.ModelViewSet):
         """
         obj = self.get_object()
         self.check_object_permissions(request,obj)
-        member = User.objects.filter(id=request.data["user_id"]).first()
+        member = User.objects.filter(username=request.data["username"]).first()
         if member is None:
             return Response(data={"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-        admin = Community.objects.filter(user_id=request.data["user_id"],Community_name=Community_name).first()
+        admin = Community.objects.filter(user_id=member.id).first()
         if admin is not None:
             return Response(data={"error": "You cant perform this action"},status=status.HTTP_404_NOT_FOUND)
+        request.data["user_id"] = member.id
         serializer = self.get_serializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -687,8 +687,7 @@ class CommunityViewset(viewsets.ModelViewSet):
             if member is None:
                 return Response(data={"error": "Not member of community"}, status=status.HTTP_404_NOT_FOUND)
             member.delete()
-            send_mail(f'you are removed from {obj}',f'You have been removed from {obj}.Due to inappropriate behaviour', settings.EMAIL_HOST_USER , emails, fail_silently=False)
-
+            send_email_task.delay(f'You are removed from {obj}', f'You have been removed from {obj} due to inappropriate behavior.', emails)
             
         except Exception as e:
             return Response(data={'error': 'unable to delete it.Please try again later!!!'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1163,7 +1162,7 @@ class ArticleViewset(viewsets.ModelViewSet):
             return Response(data={"error":e}, status=status.HTTP_400_BAD_REQUEST)
     
 
-     
+      
 class CommentViewset(viewsets.ModelViewSet):
     # The above code is defining a Django view for handling comments. It retrieves all instances of
     # the CommentBase model from the database using the `objects.all()` method and assigns it to the
@@ -1285,7 +1284,8 @@ class CommentViewset(viewsets.ModelViewSet):
         
         elif request.data['Type'] == 'review':
             author = Author.objects.filter(User=request.user,article=request.data["article"]).first()
-            if author is not None:
+            article = Article.objects.filter(id=request.data['article']).first()
+            if author is not None and (article.link is None or article.link == ""):
                 return Response(data={"error": "You are Author of Article.You can't submit a review"}, status=status.HTTP_400_BAD_REQUEST)
             
             c = ArticleModerator.objects.filter(article=request.data["article"],moderator__user = request.user).count()
@@ -1875,5 +1875,3 @@ class PersonalMessageViewset(viewsets.ModelViewSet):
         super(PersonalMessageViewset, self).destroy(request, pk)
 
         return Response(data={"success": "Message Successfuly removed!!!"})
-   
-

@@ -6,13 +6,13 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import IntegrityError, transaction
 from faker import Faker
-from django.core.mail import send_mail
 from django.db.models import Avg, Sum , Q
 from django.conf import settings
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from decouple import config
 from dj_database_url import parse
+from .tasks import send_email_task
 
 import json
 
@@ -172,8 +172,9 @@ class UserCreateSerializer(serializers.ModelSerializer):
     
         rank = Rank.objects.create(rank=0, user_id=instance.id)
         rank.save()
-        send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
-        send_mail("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
+
+        send_email_task.delay("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time",[instance.email]) 
+        send_email_task.delay("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}",[instance.email]) 
         return instance
     
 # The UserUpdateSerializer class is a serializer that represents the User model and includes fields
@@ -529,8 +530,8 @@ class CommunityCreateSerializer(serializers.ModelSerializer):
         instance = self.Meta.model.objects.create(**validated_data, user=self.context['request'].user)
         instance.members.add(self.context['request'].user, through_defaults={"is_admin":True})
         instance.save()
-        
-        send_mail("you added new commnity", f"You have created a {instance.Community_name} community", settings.EMAIL_HOST_USER, [self.context['request'].user.email], fail_silently=False)        
+
+        send_email_task.delay("You added new commnity", f"You have created a {instance.Community_name} community",[self.context['request'].user.email])       
         UserActivity.objects.create(user=self.context['request'].user, action=f"you have created community {instance.Community_name} ")
 
         return instance
@@ -687,7 +688,8 @@ class CommunityUpdateSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.members.set(members)
         instance.save()
-        send_mail("you have updated community" , f'You have updated {instance.Community_name} details', settings.EMAIL_HOST_USER,[instance.user.email], fail_silently=False)
+
+        send_email_task.delay("you have updated community" , f'You have updated {instance.Community_name} details',[instance.user.email])
         UserActivity.objects.create(user=self.context['request'].user, action=f'you have updated deatils in {instance.Community_name}')
         return instance
 
@@ -733,12 +735,12 @@ class PromoteSerializer(serializers.ModelSerializer):
         if member is None:
             
             if role == "member":
-                member = CommunityMember.objects.create(community=instance, user_id=user_id).first()
+                member = CommunityMember.objects.create(community=instance, user_id=user_id)
                 member.is_reviewer = False
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail("added member" , f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
+                send_email_task.delay("Added Member" , f'You have been added as member to {instance.Community_name}', [member.user.email])
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to community')
             else:
                 raise serializers.ValidationError(detail={"error": "user isn't member of community"})
@@ -749,76 +751,62 @@ class PromoteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(detail={"error": "role can't be None"})
             
             elif role == 'reviewer':
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
-                if moderator is not None:
-                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
-                    if article_moderator.exists():
-                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
-                    else :
-                        moderator.delete()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
+                article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                if article_moderator.exists():
+                    raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                if moderator.exists():
+                    moderator.delete()
                 OfficialReviewer.objects.create(User_id=user_id, community=instance, Official_Reviewer_name=fake.name())
                 member.is_reviewer = True
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail("you are Reviewer", f'You have been added as Official Reviewer to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
+                send_email_task.delay("you are Reviewer", f'You have been added as Official Reviewer to {instance.Community_name}', [member.user.email])
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as reviewer')
                 
             elif role == 'moderator':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
-                if reviewer is not None:
-                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
-                    if article_reviewer.exists():
-                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
+                article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                if article_reviewer.exists():
+                    raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                if reviewer.exists():
                     reviewer.delete()
                 Moderator.objects.create(user_id=user_id, community=instance)
                 member.is_moderator = True
                 member.is_reviewer = False
                 member.is_admin = False
                 member.save()
-                send_mail(" you are moderator", f'You have been added as Moderator to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
+                send_email_task.delay(" you are moderator", f'You have been added as Moderator to {instance.Community_name}', [member.user.email])
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as moderator')
                 
             elif role == 'admin':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
                 if reviewer is not None:
-                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
-                    if article_reviewer.exists():
-                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
                 if moderator is not None:
-                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
-                    if article_moderator.exists():
-                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
-                    else :
-                        moderator.delete()
+                    moderator.delete()
                 member.is_moderator = False
                 member.is_reviewer = False
                 member.is_admin = True
                 member.save()
-                send_mail("you are now admin", f'You have been added as Admin to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
+                send_email_task.delay("You are now admin", f'You have been added as Admin to {instance.Community_name}', [member.user.email])
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name} as admin')
                                 
             elif role == 'member':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
-                if reviewer is not None:
-                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
-                    if article_reviewer.exists():
-                        raise serializers.ValidationError(detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
+                if reviewer.exists():
                     reviewer.delete()
-                if moderator is not None:
-                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
-                    if article_moderator.exists():
-                        raise serializers.ValidationError(detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
-                    else :
-                        moderator.delete()
+                
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
+                if moderator.exists():
+                    moderator.delete()
+                    
                 member.is_reviewer = False
                 member.is_moderator = False
-                member.is_admin = False
                 member.save()
-                send_mail(f'you are added to {instance.Community_name}',f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER , [member.user.email], fail_silently=False)
+                send_email_task.delay("You are now member", f'You have been added as Member to {instance.Community_name}', [member.user.email])
                 UserActivity.objects.create(user=self.context['request'].user, action=f'you added {member.user.username} to {instance.Community_name}')
                     
             else:
@@ -1236,14 +1224,14 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
                         else:
                             UnregisteredUser.objects.create(email=data["email"],article = instance, fullName=data["fullName"])
                             authorstr += data["fullName"] + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
+                        send_email_task.delay("Article added",f"You have added an article {instance.article_name} to SciCommons", [data["email"]])
         
             if len(authors)!=0:
                 with transaction.atomic():
                     for author in authors:
                         author = Author.objects.create(User_id=author, article=instance)
                         authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
+                        send_email_task.delay("Article added",f"You have added an article {instance.article_name} to SciCommons", [author.User.email])
                         UserActivity.objects.create(user=self.context['request'].user, action=f'you added article {instance.article_name}')
             instance.authorstring = authorstr
             if len(communities) > 0 and instance.link is not None:
@@ -1258,7 +1246,7 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
                         community = Community.objects.filter(id=community).first()
 
                         emails = [member.user.email for member in CommunityMember.objects.filter(community_id=community)]
-                        send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                        send_email_task.delay("New Article Alerts", f'New Article {instance.article_name} added on {community}', emails)
             instance.save()
             return instance
         else:
@@ -1287,14 +1275,14 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
                         else:
                             UnregisteredUser.objects.create(email=data["email"],article = instance, fullName=data["fullName"])
                             authorstr += data["fullName"] + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [data["email"]], fail_silently=False)
+                        send_email_task.delay("Article added",f"You have added an article {instance.article_name} to SciCommons", [data["email"]])
         
             if len(authors)!=0:
                 with transaction.atomic():
                     for author in authors:
                         author = Author.objects.create(User_id=author, article=instance)
                         authorstr += author.User.first_name + '_' + author.User.last_name + "_"+ author.username + "||"
-                        send_mail("Article added",f"You have added an article {instance.article_name} to SciCommons", settings.EMAIL_HOST_USER, [author.User.email], fail_silently=False)
+                        send_email_task.delay("Article added",f"You have added an article {instance.article_name} to SciCommons", [author.User.email])
                         UserActivity.objects.create(user=self.context['request'].user, action=f'you added article {instance.article_name}')
             instance.authorstring = authorstr
             communities = [community for community in parentinstance.communities]
@@ -1309,7 +1297,7 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
                     community = Community.objects.get(id=community)
 
                     emails = [member.user.email for member in CommunityMember.objects.filter(community=community)]
-                    send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                    send_email_task.delay("New Article Alerts", f'New Article {instance.article_name} added on {community}', emails) 
             instance.save()
             return instance
             
@@ -1361,7 +1349,7 @@ class SubmitArticleSerializer(serializers.Serializer):
                 community = Community.objects.get(id=community)
 
                 emails = [member.user.email for member in CommunityMember.objects.filter(community=community)]
-                send_mail("New Article Alerts", f'New Article {instance.article_name} added on {community}', settings.EMAIL_HOST_USER, emails, fail_silently=False) 
+                send_email_task.delay("New Article Alerts", f'New Article {instance.article_name} added on {community}', emails)
                 meta_id.append(community_meta.id)
         
         return {"meta_id":meta_id}
@@ -1428,10 +1416,10 @@ class InReviewSerializer(serializers.Serializer):
         instance.moderator.add(*[moderator.id for moderator in moderators_arr])
 
         emails = [member.User.email for member in reviewers_arr]
-        send_mail("New Article Alerts",f'You have been added as an Official Reviewer to {instance.article_name} on {community_meta.community.Community_name}', settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        send_email_task.delay("New Article Alerts",f'You have been added as an Official Reviewer to {instance.article_name} on {community_meta.community.Community_name}', emails)
 
         emails = [member.user.email for member in moderators_arr]
-        send_mail("New Article Alerts", f'You have been added as a Moderator to {instance.article_name} on {community_meta.community.Community_name}', settings.EMAIL_HOST_USER, emails, fail_silently=False)
+        send_email_task.delay("New Article Alerts",f'You have been added as a Moderator to {instance.article_name} on {community_meta.community.Community_name}', emails)
 
         return {"status":community_meta.status, 'reviewers':instance.reviewer, 'moderator':instance.moderator}
 
@@ -1463,7 +1451,7 @@ class ApproveSerializer(serializers.Serializer):
         communitymeta.status = 'accepted'
         communitymeta.save()
         emails = [member.email for member in instance.authors.all()]
-        send_mail(f"Article is approved", f"Your article: {instance.article_name} is approved by {communitymeta.community.Community_name}", settings.EMAIL_HOST_USER , emails, fail_silently=False)
+        send_email_task.delay(f"Article is approved", f"Your article: {instance.article_name} is approved by {communitymeta.community.Community_name}", emails)
         UserActivity.objects.create(user=self.context['request'].user, action=f'you have approved the {instance.article_name} to {communitymeta.community.Community_name}')
 
         return communitymeta
@@ -1494,7 +1482,7 @@ class RejectSerializer(serializers.Serializer):
         communitymeta.status = 'rejected'
         communitymeta.save()
         emails = [member.email for member in instance.authors.all()]
-        send_mail(f"Article is rejected", f"Your article: {instance.article_name} is rejected by {communitymeta.community.Community_name}", settings.EMAIL_HOST_USER , emails, fail_silently=False)
+        send_email_task.delay(f"Article is rejected", f"Your article: {instance.article_name} is rejected by {communitymeta.community.Community_name}", emails)
         UserActivity.objects.create(user=self.context['request'].user, action=f'you have rejected the {instance.article_name} to {communitymeta.community.Community_name}')
 
         return communitymeta
@@ -1781,13 +1769,6 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = CommentBase.objects.filter(version=obj)
         serializer = CommentSerializer(comment,many=True, context={"request": self.context['request']})
         return serializer.data
-    
-class CommentParentSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = CommentBase
-        fields = ['id']
-        read_only_fields = ['id']
 
 
 class CommentCreateSerializer(serializers.ModelSerializer):
@@ -1828,19 +1809,18 @@ class CommentCreateSerializer(serializers.ModelSerializer):
 
         if validated_data["parent_comment"]:
             member = CommentBase.objects.filter(id=validated_data['parent_comment'].id).first()
-            # notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on an article', link=f'/article/{member.article.id}/{instance.id}')
-            # notification.save()
-            send_mail(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[member.User.email], fail_silently=False)
+            notification = Notification.objects.create(user=member.User, message=f'{handler.handle_name} replied to your comment on {member.article.article_name} ', link=f'/article/{member.article.id}/{instance.id}')
+            notification.save()
+            send_email_task.delay(f"somebody replied to your comment",f"{handler.handle_name} have made a replied to your comment.\n {settings.BASE_URL}/article/{member.article.id}/{instance.id}", [member.User.email])
 
         if validated_data["Type"] == "review" or validated_data["Type"] == "decision":
             emails = [author.User.email for author in authors ]
             for author in authors:
-                # notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article', link=f'/article/{instance.article.id}/{instance.id}')
-                # notification.save()
-                send_mail(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,emails, fail_silently=False)
+                notification = Notification.objects.create(user=author.User, message=f'{handler.handle_name} has added a {validated_data["Type"]} to your article: {instance.article.article_name} ', link=f'/article/{instance.article.id}/{instance.id}')
+                notification.save()
+            send_email_task.delay(f"A new {validated_data['Type']} is added ",f"{handler.handle_name} has added a {validated_data['Type']} to your article: {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", emails)
 
-            
-        send_mail(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", settings.EMAIL_HOST_USER,[instance.User.email], fail_silently=False)
+        send_email_task.delay(f"you have made {instance.Type}",f"You have made a {instance.Type} on {instance.article.article_name}. checkout this {settings.BASE_URL}/article/{instance.article.id}/{instance.id}", [instance.User.email])
         UserActivity.objects.create(user=self.context['request'].user, action=f"You have made a {instance.Type} on {instance.article.article_name}")
 
         return instance    
@@ -1923,6 +1903,7 @@ class ArticleChatCreateSerializer(serializers.ModelSerializer):
         :return: The instance of the created object is being returned.
         """
         article_id = validated_data.get("article")
+        print(article_id)
         validated_data.pop("article")
         article = Article.objects.filter(article_name=article_id).first()
         channel = f"{article.id}"
