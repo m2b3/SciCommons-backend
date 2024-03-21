@@ -3023,4 +3023,3 @@ class MessageListSerializer(serializers.ModelSerializer):
         """
         count = PersonalMessage.objects.filter(Q(sender=self.context['request'].user) | Q(receiver=self.context['request'].user), is_read=False).count()
         return count
-
