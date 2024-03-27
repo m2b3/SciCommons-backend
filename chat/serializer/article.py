@@ -72,7 +72,6 @@ class ArticleChatCreateSerializer(serializers.ModelSerializer):
         :return: The instance of the created object is being returned.
         """
         article_id = validated_data.get("article")
-        print(article_id)
         validated_data.pop("article")
         article = Article.objects.filter(article_name=article_id).first()
         channel = f"{article.id}"

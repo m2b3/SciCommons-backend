@@ -126,22 +126,15 @@ class PromoteSerializer(serializers.ModelSerializer):
         if member is None:
 
             if role == "member":
-                member = CommunityMember.objects.create(community=instance, user_id=user_id)
+                member = CommunityMember.objects.create(community=instance, user_id=user_id).first()
                 member.is_reviewer = False
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail(
-                    "added member",
-                    f'You have been added as member to {instance.Community_name}',
-                    settings.EMAIL_HOST_USER,
-                    [member.user.email],
-                    fail_silently=False
-                )
-                UserActivity.objects.create(
-                    user=self.context['request'].user,
-                    action=f'you added {member.user.username} to community'
-                )
+                send_mail("added member", f'You have been added as member to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to community')
             else:
                 raise serializers.ValidationError(detail={"error": "user isn't member of community"})
 
@@ -151,101 +144,92 @@ class PromoteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(detail={"error": "role can't be None"})
 
             elif role == 'reviewer':
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
-                article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
-                if article_moderator.exists():
-                    raise serializers.ValidationError(
-                        detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
-                if moderator.exists():
-                    moderator.delete()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if moderator is not None:
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else:
+                        moderator.delete()
                 OfficialReviewer.objects.create(User_id=user_id, community=instance, Official_Reviewer_name=fake.name())
                 member.is_reviewer = True
                 member.is_moderator = False
                 member.is_admin = False
                 member.save()
-                send_mail(
-                    "you are Reviewer",
-                    f'You have been added as Official Reviewer to {instance.Community_name}',
-                    settings.EMAIL_HOST_USER,
-                    [member.user.email],
-                    fail_silently=False
-                )
-                UserActivity.objects.create(
-                    user=self.context['request'].user,
-                    action=f'you added {member.user.username} to {instance.Community_name} as a reviewer'
-                )
+                send_mail("you are Reviewer", f'You have been added as Official Reviewer to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as reviewer')
 
             elif role == 'moderator':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
-                article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
-                if article_reviewer.exists():
-                    raise serializers.ValidationError(
-                        detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
-                if reviewer.exists():
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
                 Moderator.objects.create(user_id=user_id, community=instance)
                 member.is_moderator = True
                 member.is_reviewer = False
                 member.is_admin = False
                 member.save()
-                send_mail(
-                    "You are a moderator",
-                    f'You have been added as a Moderator to {instance.Community_name}',
-                    settings.EMAIL_HOST_USER,
-                    [member.user.email],
-                    fail_silently=False
-                )
-                UserActivity.objects.create(
-                    user=self.context['request'].user,
-                    action=f'you added {member.user.username} to {instance.Community_name} as a Moderator'
-                )
+                send_mail(" you are moderator", f'You have been added as Moderator to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as moderator')
 
             elif role == 'admin':
                 reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
-                if reviewer is not None:
-                    reviewer.delete()
                 moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
+                    reviewer.delete()
                 if moderator is not None:
-                    moderator.delete()
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else:
+                        moderator.delete()
                 member.is_moderator = False
                 member.is_reviewer = False
                 member.is_admin = True
                 member.save()
-                send_mail(
-                    "you are now admin",
-                    f'You have been added as Admin to {instance.Community_name}',
-                    settings.EMAIL_HOST_USER,
-                    [member.user.email],
-                    fail_silently=False
-                )
-                UserActivity.objects.create(
-                    user=self.context['request'].user,
-                    action=f'you added {member.user.username} to {instance.Community_name} as an Admin'
-                )
+                send_mail("you are now admin", f'You have been added as Admin to {instance.Community_name}',
+                          settings.EMAIL_HOST_USER, [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name} as admin')
 
             elif role == 'member':
-                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance)
-                if reviewer.exists():
+                reviewer = OfficialReviewer.objects.filter(User_id=user_id, community=instance).first()
+                moderator = Moderator.objects.filter(user_id=user_id, community=instance).first()
+                if reviewer is not None:
+                    article_reviewer = ArticleReviewer.objects.filter(officialreviewer_id=reviewer.id)
+                    if article_reviewer.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is reviewer of some articles.Can not perform this operation!!!"})
                     reviewer.delete()
-
-                moderator = Moderator.objects.filter(user_id=user_id, community=instance)
-                if moderator.exists():
-                    moderator.delete()
-
+                if moderator is not None:
+                    article_moderator = ArticleModerator.objects.filter(moderator_id=moderator.id)
+                    if article_moderator.exists():
+                        raise serializers.ValidationError(
+                            detail={"error": "user is moderator of some articles.Can not perform this operation!!!"})
+                    else:
+                        moderator.delete()
                 member.is_reviewer = False
                 member.is_moderator = False
+                member.is_admin = False
                 member.save()
-                send_mail(
-                    f'you are added to {instance.Community_name}',
-                    f'You have been added as member to {instance.Community_name}',
-                    settings.EMAIL_HOST_USER,
-                    [member.user.email],
-                    fail_silently=False
-                )
-                UserActivity.objects.create(
-                    user=self.context['request'].user,
-                    action=f'you added {member.user.username} to {instance.Community_name}'
-                )
+                send_mail(f'you are added to {instance.Community_name}',
+                          f'You have been added as member to {instance.Community_name}', settings.EMAIL_HOST_USER,
+                          [member.user.email], fail_silently=False)
+                UserActivity.objects.create(user=self.context['request'].user,
+                                            action=f'you added {member.user.username} to {instance.Community_name}')
 
             else:
                 raise serializers.ValidationError(

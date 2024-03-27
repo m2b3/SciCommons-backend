@@ -5,10 +5,11 @@ from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
 from article.filters import ArticleFilter
-from article.models import Article
+from article.models import Article, CommentBase
 from article.permissions import ArticlePermission
 from article.serializer.article import ArticleSerializer, ArticlelistSerializer, ArticleGetSerializer, \
     ArticleCreateSerializer, ArticleUpdateSerializer, ArticleViewsSerializer, ArticleBlockUserSerializer
+from article.serializer.comment import CommentSerializer
 from article.serializer.publish import SubmitArticleSerializer, ArticlePublishSelectionSerializer
 from article.serializer.status import ApproveSerializer, InReviewSerializer, RejectSerializer, StatusSerializer
 from community.models import CommunityMeta, Community
@@ -83,7 +84,8 @@ class ArticleViewset(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         response = super(ArticleViewset, self).create(request)
 
-        return Response(data={"success": "Article successfully submitted"})
+        # send the response as a JSON object with a "success" key and the serialized data of the article
+        return Response(data={"success": response.data})
 
     def update(self, request, pk):
         obj = self.get_object()
@@ -104,6 +106,19 @@ class ArticleViewset(viewsets.ModelViewSet):
 
         return Response(data={"success": "Article successfully deleted"})
 
+    @action(methods=['get'], detail=True, url_path='comment/(?P<comment_id>.+)', permission_classes=[ArticlePermission])
+    def retrieve_comment(self, request, pk, article_id=None, comment_id=None):
+        # Fetch the first comment with the given ID
+        comment = CommentBase.objects.filter(article=pk, id=comment_id).first()
+        if comment:
+            # If the comment exists, serialize it and return it in the response
+            # Pass the request context to the serializer
+            serializer = CommentSerializer(comment, context={"request": request})
+            return Response(serializer.data)
+        else:
+            # If the comment does not exist, return a 404 Not Found response
+            return Response(status=404)
+
     @action(methods=['get'], detail=False, url_path='(?P<pk>.+)/isapproved', permission_classes=[ArticlePermission])
     def getIsapproved(self, request, pk):
         """
@@ -118,7 +133,10 @@ class ArticleViewset(viewsets.ModelViewSet):
         :return: The response is a JSON object containing the success status and the communities where
         the article has been approved.
         """
+
+        # Retrieve the article object from the database
         obj = self.get_object()
+        # Check if the user has permission to access the article
         self.check_object_permissions(request, obj)
         response = CommunityMeta.objects.filter(article_id=pk)
         serializer = CommunityMetaApproveSerializer(data=response, many=True)

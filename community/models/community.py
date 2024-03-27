@@ -19,7 +19,7 @@ class Community(models.Model):
         db_table = 'community'
 
     def __str__(self):
-        return self.title
+        return self.Community_name
 
 
 # The `CommunityMeta` class represents the metadata associated with an article in a community,

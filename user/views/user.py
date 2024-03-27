@@ -1,4 +1,4 @@
-import random
+import secrets
 
 from django.conf import settings
 from django.contrib import messages
@@ -249,7 +249,7 @@ class UserViewset(viewsets.ModelViewSet):
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        otp = random.randint(100000, 999999)
+        otp = secrets.randbelow(999999 - 100000 + 1) + 100000
         user = User.objects.filter(email=serializer.data['email']).first()
 
         if user is None:
@@ -307,7 +307,7 @@ class UserViewset(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        otp = random.randint(100000, 999999)
+        otp = secrets.randbelow(999999 - 100000 + 1) + 100000
 
         user = User.objects.filter(email=serializer.data['email']).first()
         if user is None:

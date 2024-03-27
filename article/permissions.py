@@ -41,7 +41,7 @@ class CommentPermission(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
 
-        if view.action in ['retrieve', 'list']:
+        if view.action in ['retrieve', 'list', 'parents']:
             return True
 
         elif view.action in ['create', 'like']:

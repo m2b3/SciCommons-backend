@@ -1,4 +1,5 @@
 from django_filters.rest_framework import DjangoFilterBackend
+from faker import Faker
 from rest_framework import viewsets, parsers, filters, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -6,11 +7,13 @@ from rest_framework.response import Response
 from article.filters import CommentFilter
 from article.models import CommentBase, LikeBase, ArticleBlockedUser, HandlersBase, ArticleModerator, Article, Author
 from article.permissions import CommentPermission
-from article.serializer.article import ArticleBlockUserSerializer
-from article.serializer.comment import CommentSerializer, CommentlistSerializer, CommentCreateSerializer, \
-    CommentUpdateSerializer, LikeSerializer
+from article.serializer import CommentSerializer, CommentlistSerializer, CommentCreateSerializer, \
+    CommentUpdateSerializer, CommentParentSerializer, ArticleBlockUserSerializer, LikeSerializer, \
+    CommentNestedSerializer
 from community.models import Community, CommunityMeta
 from user.models import Rank
+
+faker = Faker()
 
 
 class CommentViewset(viewsets.ModelViewSet):
@@ -34,6 +37,7 @@ class CommentViewset(viewsets.ModelViewSet):
         "retrieve": CommentSerializer,
         "destroy": CommentSerializer,
         "like": LikeSerializer,
+        "parents": CommentParentSerializer,
         "block_user": ArticleBlockUserSerializer,
     }
 
@@ -147,8 +151,7 @@ class CommentViewset(viewsets.ModelViewSet):
 
         elif request.data['Type'] == 'review':
             author = Author.objects.filter(User=request.user, article=request.data["article"]).first()
-            article = Article.objects.filter(id=request.data['article']).first()
-            if author is not None and (article.link is None or article.link == ""):
+            if author is not None:
                 return Response(data={"error": "You are Author of Article.You can't submit a review"},
                                 status=status.HTTP_400_BAD_REQUEST)
 
@@ -217,7 +220,7 @@ class CommentViewset(viewsets.ModelViewSet):
             return Response(data={'error': "you can't rate your comment"}, status=status.HTTP_400_BAD_REQUEST)
         handle = HandlersBase.objects.filter(User=request.user, article=comment.article).first()
         if handle is None:
-            handle = HandlersBase.objects.create(User=request.user, article=comment.article, handle_name=fake.name())
+            handle = HandlersBase.objects.create(User=request.user, article=comment.article, handle_name=faker.name())
             handle.save()
         handle = HandlersBase.objects.filter(User=self.request.user, article=comment.article).first()
         if member is not None:
@@ -243,6 +246,32 @@ class CommentViewset(viewsets.ModelViewSet):
                 rank.save()
 
             return Response({'success': 'Comment rated successfully.'})
+
+    @action(methods=['get'], detail=False, url_path='(?P<pk>.+)/parents',
+            permission_classes=[permissions.IsAuthenticated, ])
+    def parents(self, request, pk):
+        """
+        This function retrieves the parent comments of a given comment.
+
+        :param request: The `request` parameter is an object that represents the HTTP request made by the
+        client. It contains information such as the request method (e.g., GET, POST), headers, and any data
+        sent with the request
+        :param pk: The "pk" parameter in the above code refers to the primary key of the comment object. It
+        is used to identify the specific comment for which the parent comments need to be retrieved
+        :return: The code is returning a response in the form of a JSON object. The response contains the
+        serialized data of the parent comments of the given comment. The serialized data includes details
+        such as the content, author, and date of the parent comments.
+        """
+        print("swaroop", pk)
+        comment = pk
+        while True:
+            member = CommentBase.objects.filter(id=comment).first()
+            if member.parent_comment is None:
+                break
+            comment = member.parent_comment.id
+        response = CommentBase.objects.filter(id=comment).first()
+        serializer = CommentNestedSerializer(response, context={'request': request})
+        return Response(data={"success": serializer.data})
 
     @action(methods=['post'], detail=False, url_path='(?P<pk>.+)/block_user', permission_classes=[CommentPermission])
     def block_user(self, request, pk):
