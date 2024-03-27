@@ -1,5 +1,5 @@
 myenv
-scic
 *.env
 venv
+__pycache__
 /.idea

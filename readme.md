@@ -46,6 +46,7 @@ Make a .env file with following variables:
 - Use DATABASE_URL, or default database based on your database connections.
 - Add aws s3 bucket configuration for media file storage.
 - Generate App Password for mail to use it for mail services.
+- Note: Google has disabled the use of less secure apps, so you need to enable it to use the mail services. Go to this [link](https://myaccount.google.com/apppasswords) to generate the app password and place the password in the EMAIL_HOST_PASSWORD field.
 
 ### Installation
 
