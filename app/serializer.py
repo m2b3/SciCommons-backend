@@ -13,7 +13,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from decouple import config
 from dj_database_url import parse
-
+import uuid
 import json
 
 
@@ -160,8 +160,10 @@ class UserCreateSerializer(serializers.ModelSerializer):
         if user:
             raise serializers.ValidationError(detail={"error":"Username already exists.Please use another username!!!"})
         
+        token = str(uuid.uuid4())
         instance = self.Meta.model.objects.create(**validated_data)
         instance.set_password(password)
+        instance.email_token = token
         instance.save()
         unregistered = UnregisteredUser.objects.filter(email=instance.email)
         if unregistered is not None:
@@ -174,6 +176,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         rank.save()
         send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         send_mail("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
+        send_mail("Verify", f"Please verify your email by clicking on the following link: \n{settings.BASE_URL}/verifyUser?token={token}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         return instance
     
 # The UserUpdateSerializer class is a serializer that represents the User model and includes fields
@@ -276,9 +279,10 @@ class ResetPasswordSerializer(serializers.Serializer):
 class VerifySerializer(serializers.Serializer):
     otp = serializers.IntegerField()
     email = serializers.CharField()
+    email_token = serializers.CharField()
 
     class Meta:
-        fields = ['otp', 'email']
+        fields = ['otp', 'email', 'email_token']
         
 
 '''
