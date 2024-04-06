@@ -46,6 +46,7 @@ class UserViewset(viewsets.ModelViewSet):
         'following': FollowingSerializer,
         'myactivity': UserActivitySerializer,
         'verifyrequest': ForgotPasswordSerializer,
+        'verifytoken': VerifySerializer,
         'verifyemail': VerifySerializer,
         'messages': MessageListSerializer,
         "getmyposts": SocialPostSerializer,
@@ -246,6 +247,30 @@ class UserViewset(viewsets.ModelViewSet):
         email_body = "Your One Time Password is " + str(otp)
         send_mail(email_subject, email_body, email_from, [serializer.data['email']], fail_silently=False)
         return Response(data={"success": "code sent to your email"})
+    
+    @action(methods=['post'],url_path="verifytoken", detail=False,permission_classes=[permissions.AllowAny,])
+    def verifytoken(self, request):
+        """
+        The above function is a Django view that verifies a user's email address by sending an OTP
+        (One-Time Password) to their email.
+        
+        :param request: The request object contains information about the HTTP request made to the API,
+        such as the request method (POST in this case) and the data sent in the request body
+        :return: The code is returning a response with a success message "code sent to your email" if
+        the email verification request is successful.
+        """
+        try:
+            token = request.data.get('email_token')
+            user = User.objects.filter(email_token=token).first()
+            if user is None:
+                return Response(data={"error": "Please Enter valid token!!!"}, status=status.HTTP_400_BAD_REQUEST)
+            if user.email_verified == True:
+                return Response(data={"error": "Email already verified!!!"}, status=status.HTTP_400_BAD_REQUEST)
+            user.email_verified = True
+            user.save()
+            return Response(data={"success": "verified successfully"})
+        except Exception as e:
+            print(e)
     
     @action(methods=['post'],url_path="verify_email",detail=False,permission_classes=[permissions.AllowAny,])
     def verifyemail(self,request):
@@ -757,7 +782,7 @@ class CommunityViewset(viewsets.ModelViewSet):
         :return: The code is returning a Response object with the data {"success": serializer.data}.
         """
         obj = self.get_object()
-        joinrequest = CommunityRequests.objects.filter(community=obj).first()
+        joinrequest = CommunityRequests.objects.get(community=obj)
 
         serializer = self.get_serializer(joinrequest, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -879,9 +904,9 @@ class ArticleViewset(viewsets.ModelViewSet):
         if article is not None:
             return Response(data={"error": "Article with same name already exists!!!"}, status=status.HTTP_400_BAD_REQUEST)
         response = super(ArticleViewset, self).create(request)
-        
-        # send the response as a JSON object with a "success" key and the serialized data of the article
-        return Response(data={"success":response.data})
+    
+        return Response(data={"success": "Article successfully submitted"})
+
 
     def update(self, request, pk):
         obj = self.get_object()
@@ -901,19 +926,6 @@ class ArticleViewset(viewsets.ModelViewSet):
         super(ArticleViewset, self).destroy(request,pk=pk)
 
         return Response(data={"success": "Article successfully deleted"})
-    
-    @action(methods=['get'], detail=True, url_path='comment/(?P<comment_id>.+)', permission_classes=[ArticlePermission])
-    def retrieve_comment(self, request, pk, article_id=None, comment_id=None):
-        # Fetch the first comment with the given ID 
-        comment = CommentBase.objects.filter(article=pk, id=comment_id).first()
-        if comment:
-            # If the comment exists, serialize it and return it in the response
-            # Pass the request context to the serializer
-            serializer = CommentSerializer(comment, context={"request": request})
-            return Response(serializer.data)
-        else:
-            # If the comment does not exist, return a 404 Not Found response
-            return Response(status=404)
 
     @action(methods=['get'], detail=False, url_path='(?P<pk>.+)/isapproved', permission_classes=[ArticlePermission])
     def getIsapproved(self, request, pk):
@@ -929,9 +941,7 @@ class ArticleViewset(viewsets.ModelViewSet):
         :return: The response is a JSON object containing the success status and the communities where
         the article has been approved.
         """
-        # Retrieve the article object from the database
         obj = self.get_object()
-        # Check if the user has permission to access the article
         self.check_object_permissions(request,obj)
         response = CommunityMeta.objects.filter(article_id=pk)
         serializer = CommunityMetaApproveSerializer(data=response, many=True)
@@ -1200,7 +1210,6 @@ class CommentViewset(viewsets.ModelViewSet):
         "retrieve": CommentSerializer,
         "destroy": CommentSerializer,
         "like":LikeSerializer,
-        "parents": CommentParentSerializer,
         "block_user": ArticleBlockUserSerializer,
     }
     
@@ -1393,31 +1402,6 @@ class CommentViewset(viewsets.ModelViewSet):
                 rank.save()
             
             return Response({'success': 'Comment rated successfully.'})
-        
-    @action(methods=['get'], detail=False, url_path='(?P<pk>.+)/parents', permission_classes=[permissions.IsAuthenticated,])
-    def parents(self, request, pk):
-        """
-        This function retrieves the parent comments of a given comment.
-        
-        :param request: The `request` parameter is an object that represents the HTTP request made by the
-        client. It contains information such as the request method (e.g., GET, POST), headers, and any data
-        sent with the request
-        :param pk: The "pk" parameter in the above code refers to the primary key of the comment object. It
-        is used to identify the specific comment for which the parent comments need to be retrieved
-        :return: The code is returning a response in the form of a JSON object. The response contains the
-        serialized data of the parent comments of the given comment. The serialized data includes details
-        such as the content, author, and date of the parent comments.
-        """
-        print("swaroop",pk)
-        comment = pk
-        while True:
-            member = CommentBase.objects.filter(id=comment).first()
-            if member.parent_comment is None:
-                break
-            comment = member.parent_comment.id
-        response = CommentBase.objects.filter(id=comment).first()
-        serializer = CommentNestedSerializer(response, context={'request': request})
-        return Response(data={"success":serializer.data})
     
     @action(methods=['post'],detail=False, url_path='(?P<pk>.+)/block_user', permission_classes=[CommentPermission])
     def block_user(self, request, pk):

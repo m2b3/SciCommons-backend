@@ -17,3 +17,4 @@ django-filter
 Pillow
 django-storages
 boto3
+uuid
