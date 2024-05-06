@@ -1,0 +1,23 @@
+exclude: '/migrations/'
+
+repos:
+#   - repo: https://github.com/pycqa/isort
+#     rev: 5.13.2
+#     hooks:
+#       - id: isort
+#         name: isort (python)
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        name: black (python)
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        name: flake8 (python)
+        # additional_dependencies:
+        #   - flake8-docstrings>=1.5.0
+        entry: flake8
