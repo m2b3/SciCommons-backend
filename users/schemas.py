@@ -1,6 +1,6 @@
 """
-This module defines the input and output schemas for user authentication actions.
-It includes schemas for signing up, logging in, and requesting a password reset.
+This module defines the input and output schemas for user authentication actions
+and other user-related actions.
 """
 
 from ninja import Schema
@@ -40,9 +40,18 @@ class LogInSchemaIn(Schema):
     password: str
 
 
-class ResetRequestSchema(Schema):
+class EmailSchema(Schema):
     """
-    Schema for requesting a password reset. Requires the user's email address.
+    Schema for email addresses.
     """
 
     email: str
+
+
+class StatusMessageSchema(Schema):
+    """
+    Schema for status messages.
+    """
+
+    status: str
+    message: str

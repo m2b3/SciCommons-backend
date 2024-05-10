@@ -50,8 +50,6 @@ class User(AbstractUser):
     institute = models.CharField(max_length=255, null=True, blank=True)
     email_notify = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=False)
-    activation_token = models.CharField(max_length=255, null=True, blank=True)
-    activation_token_created_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 
@@ -60,3 +58,14 @@ class User(AbstractUser):
 
     def __int__(self) -> int:
         return self.id
+
+
+class UserActivity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    action = models.TextField(null=False)
+
+    class Meta:
+        db_table = "user_activity"
+
+    def __str__(self) -> str:
+        return f"{self.user}-{self.action}"

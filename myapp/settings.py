@@ -42,6 +42,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "ninja",
     "users",
+    "communities",
+    "articles",
+    "posts",
 ]
 
 AUTH_USER_MODEL = "users.User"
