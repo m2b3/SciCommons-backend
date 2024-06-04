@@ -1,11 +1,10 @@
+from jwt import ExpiredSignatureError
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from jwt import ExpiredSignatureError
-from rest_framework_simplejwt.exceptions import (
-    InvalidToken,
-    TokenError,
-)
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+
+# Todo: Handle Token Expiration (ExpiredSignatureError)
 
 
 class JWTAuth(HttpBearer):

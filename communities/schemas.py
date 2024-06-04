@@ -9,11 +9,7 @@ Community management schemas for serialization and validation.
 
 class CommunitySchema(Schema):
     id: int
-    name: str
-    description: str
-    created_at: str
-    slug: str
-    type: str
+    status: str
 
 
 class PaginatedCommunitySchema(Schema):
@@ -27,14 +23,21 @@ class CommunityDetailSchema(Schema):
     id: int
     name: str
     description: str
-    created_at: str
-    slug: str
+    tags: str
     type: str
+    profile_pic_url: str
+    slug: str
+    created_at: str
+    is_admin: bool = False
+    is_reviewer: bool = False
+    is_moderator: bool = False
+    is_member: bool = False
 
 
 class CreateCommunitySchema(Schema):
     name: str
     description: str
+    tags: str
     type: str
 
 

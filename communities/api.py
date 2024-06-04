@@ -7,7 +7,7 @@ from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from ninja import Router
+from ninja import File, Form, Router, UploadedFile
 from ninja.errors import HttpError, HttpRequest
 
 from communities.models import Community, Invitation, JoinRequest, Membership
@@ -23,7 +23,7 @@ from communities.schemas import (
 from users.auth import JWTAuth
 from users.models import User
 
-router = Router(auth=JWTAuth())
+router = Router(auth=JWTAuth(), tags=["Communities"])
 
 signer = TimestampSigner()
 
@@ -63,11 +63,28 @@ def list_communities(
 @router.get("/{community_id}/", response=CommunityDetailSchema)
 def get_community_detail(request, community_id: int):
     try:
-        # Fetch community by id and raise an error if not found
-        community = Community.objects.get(pk=community_id)
-        return CommunityDetailSchema.from_orm(community)
-    except ObjectDoesNotExist:
-        raise Http404(f"Community with ID {community_id} not found.")
+        community = get_object_or_404(Community, pk=community_id)
+
+        response_data = CommunityDetailSchema(
+            id=community.id,
+            name=community.name,
+            description=community.description,
+            tags=community.tags,
+            type=community.type,
+            profile_pic_url=community.profile_pic_url,
+            slug=community.slug,
+            created_at=str(community.created_at),
+        )
+
+        # Check roles
+        user = request.auth  # Retrieved from JWTAuth
+        if user:
+            response_data.is_admin = user in community.admins.all()
+            response_data.is_reviewer = user in community.reviewers.all()
+            response_data.is_moderator = user in community.moderators.all()
+            response_data.is_member = user in community.members.all()
+
+        return response_data
     except ValueError:
         return {"error": "Invalid community ID format."}, 400
     except Exception as e:
@@ -87,20 +104,36 @@ def get_community_by_slug(request, slug: str):
 
 
 @router.post("/", response=CommunitySchema, auth=JWTAuth())
-def create_community(request: HttpRequest, payload: CreateCommunitySchema):
+def create_community(
+    request: HttpRequest,
+    payload: Form[CreateCommunitySchema],
+    profile_image_file: File[UploadedFile] = None,
+):
     try:
         # Retrieve the authenticated user from the JWT token
         user = request.auth
+
+        # Check if the user already has a community
+        if Community.objects.filter(admins=user).exists():
+            return {"error": "You can only create one community."}, 400
+
+        # Process the uploaded profile image file
+        profile_image_file = profile_image_file if profile_image_file else None
+
         # Validate the provided data and create a new Community
         new_community = Community(
-            name=payload.name, description=payload.description, type=payload.type
+            name=payload.name,
+            description=payload.description,
+            tags=payload.tags,
+            type=payload.type,
+            profile_pic_url=profile_image_file,
         )
-        new_community.full_clean()  # Validate fields
+        # new_community.full_clean()  # Validate fields
         new_community.save()
 
         new_community.admins.add(user)  # Add the creator as an admin
 
-        return CommunitySchema.from_orm(new_community)
+        return {"id": new_community.id, "status": "Community created successfully."}
 
     except ValidationError as e:
         return {"error": str(e)}, 400
@@ -135,7 +168,7 @@ def update_community(
             community.type = payload.type
 
         # Validate and save changes
-        community.full_clean()
+        # community.full_clean()
         community.save()
 
         return CommunitySchema.from_orm(community)

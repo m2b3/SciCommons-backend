@@ -40,6 +40,17 @@ class LogInSchemaIn(Schema):
     password: str
 
 
+class LogInSchemaOut(Schema):
+    """
+    Output schema for user log in responses. Indicates the status of the
+    login attempt and provides a corresponding message.
+    """
+
+    status: str
+    message: str
+    token: str
+
+
 class EmailSchema(Schema):
     """
     Schema for email addresses.

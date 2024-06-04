@@ -16,7 +16,7 @@ from communities.schemas import (
 from users.auth import JWTAuth
 
 # Initialize a router for the communities API
-router = Router(auth=JWTAuth())
+router = Router(auth=JWTAuth(), tags=["CommunitiesPosts"])
 
 
 # Endpoint for getting all posts in a community

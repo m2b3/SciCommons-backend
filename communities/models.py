@@ -13,9 +13,11 @@ class Community(models.Model):
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    slug = models.SlugField(max_length=100, unique=True)
+    tags = models.JSONField(default=list)
     type = models.CharField(max_length=10, choices=COMMUNITY_TYPES, default=PUBLIC)
+    profile_pic_url = models.FileField(upload_to="community_images/", null=True)
+    slug = models.SlugField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")

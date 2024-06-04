@@ -40,11 +40,13 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "ninja",
     "users",
     "communities",
     "articles",
     "posts",
+    "storages",
 ]
 
 AUTH_USER_MODEL = "users.User"
@@ -56,11 +58,15 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=180),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -69,6 +75,22 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True
+
+# # Allow headers
+# CORS_ALLOW_HEADERS = [
+#     "accept",
+#     "accept-encoding",
+#     "Authorization",
+#     "content-type",
+#     "dnt",
+#     "origin",
+#     "user-agent",
+#     "x-csrftoken",
+#     "x-requested-with",
+#     "set-cookie",
+# ]
 
 ROOT_URLCONF = "myapp.urls"
 
@@ -113,6 +135,30 @@ EMAIL_PORT = config("EMAIL_PORT")
 EMAIL_USE_TLS = config("EMAIL_USE_TLS")
 DEFAULT_FROM_EMAIL = "scicommons.updates@gmail.com"
 
+FRONTEND_URL = config("FRONTEND_URL")
+
+# MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+# MEDIA_URL = "/media/"
+
+AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
+AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME")
+AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+AWS_S3_FILE_OVERWRITE = False
+
+
+STORAGES = {
+    # Media File (PDFs, images, etc.) Management
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+    },
+    "staticfiles": {
+        # use default storage for static files
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        # "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+    },
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -152,6 +198,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "static"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
