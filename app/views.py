@@ -16,7 +16,9 @@ from app.serializer import *
 from app.permissions import *
 from app.filters import *
 from rest_framework import filters
-from django_filters import rest_framework as django_filters 
+from django_filters import rest_framework as django_filters
+import uuid
+from django.utils import timezone
 
 class UserViewset(viewsets.ModelViewSet):
     # The above code is defining a Django view for handling user-related operations.
@@ -514,31 +516,70 @@ class CommunityViewset(viewsets.ModelViewSet):
         "subscribe": SubscribeSerializer,
         "unsubscribe": SubscribeSerializer,
         'mycommunity': CommunitySerializer,
+        "createPrivateCommunity": PrivateCommunitySerializer,
+        "private_join_userset": PrivateJoinUsersetSerializer
     }
     
     def get_serializer_class(self):
         return self.action_serializers.get(self.action, self.serializer_class)
     
+    
     def list(self, request):
-
         response = super(CommunityViewset, self).list(request)
-
-        return Response(data={"success":response.data})
+        data = response.data.get('results', [])
+        allowed_communities = [community for community in data if community.get('access') in ['public', 'locked']]
+        
+        # Get the communities where the user is a member
+        user_communities = self.queryset.filter(members=request.user)
+        private_communities = [community for community in user_communities if community.access == 'private']
+        
+        # Serialize the private communities
+        private_communities_data = CommunitySerializer(private_communities, many=True).data
+        
+        # Add the serialized private communities to the allowed_communities list
+        allowed_communities.extend(private_communities_data)
+        
+        return Response(data={"success": allowed_communities})
     
     def retrieve(self, request, Community_name):
         obj = self.get_object()
-        self.check_object_permissions(request,obj)
+        self.check_object_permissions(request, obj)
         response = super(CommunityViewset, self).retrieve(request,Community_name=Community_name)
 
         return Response(data={"success":response.data})
+    
+    def create_private_community(self, community_id):
+        private_community_data = {
+            'requested_emails': [],
+            'referral_id': str(uuid.uuid4()),
+            'community': community_id,
+            'accepted_emails': [],
+            'discarded_emails': [],
+            'email_subject': None,
+            'email_body': None,
+        }
+        private_community_serializer = PrivateCommunitySerializer(data=private_community_data)
+        if private_community_serializer.is_valid():
+            private_community_serializer.save()
+        else:
+            print('error')
 
     def create(self, request):
         
+        # print(request.data)
         member = self.queryset.filter(user=request.user).first()
         if member is not None:
-            return Response(data={"error": "You already created a community.You can't create another community!!!"}, status=status.HTTP_400_BAD_REQUEST)
-        super(CommunityViewset, self).create(request)
+            return Response(data={"error": "You already created a community. You can't create another community!!!"}, status=status.HTTP_400_BAD_REQUEST)
+        # super(CommunityViewset, self).create(request)
 
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        community = serializer.instance
+
+        # Call the method with the community id
+        if community.access == 'private':
+            self.create_private_community(community.id)
         return Response(data={"success": "Community successfully added"})
 
 
@@ -559,6 +600,94 @@ class CommunityViewset(viewsets.ModelViewSet):
         super(CommunityViewset, self).destroy(request,Community_name=Community_name)
 
         return Response(data={"success": "community successfully deleted"})
+    
+    @action(methods=['POST'], detail=False, url_path='(?P<Community_name>.+)/privateJoinUserset')
+    def private_join_userset(self, request, Community_name=None):
+        # Find the community instance by name
+        community = self.queryset.filter(Community_name=Community_name).first()
+        if not community:
+            return Response({"error": "Community not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PrivateJoinUsersetSerializer(data=request.data)
+        if serializer.is_valid():
+            requested_emails = serializer.validated_data['requested_emails']
+            subject = serializer.validated_data['subject']
+            body = serializer.validated_data['body']
+            # Find the private community instance by community
+            private_community = PrivateCommunity.objects.filter(community=community).first()
+            
+            if not private_community:
+                return Response({"error": "Private community not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Update the requested_emails field
+            private_community.requested_emails = requested_emails
+            private_community.email_subject = subject
+            private_community.email_body = body
+            private_community.updated_at = timezone.now()
+            private_community.save()
+            send_mail(subject, body, settings.EMAIL_HOST_USER, requested_emails, fail_silently=False)
+            
+            return Response({"success": "Emails updated successfully"}, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(methods=['GET'], detail=False, url_path='(?P<Community_name>.+)/acceptJoinInvite', permission_classes=[permissions.IsAuthenticated])
+    def accept_join_invite(self, request, Community_name):
+
+        obj = self.get_object()
+        user = request.user
+
+        # if CommunityMember.objects.filter(community=obj, user=user).exists():
+        #     return Response({"message": "User is already a member"}, status=status.HTTP_200_OK)
+
+        obj.members.add(request.user)
+        private_community = PrivateCommunity.objects.filter(community=obj).first()
+        private_community.accepted_emails.append(user.email)
+        private_community.requested_emails.remove(user.email)
+        private_community.save()
+        return Response({"success": "User added to community"}, status=status.HTTP_200_OK)
+    
+    @action(methods=['GET'], detail=False, url_path='(?P<Community_name>.+)/discardJoinInvite', permission_classes=[permissions.IsAuthenticated])
+    def discard_join_invite(self, request, Community_name):
+
+        obj = self.get_object()
+        user = request.user
+
+        # if CommunityMember.objects.filter(community=obj, user=user).exists():
+        #     return Response({"message": "User is already a member"}, status=status.HTTP_200_OK)
+
+        private_community = PrivateCommunity.objects.filter(community=obj).first()
+        private_community.discarded_emails.append(user.email)
+        private_community.requested_emails.remove(user.email)
+        private_community.save()
+        return Response({"success": "User discarded to community"}, status=status.HTTP_200_OK)
+
+    @action(methods=['POST'], detail=False, url_path='private/join/verify', permission_classes=[permissions.IsAuthenticated])
+    def validate_private_join_request(self, request):
+        referral_id = request.data.get('referralId')
+        if not referral_id:
+            return Response({'valid': False, 'error': 'Referral ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Ensure the referral_id is a valid UUID
+            uuid.UUID(referral_id)
+        except ValueError:
+            return Response({'valid': False, 'error': 'Invalid referral link'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        private_community = PrivateCommunity.objects.filter(referral_id=referral_id).first()
+        if not private_community:
+            return Response({'valid': False, 'error': 'This Link has been expired.'}, status=status.HTTP_200_OK)
+        
+        community = private_community.community
+        user_email = request.user.email
+
+        if user_email not in private_community.requested_emails:
+            return Response({'valid': False, 'error': 'Your invitation is not valid.'}, status=status.HTTP_200_OK)
+        
+        if user_email in community.members.values_list('email', flat=True):
+            return Response({'valid': False, 'error': f'You are already a member of {community} community.'}, status=status.HTTP_200_OK)
+        
+        community_serialized = CommunitySerializer(community).data
+        return Response({'valid': True, 'community': community_serialized}, status=status.HTTP_200_OK)
 
     @action(methods=['GET'], detail=False, url_path='(?P<Community_name>.+)/articles', permission_classes=[CommunityPermission])
     def getArticles(self, request, Community_name):
@@ -595,10 +724,21 @@ class CommunityViewset(viewsets.ModelViewSet):
         the value being the community information.
         """
         member = CommunityMember.objects.filter(user=request.user,is_admin=True).first()
+        if member is None:
+            return Response(data={"error": "You are not an admin of any community"})
         instance = Community.objects.filter(id=member.community.id)
         serializer = CommunitySerializer(data=instance, many=True)
         serializer.is_valid()
         community = serializer.data
+        if community[0]['access'] == 'private':
+            private_community = PrivateCommunity.objects.filter(community=instance[0]).first()
+            community[0]['requested_emails'] = private_community.requested_emails
+            community[0]['referral_id'] = private_community.referral_id
+            community[0]['accepted_emails'] = private_community.accepted_emails
+            community[0]['discarded_emails'] = private_community.discarded_emails
+            community[0]['email_subject'] = private_community.email_subject
+            community[0]['email_body'] = private_community.email_body
+            community[0]['updated_at'] = private_community.updated_at
         return Response(data={"success": community[0]})
     
     @action(methods=['POST'], detail=False, url_path='(?P<Community_name>.+)/article/(?P<article_id>.+)/publish',permission_classes=[CommunityPermission])
@@ -782,18 +922,36 @@ class CommunityViewset(viewsets.ModelViewSet):
         :return: The code is returning a Response object with the data {"success": serializer.data}.
         """
         obj = self.get_object()
-        joinrequest = CommunityRequests.objects.get(community=obj)
-
+        user_id = request.data.get('user')
+        joinrequest = CommunityRequests.objects.get(community=obj, user=user_id)
         serializer = self.get_serializer(joinrequest, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        if serializer.data['status']=="approved":
+        if serializer.data['status'] == "approved":
             obj.members.add(serializer.data['user'])
 
         joinrequest.delete()
 
-        return Response(data={"success":serializer.data})
+        return Response(data={"success": serializer.data})
+    
+    @action(methods=['POST'],detail=False, url_path='(?P<Community_name>.+)/join_public_community',permission_classes=[CommunityPermission])
+    def join_public_community(self, request, Community_name):
+        """
+        This function allows a user to join a public community by creating a new entry in the
+        CommunityMember model.
+        
+        :param request: The `request` parameter is an object that represents the HTTP request made by
+        the client. It contains information such as the request method (e.g., GET, POST), headers, and
+        user authentication details
+        :param Community_name: The `Community_name` parameter is a string that represents the name of
+        the community that the user wants to join
+        :return: The code is returning a response with a JSON object containing the data from the
+        serializer, wrapped in a "success" key.
+        """
+        instance = Community.objects.filter(Community_name=Community_name).first()
+        CommunityMember.objects.create(community=instance, user=request.user)
+        return Response(data={"success":"Joined Public Community!!!"})
     
     @action(methods=['post'], detail=False,url_path='(?P<Community_name>.+)/subscribe', permission_classes=[permissions.IsAuthenticated])
     def subscribe(self, request, Community_name):
@@ -898,6 +1056,7 @@ class ArticleViewset(viewsets.ModelViewSet):
         return Response(data={"success":response.data})
 
     def create(self, request):
+        print(request.data)
         name = request.data['article_name']
         name = name.replace(' ','_')
         article = self.queryset.filter(article_name=name).first()

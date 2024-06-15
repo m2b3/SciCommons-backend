@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
+from django.contrib.postgres.fields import ArrayField
 
 # Create your models here.
 
@@ -114,6 +115,7 @@ class Community(models.Model):
     website = models.CharField(max_length=300, null=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     members = models.ManyToManyField(User, through="CommunityMember", related_name='members')
+    access = models.CharField(max_length=255, null=False, blank=False, default='public')
     
     class Meta:
         db_table = 'community'
@@ -121,6 +123,19 @@ class Community(models.Model):
     def __str__(self):
         return self.Community_name
     
+class PrivateCommunity(models.Model):
+    requested_emails = ArrayField(models.CharField(max_length=255), blank=True, default=list)
+    referral_id = models.UUIDField(unique=True)
+    community = models.ForeignKey(Community, on_delete=models.CASCADE)
+    accepted_emails = ArrayField(models.CharField(max_length=255), blank=True, default=list)
+    discarded_emails = ArrayField(models.CharField(max_length=255), blank=True, default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    email_subject = models.CharField(max_length=255, null=True, blank=True)
+    email_body = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'private_communities'
 
 # The `CommunityMember` class represents a member of a community, with fields for the community they
 # belong to, the user they are associated with, and their roles within the community.

@@ -294,7 +294,7 @@ class CommunitySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Community
-        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'user', 'members']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'user', 'members', 'access']
 
 # The `CommunitylistSerializer` class is a serializer that serializes the `Community` model and
 # includes additional fields for member count, evaluated count, published count, and subscription
@@ -307,8 +307,8 @@ class CommunitylistSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Community
-        fields = ['id', 'Community_name','subtitle', 'description', 'evaluatedcount', 'subscribed',
-                    'membercount','publishedcount']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'evaluatedcount', 'subscribed',
+                    'membercount', 'publishedcount', 'access']
     
     def get_membercount(self, obj):
         """
@@ -511,11 +511,39 @@ class CommunityGetSerializer(serializers.ModelSerializer):
 # The `CommunityCreateSerializer` class is a serializer that creates a new community instance, sets
 # the community name, adds the user as an admin member, sends an email notification, and logs the
 # user's activity.
+
+class PrivateCommunitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivateCommunity
+        fields = ['requested_emails', 'referral_id', 'community', 'accepted_emails', 'discarded_emails', 'email_subject', 'email_body', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        """
+        The function creates a new private community instance, sets the requested emails, referral ID,
+        and community, and returns the created instance.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for creating a new instance of the model. It typically includes the data provided
+        by the user in the request payload
+        :return: The instance of the created object is being returned.
+        """
+        instance = self.Meta.model.objects.create(**validated_data)
+        instance.save()
+        return instance
+
+class PrivateJoinUsersetSerializer(serializers.Serializer):
+    requested_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        allow_empty=False
+    )
+    subject = serializers.CharField()
+    body = serializers.CharField()
+
 class CommunityCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Community
-        fields = ['Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website']
+        fields = ['Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'access']
         
     def create(self, validated_data):
         """
@@ -1199,7 +1227,7 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Article
-        fields = ['id', 'article_name','keywords', 'article_file', 'Code', 'Abstract', 'authors','video','link', 'parent_article', 'communities','unregistered_authors']
+        fields = ['id', 'article_name','keywords', 'Code', 'Abstract', 'authors','video','link', 'parent_article', 'communities','unregistered_authors']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -1419,8 +1447,8 @@ class InReviewSerializer(serializers.Serializer):
         if len(moderators_arr)==0:
             raise serializers.ValidationError(detail={"error":"No Moderators on Community"})
 
-        if len(reviewers_arr)>=3:
-            reviewers_arr = random.sample(reviewers_arr, 3)
+        if len(reviewers_arr)>=1:
+            reviewers_arr = random.sample(reviewers_arr, 1)
 
         if len(moderators_arr)>=1:
             moderators_arr = random.sample(moderators_arr, 1)
