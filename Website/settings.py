@@ -34,7 +34,6 @@ ALLOWED_HOSTS = ["scicommons-backend-vkyc.onrender.com","127.0.0.1"]
 # Application definition
 
 INSTALLED_APPS = [
-    'corsheaders',
     'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -44,12 +43,14 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'app',
     'rest_framework',
+    'corsheaders',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'rest_framework_swagger',
     'drf_yasg',
     'channels',
     'django_extensions'
+    
 ]
 
 REST_FRAMEWORK = {
@@ -117,20 +118,20 @@ BASE_URL = 'https://www.scicommons.org'
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'incf',
-        'USER': 'incf_owner',
-        'PASSWORD': 'jVvbBFL7Zwa8',
-        'HOST': 'ep-frosty-sunset-a1zq2m2s.ap-southeast-1.aws.neon.tech',
-        'PORT': 5432,
-    }
-}
-
 # DATABASES = {
-#     'default':parse(config('DATABASE_URL'))
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'scicommons',
+#         'USER': 'postgres',
+#         'PASSWORD': config('DBPASSWORD'),
+#         'HOST': 'scicommons.cgdneardo4hm.ca-central-1.rds.amazonaws.com',
+#         'PORT': 5432,
+#     }
 # }
+
+DATABASES = {
+    'default':parse(config('DATABASE_URL'))
+}
 
 
 # Password validation
