@@ -374,7 +374,7 @@ class CommunityGetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Community
         fields = ['id', 'Community_name','subtitle', 'description','location','date','github','email', 'evaluatedcount', 'isSubscribed', 'admins',
-                    'website','user','membercount','publishedcount','isMember','isReviewer', 'isModerator', 'isAdmin','subscribed']
+                    'website','user','membercount','publishedcount','isMember','isReviewer', 'isModerator', 'isAdmin','subscribed', 'access']
     
 
     def get_isMember(self, obj):

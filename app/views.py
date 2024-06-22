@@ -860,7 +860,6 @@ class CommunityViewset(viewsets.ModelViewSet):
         
         return Response(data={"success": "member removed successfully"})
     
-    
     @action(methods=['POST'],detail=False, url_path='(?P<Community_name>.+)/join_request',permission_classes=[CommunityPermission])
     def join_request(self, request, Community_name):
         """
@@ -875,6 +874,14 @@ class CommunityViewset(viewsets.ModelViewSet):
         serializer, wrapped in a "success" key.
         """
         obj = self.get_object()
+
+        if obj.access == 'public':
+            if CommunityMember.objects.filter(community=obj, user=request.user).exists():
+                return Response(data={"success": "Already a member of this community"})
+            else:
+                CommunityMember.objects.create(community=obj, user=request.user)
+                return Response(data={"success": "Joined Public Community!!!"})
+
         data = request.data
         data["community"] = obj.id
 
