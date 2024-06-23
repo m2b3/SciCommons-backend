@@ -4,6 +4,7 @@ Holds the User model and UserManager class.
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils.timezone import now, timedelta
 from django.utils.translation import gettext_lazy as _
 
 
@@ -69,3 +70,51 @@ class UserActivity(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user}-{self.action}"
+
+
+class Notification(models.Model):
+    CATEGORY_CHOICES = [
+        ("posts", "Posts"),
+        ("articles", "Articles"),
+        ("communities", "Communities"),
+        ("users", "Users"),
+    ]
+
+    TYPE_CHOICES = [
+        ("join_request_sent", "Join Request Sent"),
+        ("join_request_received", "Join Request Received"),
+        ("article_commented", "Article Commented"),
+        ("post_replied", "Post Replied"),
+        ("comment_replied", "Comment Replied"),
+        ("article_submitted", "Article Submitted"),
+    ]
+
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    community = models.ForeignKey(
+        "communities.Community", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    article = models.ForeignKey(
+        "articles.Article", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    # post = models.ForeignKey(
+    #     "posts.Post", on_delete=models.SET_NULL, null=True, blank=True
+    # )
+    # Optional: Add references to other models such as Review or Comment if needed
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    notification_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    message = models.TextField()
+    content = models.TextField(blank=True, null=True)
+    link = models.URLField(blank=True, null=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return (
+            f"{self.category.title()} - "
+            f"{self.get_notification_type_display()} - "
+            f"{self.message}"
+        )
+
+    def set_expiration(self, days: int):
+        self.expires_at = now() + timedelta(days=days)

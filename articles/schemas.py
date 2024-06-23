@@ -1,14 +1,32 @@
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Literal
 
-from ninja import Schema
+from ninja import Field, Schema
+
+"""
+Article Related Schemas for serialization and deserialization
+"""
+
+
+class Message(Schema):
+    message: str
+
+
+class Tag(Schema):
+    value: str
+    label: str
+
+
+class ArticleCreateDetails(Schema):
+    title: str
+    abstract: str
+    keywords: List[Tag]
+    authors: List[Tag]
+    submission_type: Literal["Public", "Private"]
 
 
 class ArticleCreateSchema(Schema):
-    title: str
-    abstract: str
-    keywords: str
-    authors: str
-    submission_type: str
+    payload: ArticleCreateDetails
 
 
 class ArticleResponseSchema(Schema):
@@ -17,42 +35,53 @@ class ArticleResponseSchema(Schema):
     slug: str
 
 
-class ReviewSchema(Schema):
-    id: int
-    user: int
-    rating: int
-    subject: str
-    content: str
-    created_at: str
-    updated_at: str
+class FAQSchema(Schema):
+    question: str
+    answer: str
 
 
-class PaginatedReviewSchema(Schema):
-    count: int
-    next: Optional[str]
-    previous: Optional[str]
-    results: List[ReviewSchema]
+class CommunityDetailsForArticle(Schema):
+    name: str
+    profile_pic_url: str | None
+    description: str
 
 
-class ArticleSchema(Schema):
+class ArticleDetails(Schema):
     id: int
     title: str
     abstract: str
-    keywords: str
-    authors: str
-    image: Optional[str] = None
-    pdf_file: Optional[str] = None
-    submission_type: str
-    submitter: int
+    keywords: List[Tag]
+    authors: List[Tag]
+    article_image_url: str | None
+    article_pdf_file_url: str | None
+    submission_type: Literal["Public", "Private"]
+    submitter_id: int
     slug: str
-    reviews: PaginatedReviewSchema
+    community: CommunityDetailsForArticle | None
+    status: str
+    published: bool
+    created_at: datetime
+    updated_at: datetime
+    is_submitter: bool = Field(default=False)
+    faqs: List[FAQSchema] = Field(default_factory=list)
 
 
-class ReviewSchema(Schema):
-    rating: int
-    subject: str
-    content: str
-    article_id: int
+class UpdateArticleDetails(Schema):
+    title: str | None
+    abstract: str | None
+    keywords: List[Tag] | None
+    authors: List[Tag] | None
+    submission_type: Literal["Public", "Private"] | None
+    faqs: List[FAQSchema] = []
+
+
+class ArticleUpdateSchema(Schema):
+    payload: UpdateArticleDetails
+
+
+"""
+Article Reviews Schemas for serialization and validation
+"""
 
 
 class ReviewResponseSchema(Schema):
@@ -64,17 +93,49 @@ class ReviewResponseSchema(Schema):
     updated_at: str
 
 
-class ArticleReviewsResponseSchema(Schema):
-    count: int
-    next: Optional[int]
-    previous: Optional[int]
-    results: List[ReviewResponseSchema]
+class ReviewHistorySchema(Schema):
+    rating: int
+    subject: str
+    content: str
+    edited_at: datetime
+
+
+class ReviewSchema(Schema):
+    id: int
+    article_id: int
+    user_id: int
+    rating: int
+    subject: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    history: List[ReviewHistorySchema]
+    is_author: bool = Field(default=False)
+
+
+class PaginatedReviewResponse(Schema):
+    total: int
+    page: int
+    limit: int
+    reviews: List[ReviewSchema]
+
+
+class CreateReviewDetails(Schema):
+    rating: int
+    subject: str
+    content: str
+    article_id: int
 
 
 class ReviewEditSchema(Schema):
     rating: int
     subject: str
     content: str
+
+
+"""
+Replies to Reviews Schemas for serialization and validation
+"""
 
 
 class ReplySchema(Schema):

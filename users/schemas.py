@@ -3,6 +3,9 @@ This module defines the input and output schemas for user authentication actions
 and other user-related actions.
 """
 
+from datetime import datetime
+from typing import Optional
+
 from ninja import Schema
 
 
@@ -65,4 +68,20 @@ class StatusMessageSchema(Schema):
     """
 
     status: str
+    message: str
+
+
+class NotificationSchema(Schema):
+    id: int
+    message: str
+    content: Optional[str]
+    isRead: bool
+    link: Optional[str]
+    category: str
+    notificationType: str
+    createdAt: datetime
+    expiresAt: datetime | None
+
+
+class Message(Schema):
     message: str

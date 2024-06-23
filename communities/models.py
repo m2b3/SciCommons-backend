@@ -1,7 +1,6 @@
 from django.db import models
 from django.utils.text import slugify
 
-from articles.models import Article
 from users.models import User
 
 
@@ -16,8 +15,10 @@ class Community(models.Model):
     tags = models.JSONField(default=list)
     type = models.CharField(max_length=10, choices=COMMUNITY_TYPES, default=PUBLIC)
     profile_pic_url = models.FileField(upload_to="community_images/", null=True)
+    banner_pic_url = models.FileField(upload_to="community_images/", null=True)
     slug = models.SlugField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    rules = models.JSONField(default=list)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")
@@ -42,11 +43,19 @@ class Membership(models.Model):
 
 
 class Invitation(models.Model):
+    ACCEPTED = "accepted"
+    PENDING = "pending"
+    REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (ACCEPTED, "Accepted"),
+        (PENDING, "Pending"),
+        (REJECTED, "Rejected"),
+    ]
     community = models.ForeignKey(Community, on_delete=models.CASCADE)
     email = models.EmailField(blank=True, null=True)
     username = models.CharField(max_length=150, blank=True, null=True)
     invited_at = models.DateTimeField(auto_now_add=True)
-    accepted = models.BooleanField(default=False)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
 
     def __str__(self):
         if self.email:
@@ -76,38 +85,15 @@ class JoinRequest(models.Model):
         return f"{self.user} requesting to join {self.community}"
 
 
-class CommunityPost(models.Model):
-    community = models.ForeignKey(
-        Community, related_name="posts", on_delete=models.CASCADE
-    )
-    title = models.CharField(max_length=200)
-    content = models.TextField()
-    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    cited_article = models.ForeignKey(
-        Article, null=True, blank=True, on_delete=models.SET_NULL
-    )
-    cited_url = models.URLField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    slug = models.SlugField(max_length=200, unique=True)
+# Todo: Delete this later
+# class CommunityComment(models.Model):
+#     post = models.ForeignKey(
+#         CommunityPost, related_name="comments", on_delete=models.CASCADE
+#     )
+#     author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+#     content = models.TextField()
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     updated_at = models.DateTimeField(auto_now=True)
 
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.title)
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return self.title
-
-
-class CommunityComment(models.Model):
-    post = models.ForeignKey(
-        CommunityPost, related_name="comments", on_delete=models.CASCADE
-    )
-    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    content = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.author}: {self.content[:50]}..."
+#     def __str__(self):
+#         return f"{self.author}: {self.content[:50]}..."

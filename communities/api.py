@@ -1,31 +1,23 @@
-from datetime import timedelta
-from typing import Optional
-
-from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
-from django.core.mail import send_mail
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.http import Http404
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db.models import Q
 from ninja import File, Form, Router, UploadedFile
-from ninja.errors import HttpError, HttpRequest
+from ninja.errors import HttpRequest
+from ninja.responses import codes_4xx, codes_5xx
 
-from communities.models import Community, Invitation, JoinRequest, Membership
+from articles.models import Article
+from communities.models import Community, JoinRequest
 from communities.schemas import (
-    CommunityDetailSchema,
-    CommunityMemberSchema,
-    CommunitySchema,
+    CommunityDetails,
+    CreateCommunityResponse,
     CreateCommunitySchema,
-    InviteSchema,
+    Message,
     PaginatedCommunitySchema,
-    UpdateCommunitySchema,
+    UpdateCommunityDetails,
 )
-from users.auth import JWTAuth
-from users.models import User
+from users.auth import JWTAuth, OptionalJWTAuth
 
-router = Router(auth=JWTAuth(), tags=["Communities"])
-
-signer = TimestampSigner()
+router = Router(tags=["Communities"])
 
 
 """
@@ -33,77 +25,121 @@ Community Management Endpoints
 """
 
 
-@router.get("/", response=PaginatedCommunitySchema)
-def list_communities(
-    request: HttpRequest, page: Optional[int] = 1, size: Optional[int] = 10
-):
+@router.get(
+    "/community/{community_name}/",
+    response={200: CommunityDetails, codes_4xx: Message, codes_5xx: Message},
+    auth=OptionalJWTAuth,
+)
+def get_community(request, community_name: str):
     try:
-        if page < 1 or size < 1:
-            return {"error": "Invalid pagination parameters"}, 400
+        community = Community.objects.get(name=community_name)
 
-        offset = (page - 1) * size
+        num_published_articles = Article.objects.filter(
+            community=community, published=True
+        ).count()
+        num_articles = Article.objects.filter(community=community).count()
 
-        communities = Community.objects.all()[offset : offset + size]
+        num_members = community.members.count()
+        num_moderators = community.moderators.count()
+        num_reviewers = community.reviewers.count()
 
-        total_communities = Community.objects.count()
-
-        if not communities:
-            raise Http404("No communities found.")
-
-        return PaginatedCommunitySchema(
-            total=total_communities,
-            page=page,
-            size=size,
-            results=[CommunitySchema.from_orm(community) for community in communities],
-        )
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-
-@router.get("/{community_id}/", response=CommunityDetailSchema)
-def get_community_detail(request, community_id: int):
-    try:
-        community = get_object_or_404(Community, pk=community_id)
-
-        response_data = CommunityDetailSchema(
+        response_data = CommunityDetails(
             id=community.id,
             name=community.name,
             description=community.description,
             tags=community.tags,
             type=community.type,
             profile_pic_url=community.profile_pic_url,
+            banner_pic_url=community.banner_pic_url,
             slug=community.slug,
-            created_at=str(community.created_at),
+            created_at=community.created_at,
+            rules=community.rules,
+            num_moderators=num_moderators,
+            num_reviewers=num_reviewers,
+            num_members=num_members,
+            num_published_articles=num_published_articles,
+            num_articles=num_articles,
         )
 
-        # Check roles
-        user = request.auth  # Retrieved from JWTAuth
-        if user:
-            response_data.is_admin = user in community.admins.all()
-            response_data.is_reviewer = user in community.reviewers.all()
-            response_data.is_moderator = user in community.moderators.all()
-            response_data.is_member = user in community.members.all()
+        user = request.auth
+
+        if not isinstance(user, bool):
+            response_data.is_member = community.members.filter(id=user.id).exists()
+            response_data.is_moderator = community.moderators.filter(
+                id=user.id
+            ).exists()
+            response_data.is_reviewer = community.reviewers.filter(id=user.id).exists()
+            response_data.is_admin = community.admins.filter(id=user.id).exists()
+
+            # Check if the user has a latest join request
+            join_request = JoinRequest.objects.filter(
+                community=community, user=user
+            ).order_by("-id")
+
+            if join_request.exists():
+                print(join_request.first().status)
+                response_data.join_request_status = join_request.first().status
 
         return response_data
-    except ValueError:
-        return {"error": "Invalid community ID format."}, 400
+    except Community.DoesNotExist:
+        return 404, {"message": "Community not found."}
     except Exception as e:
-        return {"error": str(e)}, 500
+        return 500, {"message": str(e)}
 
 
-@router.get("/slug/{slug}/", response=CommunityDetailSchema)
-def get_community_by_slug(request, slug: str):
+@router.get(
+    "/",
+    response={200: PaginatedCommunitySchema, codes_4xx: Message, codes_5xx: Message},
+)
+def list_communities(request: HttpRequest, page: int = 1, limit: int = 10):
     try:
-        # Fetch community by slug
-        community = Community.objects.get(slug=slug)
-        return CommunityDetailSchema.from_orm(community)
-    except ObjectDoesNotExist:
-        raise Http404(f"Community with slug '{slug}' not found.")
+        if page < 1 or limit < 1:
+            return 400, {"message": "Invalid page or limit."}
+
+        communities = Community.objects.filter(~Q(type="hidden"))
+
+        paginator = Paginator(communities, limit)
+        paginated_communities = paginator.get_page(page)
+
+        # Todo: Modify and return the fields required for the response
+        results = [
+            CommunityDetails(
+                id=community.id,
+                name=community.name,
+                description=community.description,
+                tags=community.tags,
+                type=community.type,
+                profile_pic_url=community.profile_pic_url,
+                banner_pic_url=community.banner_pic_url,
+                slug=community.slug,
+                created_at=community.created_at,
+                rules=community.rules,
+                num_moderators=community.moderators.count(),
+                num_reviewers=community.reviewers.count(),
+                num_members=community.members.count(),
+                num_published_articles=Article.objects.filter(
+                    community=community, published=True
+                ).count(),
+                num_articles=Article.objects.filter(community=community).count(),
+            )
+            for community in paginated_communities.object_list
+        ]
+
+        return 200, {
+            "total": paginator.count,
+            "page": paginated_communities.number,
+            "size": paginator.per_page,
+            "communities": results,
+        }
     except Exception as e:
-        return {"error": str(e)}, 500
+        return 500, {"message": str(e)}
 
 
-@router.post("/", response=CommunitySchema, auth=JWTAuth())
+@router.post(
+    "/",
+    response={200: CreateCommunityResponse, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
 def create_community(
     request: HttpRequest,
     payload: Form[CreateCommunitySchema],
@@ -113,72 +149,83 @@ def create_community(
         # Retrieve the authenticated user from the JWT token
         user = request.auth
 
-        # Check if the user already has a community
+        # Todo: Check if the user already has a community
         if Community.objects.filter(admins=user).exists():
-            return {"error": "You can only create one community."}, 400
+            return 400, {"message": "You can only create one community."}
 
         # Process the uploaded profile image file
         profile_image_file = profile_image_file if profile_image_file else None
 
         # Validate the provided data and create a new Community
-        new_community = Community(
+        new_community = Community.objects.create(
             name=payload.name,
             description=payload.description,
             tags=payload.tags,
             type=payload.type,
             profile_pic_url=profile_image_file,
         )
-        # new_community.full_clean()  # Validate fields
-        new_community.save()
+        # # new_community.full_clean()  # Validate fields
+
+        # Todo: Create a membership for the creator
+        # Membership.objects.create(user=user, community=new_community)
 
         new_community.admins.add(user)  # Add the creator as an admin
 
-        return {"id": new_community.id, "status": "Community created successfully."}
+        return CreateCommunityResponse(
+            id=new_community.id, message="Community created successfully."
+        )
 
     except ValidationError as e:
-        return {"error": str(e)}, 400
+        return 400, {"message": str(e)}
     except Exception as e:
-        return {"error": str(e)}, 500
+        return 500, {"message": str(e)}
 
 
-@router.put("/{community_id}/", response=CommunitySchema, auth=JWTAuth())
-@router.patch("/{community_id}/", response=CommunitySchema, auth=JWTAuth())
+@router.patch(
+    "/{community_id}/",
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
 def update_community(
-    request: HttpRequest, community_id: int, payload: UpdateCommunitySchema
+    request: HttpRequest,
+    community_id: int,
+    payload: Form[UpdateCommunityDetails],
+    profile_pic_file: File[UploadedFile] = None,
+    banner_pic_file: File[UploadedFile] = None,
 ):
     try:
-        # Retrieve the authenticated user via request.auth
-        user = request.auth
-
-        # Retrieve the community by ID
         community = Community.objects.get(id=community_id)
 
         # Check if the user is an admin of this community
-        if not community.admins.filter(id=user.id).exists():
-            raise PermissionDenied(
-                "You do not have permission to modify this community."
-            )
+        if not community.admins.filter(id=request.auth.id).exists():
+            return 403, {
+                "message": "You do not have permission to modify this community."
+            }
 
-        # Update the fields if provided in the payload
-        if payload.name:
-            community.name = payload.name
+        # Update fields
         if payload.description:
             community.description = payload.description
         if payload.type:
             community.type = payload.type
+        if payload.tags:
+            community.tags = payload.tags
+        if payload.rules:
+            community.rules = payload.rules
 
-        # Validate and save changes
-        # community.full_clean()
+        if banner_pic_file:
+            community.banner_pic_url = banner_pic_file
+
+        if profile_pic_file:
+            community.profile_pic_url = profile_pic_file
+
         community.save()
 
-        return CommunitySchema.from_orm(community)
+        return 200, {"message": "Community details updated successfully."}
 
-    except ObjectDoesNotExist:
-        return {"error": f"Community with ID {community_id} not found."}, 404
+    except Community.DoesNotExist:
+        return 404, {"message": "Community not found."}
     except ValidationError as e:
-        return {"error": str(e)}, 400
-    except PermissionDenied as e:
-        return {"error": str(e)}, 403
+        return 400, {"message": str(e)}
     except Exception as e:
         return {"error": str(e)}, 500
 
@@ -186,17 +233,13 @@ def update_community(
 @router.delete("/{community_id}/", response={204: None}, auth=JWTAuth())
 def delete_community(request: HttpRequest, community_id: int):
     try:
-        # Retrieve the authenticated user via request.auth
-        user = request.auth
-
-        # Retrieve the specific community by ID
         community = Community.objects.get(id=community_id)
 
         # Check if the user is an admin of this community
-        if not community.admins.filter(id=user.id).exists():
-            raise PermissionDenied(
-                "You do not have permission to delete this community."
-            )
+        if not community.admins.filter(id=request.auth.id).exists():
+            return 403, {
+                "message": "You do not have permission to delete this community."
+            }
 
         # Delete the community
         community.delete()
@@ -204,358 +247,7 @@ def delete_community(request: HttpRequest, community_id: int):
         # Return a 204 (No Content) status to indicate successful deletion
         return None, 204
 
-    except ObjectDoesNotExist:
-        return {"error": f"Community with ID {community_id} not found."}, 404
-    except PermissionDenied as e:
-        return {"error": str(e)}, 403
+    except Community.DoesNotExist:
+        return 404, {"message": "Community not found."}
     except Exception as e:
-        return {"error": str(e)}, 500
-
-
-"""
-Membership Management Endpoints
-"""
-
-
-@router.post("/{community_id}/join-request/", response={201: str, 400: str, 404: str})
-def create_join_request(request, community_id: int):
-    try:
-        # Retrieve the authenticated user from the JWT token
-        user = request.auth
-
-        # Retrieve the community
-        try:
-            community = Community.objects.get(id=community_id)
-        except Community.DoesNotExist:
-            raise HttpError(404, f"Community with ID {community_id} does not exist.")
-
-        # Check if the user is already a member
-        if community.members.filter(id=user.id).exists():
-            raise HttpError(400, "User is already a member of this community.")
-
-        # Check for a pending or approved join request
-        existing_request = (
-            JoinRequest.objects.filter(user=user, community=community)
-            .order_by("-requested_at")
-            .first()
-        )
-        if existing_request:
-            if existing_request.status in [JoinRequest.PENDING, JoinRequest.APPROVED]:
-                raise HttpError(400, "A join request already exists for this user.")
-            elif existing_request.status == JoinRequest.REJECTED:
-                # Calculate the time elapsed since the rejection
-                elapsed_time = timezone.now() - existing_request.rejection_timestamp
-                if elapsed_time < timedelta(days=2):
-                    raise HttpError(
-                        400,
-                        f"You can submit a new join request in "
-                        f"{2 - elapsed_time.days} days.",
-                    )
-
-        # Create a new join request with a pending status
-        JoinRequest.objects.create(
-            user=user, community=community, status=JoinRequest.PENDING
-        )
-        return 201, "Join request submitted successfully."
-
-    except HttpError as he:
-        return he.status_code, str(he)
-    except Exception as e:
-        return 400, f"An unexpected error occurred: {str(e)}"
-
-
-@router.patch(
-    "/{community_id}/requests/{request_id}/approve/",
-    response={200: str, 403: str, 404: str},
-)
-def approve_join_request(request, community_id: int, request_id: int):
-    user = request.auth  # Authenticated user retrieved via JWTAuth
-
-    try:
-        # Retrieve the community and the join request
-        try:
-            community = Community.objects.get(id=community_id)
-        except Community.DoesNotExist:
-            raise HttpError(404, f"Community with ID {community_id} does not exist.")
-
-        try:
-            join_request = JoinRequest.objects.get(id=request_id, community=community)
-        except JoinRequest.DoesNotExist:
-            raise HttpError(
-                404, f"Join request with ID {request_id} not found in this community."
-            )
-
-        # Check if the user is an admin or moderator in the community
-        if (
-            user not in community.admins.all()
-            and user not in community.moderators.all()
-        ):
-            raise HttpError(
-                403,
-                "You do not have permission to approve \
-                    join requests for this community.",
-            )
-
-        # Check if the join request is already approved or rejected
-        if join_request.status != JoinRequest.PENDING:
-            raise HttpError(400, "Only pending join requests can be approved.")
-
-        # Approve the join request
-        join_request.status = JoinRequest.APPROVED
-        join_request.save()
-
-        # Create a new membership for the user in the community
-        Membership.objects.create(user=join_request.user, community=community)
-
-        return 200, "Join request approved successfully."
-
-    except HttpError as he:
-        return he.status_code, str(he)
-    except Exception as e:
-        return 400, f"An unexpected error occurred: {str(e)}"
-
-
-@router.patch(
-    "/{community_id}/requests/{request_id}/reject/",
-    response={200: str, 403: str, 404: str},
-)
-def reject_join_request(request, community_id: int, request_id: int):
-    user = request.auth  # Authenticated user retrieved via JWTAuth
-
-    try:
-        # Retrieve the community and the join request
-        try:
-            community = Community.objects.get(id=community_id)
-        except Community.DoesNotExist:
-            raise HttpError(404, f"Community with ID {community_id} does not exist.")
-
-        try:
-            join_request = JoinRequest.objects.get(id=request_id, community=community)
-        except JoinRequest.DoesNotExist:
-            raise HttpError(
-                404, f"Join request with ID {request_id} not found in this community."
-            )
-
-        # Check if the user is an admin or moderator in the community
-        if (
-            user not in community.admins.all()
-            and user not in community.moderators.all()
-        ):
-            raise HttpError(
-                403,
-                "You do not have permission to reject join requests \
-                    for this community.",
-            )
-
-        # Check if the join request is already approved or rejected
-        if join_request.status != JoinRequest.PENDING:
-            raise HttpError(400, "Only pending join requests can be rejected.")
-
-        # Reject the join request and set the rejection timestamp
-        join_request.status = JoinRequest.REJECTED
-        join_request.rejection_timestamp = timezone.now()
-        join_request.save()
-
-        return 200, "Join request rejected successfully."
-
-    except HttpError as he:
-        return he.status_code, str(he)
-    except Exception as e:
-        return 400, f"An unexpected error occurred: {str(e)}"
-
-
-@router.get(
-    "/{community_id}/members/",
-    response={200: list[CommunityMemberSchema], 403: str, 404: str},
-)
-def list_community_members(request: HttpRequest, community_id: int):
-    try:
-        # Retrieve the authenticated user from the JWT token
-        user = request.auth
-
-        # Retrieve the community
-        try:
-            community = Community.objects.get(id=community_id)
-        except Community.DoesNotExist:
-            raise HttpError(404, f"Community with ID {community_id} does not exist.")
-
-        # Verify the authenticated user is an admin of this community
-        if not community.admins.filter(id=user.id).exists():
-            raise HttpError(
-                403, "You do not have permission to view members of this community."
-            )
-
-        # Retrieve all members of the community
-        members = community.members.all()
-
-        # Map members to a schema
-        return [
-            CommunityMemberSchema(
-                id=member.id, username=member.username, email=member.email
-            )
-            for member in members
-        ]
-
-    except HttpError as he:
-        return he.status_code, str(he)
-    except Exception as e:
-        return 400, f"An unexpected error occurred: {str(e)}"
-
-
-@router.delete(
-    "/{community_id}/members/{user_id}/", response={200: str, 403: str, 404: str}
-)
-def remove_member_from_community(request, community_id: int, user_id: int):
-    try:
-        # Retrieve the authenticated user from the JWT token
-        user = request.auth
-
-        # Retrieve the community
-        try:
-            community = Community.objects.get(id=community_id)
-        except Community.DoesNotExist:
-            raise HttpError(404, f"Community with ID {community_id} does not exist.")
-
-        # Verify the authenticated user is an admin of this community
-        if not community.admins.filter(id=user.id).exists():
-            raise HttpError(
-                403, "You do not have permission to remove members from this community."
-            )
-        try:
-            member_to_remove = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            raise HttpError(404, f"User with ID {user_id} does not exist.")
-
-        # Check if the member is part of the community
-        if not community.members.filter(id=member_to_remove.id).exists():
-            raise HttpError(
-                404, f"User with ID {user_id} is not a member of this community."
-            )
-
-        # Remove the user from the community members
-        community.members.remove(member_to_remove)
-
-        return (
-            200,
-            f"User {member_to_remove.username} successfully "
-            f"removed from {community.name}.",
-        )
-
-    except HttpError as he:
-        return he.status_code, str(he)
-    except Exception as e:
-        return 400, f"An unexpected error occurred: {str(e)}"
-
-
-"""
-Invitation Management Endpoints
-"""
-
-
-@router.post(
-    "/communities/{community_id}/invite/", response={201: str, 400: str, 403: str}
-)
-def send_invitation(request, community_id: int, payload: InviteSchema):
-    """
-    Send an invitation to the specified user via email or username.
-    Only community admins can invite new members.
-    """
-    # Check if the invitation is already sent to the user
-    existing_invitation = Invitation.objects.filter(
-        community_id=community_id, email=payload.email, username=payload.username
-    ).first()
-
-    if existing_invitation:
-        return 400, "An invitation has already been sent to this user."
-
-    # Fetch the community by ID
-    community = get_object_or_404(Community, pk=community_id)
-
-    # Verify if the authenticated user is an admin of the community
-    if request.auth not in community.admins.all():
-        raise HttpError(
-            403, "You are not authorized to invite members to this community."
-        )
-
-    # Validate that either email or username is provided
-    if not (payload.email or payload.username):
-        raise HttpError(400, "You must provide either an email or a username.")
-
-    # Check for the user's existence if a username is provided
-    if payload.username:
-        user = User.objects.filter(username=payload.username).first()
-        if not user:
-            return (
-                400,
-                "The specified user is not registered. Please request them to sign up.",
-            )
-
-    # Create a new invitation object
-    invitation = Invitation(
-        community=community,
-        email=payload.email if payload.email else None,
-        username=payload.username if payload.username else None,
-        invited_at=timezone.now(),
-    )
-    invitation.save()
-
-    # Use the signer's `sign` method to create an expiring token
-    signed_token = signer.sign(invitation.id)
-
-    link = f"{request.scheme}://{request.get_host()}/invitations/{signed_token}/accept/"
-
-    # Send an email to the user with the invitation link
-    send_mail(
-        "Invitation to join a community",
-        f"Please click on the link to accept the invitation: {link}",
-        "test@gmail.com",
-        [payload.email],
-        fail_silently=False,
-    )
-
-    response_message = f"Invitation sent with token {signed_token}"
-
-    return 201, response_message
-
-
-@router.post("/invitations/{signed_token}/accept/", response={200: str, 400: str})
-def accept_invitation(request, signed_token: str):
-    """
-    Accepts the invitation by verifying the signed token and adds the user
-    to the community through the Membership model.
-    """
-    try:
-        # Verify the signed token and check expiration
-        invitation_id = signer.unsign(signed_token, max_age=60 * 60 * 48)  # 48 hours
-    except SignatureExpired:
-        raise HttpError(
-            400, "The invitation link has expired. Please request a new one."
-        )
-    except BadSignature:
-        raise HttpError(400, "Invalid invitation token.")
-
-    # Retrieve the invitation object
-    invitation = get_object_or_404(Invitation, pk=invitation_id)
-
-    # Check if the user is authenticated (assumes they are signed up)
-    if not request.auth:
-        raise HttpError(400, "You must be logged in to accept this invitation.")
-
-    # Verify that the user isn't already a member of the community
-    existing_membership = Membership.objects.filter(
-        user=request.auth, community=invitation.community
-    ).first()
-
-    if existing_membership:
-        return (
-            200,
-            f"You are already a member of the {invitation.community.name} community.",
-        )
-
-    # Create a new membership for the user in the community
-    Membership.objects.create(user=request.auth, community=invitation.community)
-
-    return (
-        200,
-        f"You have successfully joined the {invitation.community.name} community.",
-    )
+        return 500, {"message": str(e)}
