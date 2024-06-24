@@ -56,7 +56,7 @@ def signup(request: HttpRequest, payload: SignUpSchemaIn):
         # Generate a token
         token = signer.sign(user.pk)
 
-        link = f"{settings.FRONTEND_URL}/auth/activate?token={token}"
+        link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
         send_mail(
             "Activate your account",
             f"Please click on the link to activate your account: {link}",
