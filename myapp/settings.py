@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -128,6 +129,11 @@ DATABASES = {
     }
 }
 
+if config("DATABASE_URL"):
+    print(config("DATABASE_URL"))
+    DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
+
+
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_HOST_USER = config("EMAIL_HOST_USER")
@@ -156,7 +162,8 @@ STORAGES = {
     },
     "staticfiles": {
         # use default storage for static files
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        # "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
         # "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
     },
 }

@@ -15,6 +15,10 @@ djangorestframework-simplejwt = "^5.3.1"
 django-cors-headers = "^4.3.1"
 pillow = "^10.3.0"
 django-storages = {extras = ["boto3"], version = "^1.14.3"}
+gunicorn = "^22.0.0"
+waitress = "^3.0.0"
+whitenoise = "^6.7.0"
+dj-database-url = "^2.2.0"
 
 
 [tool.poetry.group.dev.dependencies]
