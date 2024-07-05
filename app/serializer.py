@@ -13,7 +13,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from decouple import config
 from dj_database_url import parse
-
+import uuid
 import json
 
 
@@ -160,8 +160,10 @@ class UserCreateSerializer(serializers.ModelSerializer):
         if user:
             raise serializers.ValidationError(detail={"error":"Username already exists.Please use another username!!!"})
         
+        token = str(uuid.uuid4())
         instance = self.Meta.model.objects.create(**validated_data)
         instance.set_password(password)
+        instance.email_token = token
         instance.save()
         unregistered = UnregisteredUser.objects.filter(email=instance.email)
         if unregistered is not None:
@@ -174,6 +176,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         rank.save()
         send_mail("Welcome to Scicommons", "Welcome to Scicommons.We hope you will have a great time", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         send_mail("Verify your Email", f"Please verify your email by clicking on the link below.\n{settings.BASE_URL}/verify?email={instance.email}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
+        send_mail("Verify", f"Please verify your email by clicking on the following link: \n{settings.BASE_URL}/verifyUser?token={token}", settings.EMAIL_HOST_USER, [instance.email], fail_silently=False)
         return instance
     
 # The UserUpdateSerializer class is a serializer that represents the User model and includes fields
@@ -276,9 +279,10 @@ class ResetPasswordSerializer(serializers.Serializer):
 class VerifySerializer(serializers.Serializer):
     otp = serializers.IntegerField()
     email = serializers.CharField()
+    email_token = serializers.CharField()
 
     class Meta:
-        fields = ['otp', 'email']
+        fields = ['otp', 'email', 'email_token']
         
 
 '''
@@ -290,7 +294,7 @@ class CommunitySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Community
-        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'user', 'members']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'user', 'members', 'access']
 
 # The `CommunitylistSerializer` class is a serializer that serializes the `Community` model and
 # includes additional fields for member count, evaluated count, published count, and subscription
@@ -303,8 +307,8 @@ class CommunitylistSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Community
-        fields = ['id', 'Community_name','subtitle', 'description', 'evaluatedcount', 'subscribed',
-                    'membercount','publishedcount']
+        fields = ['id', 'Community_name', 'subtitle', 'description', 'evaluatedcount', 'subscribed',
+                    'membercount', 'publishedcount', 'access']
     
     def get_membercount(self, obj):
         """
@@ -370,7 +374,7 @@ class CommunityGetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Community
         fields = ['id', 'Community_name','subtitle', 'description','location','date','github','email', 'evaluatedcount', 'isSubscribed', 'admins',
-                    'website','user','membercount','publishedcount','isMember','isReviewer', 'isModerator', 'isAdmin','subscribed']
+                    'website','user','membercount','publishedcount','isMember','isReviewer', 'isModerator', 'isAdmin','subscribed', 'access']
     
 
     def get_isMember(self, obj):
@@ -507,11 +511,39 @@ class CommunityGetSerializer(serializers.ModelSerializer):
 # The `CommunityCreateSerializer` class is a serializer that creates a new community instance, sets
 # the community name, adds the user as an admin member, sends an email notification, and logs the
 # user's activity.
+
+class PrivateCommunitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivateCommunity
+        fields = ['requested_emails', 'referral_id', 'community', 'accepted_emails', 'discarded_emails', 'email_subject', 'email_body', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        """
+        The function creates a new private community instance, sets the requested emails, referral ID,
+        and community, and returns the created instance.
+        
+        :param validated_data: The `validated_data` parameter is a dictionary that contains the
+        validated data for creating a new instance of the model. It typically includes the data provided
+        by the user in the request payload
+        :return: The instance of the created object is being returned.
+        """
+        instance = self.Meta.model.objects.create(**validated_data)
+        instance.save()
+        return instance
+
+class PrivateJoinUsersetSerializer(serializers.Serializer):
+    requested_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        allow_empty=False
+    )
+    subject = serializers.CharField()
+    body = serializers.CharField()
+
 class CommunityCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Community
-        fields = ['Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website']
+        fields = ['Community_name', 'subtitle', 'description', 'location', 'date', 'github', 'email', 'website', 'access']
         
     def create(self, validated_data):
         """
@@ -1195,7 +1227,7 @@ class ArticleCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Article
-        fields = ['id', 'article_name','keywords', 'article_file', 'Code', 'Abstract', 'authors','video','link', 'parent_article', 'communities','unregistered_authors']
+        fields = ['id', 'article_name','keywords', 'Code', 'Abstract', 'authors','video','link', 'parent_article', 'communities','unregistered_authors']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -1415,8 +1447,8 @@ class InReviewSerializer(serializers.Serializer):
         if len(moderators_arr)==0:
             raise serializers.ValidationError(detail={"error":"No Moderators on Community"})
 
-        if len(reviewers_arr)>=3:
-            reviewers_arr = random.sample(reviewers_arr, 3)
+        if len(reviewers_arr)>=1:
+            reviewers_arr = random.sample(reviewers_arr, 1)
 
         if len(moderators_arr)>=1:
             moderators_arr = random.sample(moderators_arr, 1)
