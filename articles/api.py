@@ -212,7 +212,7 @@ def get_public_articles(
         | Q(published=True)
         | Q(community__type="public", status="Approved")
     )
-    articles = Article.objects.filter(query)
+    articles = Article.objects.filter(query).order_by("-id")
 
     if search:
         articles = articles.filter(title__icontains=search)

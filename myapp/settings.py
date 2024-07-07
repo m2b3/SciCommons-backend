@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-$2jy%w9qfy0$x+dsm0gyb1jcy=tqe1(wc93fl9fg6^kazul8%h"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = ["*"]
 
@@ -129,7 +129,7 @@ DATABASES = {
     }
 }
 
-if config("DATABASE_URL"):
+if not DEBUG:
     print(config("DATABASE_URL"))
     DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 

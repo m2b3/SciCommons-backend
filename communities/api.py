@@ -166,10 +166,8 @@ def create_community(
         )
         # # new_community.full_clean()  # Validate fields
 
-        # Todo: Create a membership for the creator
-        # Membership.objects.create(user=user, community=new_community)
-
         new_community.admins.add(user)  # Add the creator as an admin
+        new_community.members.add(user)  # Add the creator as a member
 
         return CreateCommunityResponse(
             id=new_community.id, message="Community created successfully."

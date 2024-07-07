@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["dinakar17 <85105044+dinakar17@users.noreply.github.com>"]
 readme = "README.md"
+packages=[] # This lines disables package mode
 
 [tool.poetry.dependencies]
 python = "^3.10"

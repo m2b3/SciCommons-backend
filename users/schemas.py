@@ -4,6 +4,7 @@ and other user-related actions.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from ninja import Schema
@@ -85,3 +86,41 @@ class NotificationSchema(Schema):
 
 class Message(Schema):
     message: str
+
+
+"""
+Reaction Schemas
+"""
+
+
+class ContentTypeEnum(str, Enum):
+    ARTICLE = "articles.article"
+    POST = "posts.post"
+    COMMENT = "posts.comment"
+    REVIEWCOMMENT = "articles.reviewcomment"
+    REVIEW = "articles.review"
+
+
+class VoteEnum(int, Enum):
+    LIKE = 1
+    DISLIKE = -1
+
+
+class ReactionIn(Schema):
+    content_type: ContentTypeEnum
+    object_id: int
+    vote: VoteEnum
+
+
+class ReactionOut(Schema):
+    id: Optional[int]
+    user_id: int
+    vote: Optional[VoteEnum]
+    created_at: Optional[str]
+    message: str
+
+
+class ReactionCountOut(Schema):
+    likes: int
+    dislikes: int
+    user_reaction: VoteEnum | None

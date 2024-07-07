@@ -32,6 +32,11 @@ def OptionalJWTAuth(request: HttpRequest):
 
     token = auth_header.split("Bearer ")[1]
 
+    # If token is null, return True to proceed without authentication
+    # Note: token is string null that is set in the frontend when user is not logged in
+    if token is None or token == "null":
+        return True
+
     jwt_authentication = JWTAuthentication()
     try:
         validated_token = jwt_authentication.get_validated_token(token)

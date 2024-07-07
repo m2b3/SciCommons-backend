@@ -1,66 +1,44 @@
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 
+from articles.models import Reaction
 from users.models import User
 
 
-# The `SocialPost` class represents a social media post with a user, body text,
-# optional image, and creation timestamp.
-class SocialPost(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    body = models.TextField(max_length=2000)
-    image = models.FileField(upload_to="social_post_images/", null=True, blank=True)
+class Post(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts")
+    title = models.CharField(max_length=200)
+    content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "social_post"
+    updated_at = models.DateTimeField(auto_now=True)
+    reactions = GenericRelation(Reaction)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.post
+        return self.title
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
-# The `SocialPostComment` class represents a comment made by a user on a social post,
-# with fields for the user, post, comment text, creation timestamp, and optional parent
-# comment.
-class SocialPostComment(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    post = models.ForeignKey(
-        SocialPost, on_delete=models.CASCADE, related_name="comments"
+class Comment(models.Model):
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="post_comments"
     )
-    comment = models.TextField(max_length=200)
-    created_at = models.DateTimeField(auto_now_add=True)
-    parent_comment = models.ForeignKey(
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name="post_comments"
+    )
+    parent = models.ForeignKey(
         "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
     )
-
-    class Meta:
-        db_table = "social_comment"
-
-    def __str__(self):
-        return self.comment
-
-
-# The `SocialPostLike` class represents a like on a social post by a user.
-class SocialPostLike(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    post = models.ForeignKey(SocialPost, on_delete=models.CASCADE, related_name="likes")
-
-    class Meta:
-        db_table = "social_like"
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reactions = GenericRelation(Reaction)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.value
-
-
-# The `SocialPostCommentLike` class represents a like on a social post comment made
-# by a user.
-class SocialPostCommentLike(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    comment = models.ForeignKey(
-        SocialPostComment, on_delete=models.CASCADE, related_name="likes"
-    )
+        return f"Comment by {self.author.username} on {self.post.title}"
 
     class Meta:
-        db_table = "social_comment_like"
-
-    def __str__(self):
-        return self.value
+        ordering = ["created_at"]

@@ -1,8 +1,8 @@
 import uuid
 
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models.signals import post_delete, pre_save
-from django.dispatch import receiver
 from django.utils.text import slugify
 
 from communities.models import Community
@@ -73,58 +73,162 @@ class Review(models.Model):
     rating = models.IntegerField()
     subject = models.CharField(max_length=255)
     content = models.TextField()
+    version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    reaction = GenericRelation("Reaction", related_query_name="reviews")
 
     def __str__(self):
         return f"{self.subject} by {self.user.username}"
 
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            old_review = Review.objects.get(pk=self.pk)
+            # Todo: Fix versioning logic
+            if old_review.content != self.content:
+                ReviewVersion.objects.create(
+                    review=self,
+                    rating=old_review.rating,
+                    subject=old_review.subject,
+                    content=old_review.content,
+                    version=old_review.version,
+                )
+                self.version = old_review.version + 1
+        super().save(*args, **kwargs)
 
-class ReviewHistory(models.Model):
-    review = models.ForeignKey(Review, related_name="history", on_delete=models.CASCADE)
+    def delete(self, *args, **kwargs):
+        ReviewVersion.objects.filter(review=self).delete()
+        super().delete(*args, **kwargs)
+
+
+class ReviewVersion(models.Model):
+    review = models.ForeignKey(
+        Review, on_delete=models.CASCADE, related_name="versions"
+    )
     rating = models.IntegerField()
     subject = models.CharField(max_length=255)
     content = models.TextField()
-    edited_at = models.DateTimeField(auto_now_add=True)
+    version = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"History of {self.review.subject} by {self.review.user.username}"
+        return f"Version {self.version} of {self.review.subject}"
 
 
-class Reply(models.Model):
-    review = models.ForeignKey(Review, related_name="replies", on_delete=models.CASCADE)
-    user = models.ForeignKey(User, related_name="replies", on_delete=models.CASCADE)
+class ReviewComment(models.Model):
+    review = models.ForeignKey(
+        Review, on_delete=models.CASCADE, related_name="review_comments"
+    )
+    review_version = models.ForeignKey(
+        ReviewVersion,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="review_comments",
+    )
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="review_replies",
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="review_comments"
+    )
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
-    deleted_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reactions = GenericRelation("Reaction", related_query_name="review_comments")
 
     def __str__(self):
-        return f"Reply by {self.user.username} on {self.review.subject}"
+        return f"ReviewComment by {self.user.username}"
+
+    def save(self, *args, **kwargs):
+        if self.parent and self.parent.parent and self.parent.parent.parent:
+            raise ValueError("Exceeded maximum comment nesting level of 3")
+        super().save(*args, **kwargs)
+
+    class Meta:
+        ordering = ["created_at"]
 
 
-# Signals to handle the creation of review history and scheduling deletion
-@receiver(pre_save, sender=Review)
-def create_review_history(sender, instance, **kwargs):
-    if instance.pk:
-        original_review = Review.objects.get(pk=instance.pk)
-        if (
-            original_review.content != instance.content
-            or original_review.subject != instance.subject
-            or original_review.rating != instance.rating
-        ):
-            ReviewHistory.objects.create(
-                review=original_review,
-                rating=original_review.rating,
-                subject=original_review.subject,
-                content=original_review.content,
-            )
+class Reaction(models.Model):
+    LIKE = 1
+    DISLIKE = -1
+
+    VOTE_CHOICES = ((LIKE, "Like"), (DISLIKE, "Dislike"))
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+    vote = models.SmallIntegerField(choices=VOTE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "content_type", "object_id")
+
+    def __str__(self):
+        return (
+            f"{self.user.username} - {self.get_vote_display()} on {self.content_object}"
+        )
 
 
-# Delete review history when a review is deleted
-@receiver(post_delete, sender=Review)
-def delete_review_history(sender, instance, **kwargs):
-    ReviewHistory.objects.filter(review=instance).delete()
+"""
+Discussion Threads for Articles
+"""
+
+
+class Discussion(models.Model):
+    article = models.ForeignKey(
+        Article, on_delete=models.CASCADE, related_name="discussions"
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="discussions"
+    )
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reactions = GenericRelation("Reaction")
+
+    def __str__(self):
+        return f"Discussion: {self.title} (Article: {self.article.title})"
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class DiscussionComment(models.Model):
+    discussion = models.ForeignKey(
+        Discussion, on_delete=models.CASCADE, related_name="comments"
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="discussion_comments"
+    )
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
+    )
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reactions = GenericRelation("Reaction")
+
+    def __str__(self):
+        return (
+            f"Comment by {self.author.username} on Discussion: {self.discussion.title}"
+        )
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+# # Delete review history when a review is deleted
+# @receiver(post_delete, sender=Review)
+# def delete_review_history(sender, instance, **kwargs):
+#     ReviewHistory.objects.filter(review=instance).delete()
 
 
 # Todo: Automatically delete reviews and replies after a certain period

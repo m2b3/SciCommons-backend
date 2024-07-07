@@ -1,16 +1,26 @@
 from enum import Enum
 from typing import List, Optional
 
+from django.contrib.contenttypes.models import ContentType
 from ninja import Query, Router
 from ninja.responses import codes_4xx, codes_5xx
 
-from articles.models import Article
+# Todo: Move the Reaction model to the users app
+from articles.models import Article, Reaction
 from articles.schemas import ArticleDetails
-from users.auth import JWTAuth
-from users.models import Notification
-from users.schemas import Message, NotificationSchema
+from users.auth import JWTAuth, OptionalJWTAuth
+from users.models import Notification, User
+from users.schemas import (
+    ContentTypeEnum,
+    Message,
+    NotificationSchema,
+    ReactionCountOut,
+    ReactionIn,
+    ReactionOut,
+    VoteEnum,
+)
 
-router = Router(tags=["Users"], auth=JWTAuth())
+router = Router(tags=["Users"])
 
 
 class StatusFilter(str, Enum):
@@ -40,9 +50,95 @@ def get_my_articles(request, status_filter: Optional[StatusFilter] = Query(None)
         return 500, {"message": str(e)}
 
 
+def get_content_type(content_type_value: str) -> ContentType:
+    app_label, model = content_type_value.split(".")
+    return ContentType.objects.get(app_label=app_label, model=model)
+
+
+@router.post(
+    "/reactions",
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def post_reaction(request, reaction: ReactionIn):
+    content_type = get_content_type(reaction.content_type.value)
+
+    existing_reaction = Reaction.objects.filter(
+        user=request.auth, content_type=content_type, object_id=reaction.object_id
+    ).first()
+
+    if existing_reaction:
+        if existing_reaction.vote == reaction.vote.value:
+            # User is clicking the same reaction type, so remove it
+            existing_reaction.delete()
+            return ReactionOut(
+                id=None,
+                user_id=request.auth.id,
+                vote=None,
+                created_at=None,
+                message="Reaction removed",
+            )
+        else:
+            # User is changing their reaction from like to dislike or vice versa
+            existing_reaction.vote = reaction.vote.value
+            existing_reaction.save()
+            return ReactionOut(
+                id=existing_reaction.id,
+                user_id=existing_reaction.user_id,
+                vote=VoteEnum(existing_reaction.vote),
+                created_at=existing_reaction.created_at.isoformat(),
+                message="Reaction updated",
+            )
+    else:
+        # User is reacting for the first time
+        new_reaction = Reaction.objects.create(
+            user=request.auth,
+            content_type=content_type,
+            object_id=reaction.object_id,
+            vote=reaction.vote.value,
+        )
+        return ReactionOut(
+            id=new_reaction.id,
+            user_id=new_reaction.user_id,
+            vote=VoteEnum(new_reaction.vote),
+            created_at=new_reaction.created_at.isoformat(),
+            message="Reaction added",
+        )
+
+
+@router.get(
+    "/reaction_count/{content_type}/{object_id}/",
+    response=ReactionCountOut,
+    auth=OptionalJWTAuth,
+)
+def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
+    content_type = get_content_type(content_type.value)
+
+    reactions = Reaction.objects.filter(content_type=content_type, object_id=object_id)
+
+    likes = reactions.filter(vote=VoteEnum.LIKE.value).count()
+    dislikes = reactions.filter(vote=VoteEnum.DISLIKE.value).count()
+
+    # Check if the authenticated user is the author
+    current_user: Optional[User] = None if not request.auth else request.auth
+    user_reaction = None
+
+    if current_user:
+        user_reaction_obj = reactions.filter(user=current_user).first()
+        if user_reaction_obj:
+            user_reaction = VoteEnum(user_reaction_obj.vote)
+
+    return ReactionCountOut(
+        likes=likes,
+        dislikes=dislikes,
+        user_reaction=user_reaction,
+    )
+
+
 @router.get(
     "/notifications",
     response={200: List[NotificationSchema], codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
 )
 def get_notifications(request):
     try:
@@ -72,8 +168,8 @@ def get_notifications(request):
 
 @router.post(
     "/notifications/{notification_id}/mark-as-read",
-    auth=JWTAuth(),
     response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
 )
 def mark_notification_as_read(request, notification_id: int):
     try:
