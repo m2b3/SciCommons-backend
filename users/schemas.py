@@ -5,7 +5,7 @@ and other user-related actions.
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from ninja import Schema
 
@@ -124,3 +124,22 @@ class ReactionCountOut(Schema):
     likes: int
     dislikes: int
     user_reaction: VoteEnum | None
+
+
+class SortEnum(str, Enum):
+    POPULAR = "popular"
+    RECENT = "recent"
+    ALPHABETICAL = "alphabetical"
+
+
+class HashtagOut(Schema):
+    name: str
+    count: int
+
+
+class PaginatedHashtagOut(Schema):
+    items: List[HashtagOut]
+    total: int
+    page: int
+    per_page: int
+    pages: int

@@ -4,8 +4,7 @@ from typing import List, Optional
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.http import HttpRequest
-from ninja import Router
-from ninja.responses import codes_4xx, codes_5xx
+from ninja import Query, Router
 
 from articles.models import Reaction
 from posts.models import Comment, Post
@@ -14,12 +13,13 @@ from posts.schemas import (
     CommentOut,
     CommentUpdateSchema,
     Message,
+    PaginatedPostsResponse,
+    PostCreateSchema,
     PostOut,
-    PostSchema,
     ReactionSchema,
 )
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import User
+from users.models import Hashtag, HashtagRelation, User
 
 router = Router(tags=["Posts"])
 
@@ -28,65 +28,101 @@ Post related endpoints
 """
 
 
-@router.post(
-    "/", response={200: PostOut, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth()
-)
-def create_post(request: HttpRequest, data: PostSchema):
+@router.post("/", response={201: PostOut, 400: Message, 500: Message}, auth=JWTAuth())
+def create_post(request: HttpRequest, data: PostCreateSchema):
     user = request.auth
     post = Post.objects.create(author=user, title=data.title, content=data.content)
-    return post
+
+    # Create or retrieve hashtags and create relations
+    content_type = ContentType.objects.get_for_model(Post)
+    for hashtag_name in data.hashtags:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=post.id
+        )
+
+    return 201, PostOut.resolve_post(post, user)
 
 
-@router.get("/", response={200: list[PostOut], codes_5xx: Message})
-def list_posts(request, page: int = 1, per_page: int = 10):
-    posts = Post.objects.filter(is_deleted=False).order_by("-created_at")
-    paginator = Paginator(posts, per_page)
-    paginated_posts = paginator.get_page(page)
+@router.get("/", response=PaginatedPostsResponse, auth=OptionalJWTAuth)
+def list_posts(
+    request: HttpRequest,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+    sort_by: str = Query("created_at", enum=["created_at", "title", "upvotes"]),
+    sort_order: str = Query("desc", enum=["asc", "desc"]),
+    hashtags: Optional[List[str]] = Query(None),
+):
+    user: Optional[User] = None if not request.auth else request.auth
+    posts = Post.objects.filter(is_deleted=False)
 
-    post_list = []
-    for post in paginated_posts.object_list:
-        upvotes = post.reactions.filter(vote=1).count()
-        comments_count = Comment.objects.filter(post=post).count()
-        post_out = PostOut.from_orm(post)
-        post_out.upvotes = upvotes
-        post_out.comments_count = comments_count
-        post_list.append(post_out)
+    # Apply hashtag filtering
+    if hashtags:
+        posts = posts.filter(
+            id__in=HashtagRelation.objects.filter(
+                hashtag__name__in=hashtags,
+                content_type=ContentType.objects.get_for_model(Post),
+            ).values_list("object_id", flat=True)
+        ).distinct()
 
-    return post_list
+    # Apply sorting
+    order_prefix = "-" if sort_order == "desc" else ""
+    posts = posts.order_by(f"{order_prefix}{sort_by}")
+
+    paginator = Paginator(posts, size)
+    page_obj = paginator.get_page(page)
+    return PaginatedPostsResponse(
+        items=[PostOut.resolve_post(post, user) for post in page_obj],
+        total=paginator.count,
+        page=page,
+        size=size,
+    )
 
 
-@router.get("/{post_id}/", response={200: PostOut, 404: Message})
+@router.get("/{post_id}/", response={200: PostOut, 404: Message}, auth=OptionalJWTAuth)
 def get_post(request, post_id: int):
+    current_user: Optional[User] = None if not request.auth else request.auth
     post = Post.objects.get(id=post_id)
-    upvotes = post.reactions.filter(vote=1).count()
-    post_out = PostOut.from_orm(post)
-    post_out.upvotes = upvotes
-    comments_count = Comment.objects.filter(post=post).count()
-    post_out.comments_count = comments_count
-    return post_out
+    return PostOut.resolve_post(post, current_user)
 
 
-@router.put("/{post_id}/", response={200: PostOut, 403: Message}, auth=JWTAuth())
-def update_post(request, post_id: int, data: PostSchema):
+@router.put(
+    "/{post_id}", response={200: PostOut, 400: Message, 404: Message}, auth=JWTAuth()
+)
+def update_post(request: HttpRequest, post_id: int, data: PostCreateSchema):
     user = request.auth
-    post = Post.objects.get(id=post_id)
-
-    if post.author != user:
-        return 403, {"message": "You are not the author of this post"}
+    try:
+        post = Post.objects.get(id=post_id, author=user)
+    except Post.DoesNotExist:
+        return 404, {"message": "Post not found"}
 
     post.title = data.title
     post.content = data.content
     post.save()
-    return post
+
+    # Update hashtags
+    content_type = ContentType.objects.get_for_model(Post)
+    HashtagRelation.objects.filter(
+        content_type=content_type, object_id=post.id
+    ).delete()
+    for hashtag_name in data.hashtags:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=post.id
+        )
+
+    return 200, PostOut.resolve_post(post, user)
 
 
 @router.delete("/{post_id}/", response={204: None, 403: str, 404: str}, auth=JWTAuth())
 def delete_post(request, post_id: int):
     user = request.auth
-    post = Post.objects.get(id=post_id)
+    post = Post.objects.get(id=post_id, author=user)
 
-    if post.author != user:
-        return 403, "You are not authorized to delete this post"
+    # Delete hashtags and reactions associated with the post
+    content_type = ContentType.objects.get_for_model(Post)
+    Hashtag.objects.filter(content_type=content_type, object_id=post.id).delete()
+    Reaction.objects.filter(content_type=content_type, object_id=post.id).delete()
 
     post.content = "[deleted]"
     post.is_deleted = True

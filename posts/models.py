@@ -2,7 +2,7 @@ from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 
 from articles.models import Reaction
-from users.models import User
+from users.models import HashtagRelation, User
 
 
 class Post(models.Model):
@@ -12,6 +12,7 @@ class Post(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation(Reaction)
+    hashtags = GenericRelation(HashtagRelation, related_query_name="posts")
     is_deleted = models.BooleanField(default=False)
 
     def __str__(self):

@@ -1,14 +1,10 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
+from django.contrib.contenttypes.models import ContentType
 from ninja import Field, ModelSchema, Schema
 
 from posts.models import Comment, Post
-from users.models import User
-
-
-class PostSchema(Schema):
-    title: str
-    content: str
+from users.models import HashtagRelation, User
 
 
 class UserOut(Schema):
@@ -17,14 +13,50 @@ class UserOut(Schema):
     profile_pic_url: str | None
 
 
+class PostCreateSchema(Schema):
+    title: str
+    content: str
+    hashtags: List[str] = Field(default_factory=list)
+
+
 class PostOut(ModelSchema):
-    author: UserOut = Field(...)
+    author: UserOut
     upvotes: int = Field(0)
     comments_count: int = Field(0)
+    hashtags: List[str] = Field(default_factory=list)
+    is_author: bool = Field(False)
 
     class Config:
         model = Post
-        model_fields = ["id", "author", "title", "content", "created_at"]
+        model_fields = ["id", "title", "content", "created_at"]
+
+    @staticmethod
+    def resolve_post(post: Post, current_user: Optional[User]):
+        return {
+            "id": post.id,
+            "title": post.title,
+            "content": post.content,
+            "created_at": post.created_at,
+            "author": UserOut.from_orm(post.author),
+            "upvotes": post.reactions.filter(vote=1).count(),
+            "comments_count": Comment.objects.filter(post=post).count(),
+            "hashtags": [
+                relation.hashtag.name
+                for relation in HashtagRelation.objects.filter(
+                    content_type=ContentType.objects.get_for_model(Post),
+                    object_id=post.id,
+                )
+            ],
+            "is_author": current_user == post.author if current_user else False,
+        }
+
+
+# Todo: Create Generic Model for PaginatedResponse
+class PaginatedPostsResponse(Schema):
+    items: List[PostOut]
+    total: int
+    page: int
+    size: int
 
 
 class Message(Schema):

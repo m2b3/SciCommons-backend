@@ -2,21 +2,29 @@ from enum import Enum
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.paginator import Paginator
+from django.db.models import Count
 from ninja import Query, Router
+from ninja.errors import HttpRequest
 from ninja.responses import codes_4xx, codes_5xx
 
 # Todo: Move the Reaction model to the users app
 from articles.models import Article, Reaction
 from articles.schemas import ArticleDetails
+from posts.models import Post
+from posts.schemas import PaginatedPostsResponse, PostOut
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Notification, User
+from users.models import Hashtag, HashtagRelation, Notification, User
 from users.schemas import (
     ContentTypeEnum,
+    HashtagOut,
     Message,
     NotificationSchema,
+    PaginatedHashtagOut,
     ReactionCountOut,
     ReactionIn,
     ReactionOut,
+    SortEnum,
     VoteEnum,
 )
 
@@ -185,3 +193,76 @@ def mark_notification_as_read(request, notification_id: int):
             return {"message": "Notification was already marked as read."}
     except Exception as e:
         return 500, {"message": str(e)}
+
+
+@router.get("/hashtags/", response=PaginatedHashtagOut)
+def get_hashtags(
+    request,
+    sort: SortEnum = Query(SortEnum.POPULAR),
+    search: str = Query(None),
+    page: int = Query(1),
+    per_page: int = Query(20),
+):
+    """
+    Get a list of hashtags from the database.
+    """
+    hashtags = Hashtag.objects.annotate(count=Count("hashtagrelation"))
+
+    if search:
+        hashtags = hashtags.filter(name__icontains=search)
+
+    if sort == SortEnum.POPULAR:
+        hashtags = hashtags.order_by("-count", "name")
+    elif sort == SortEnum.RECENT:
+        hashtags = hashtags.order_by("-id")
+    else:  # ALPHABETICAL
+        hashtags = hashtags.order_by("name")
+
+    paginator = Paginator(hashtags, per_page)
+    page_obj = paginator.get_page(page)
+
+    return PaginatedHashtagOut(
+        items=[HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list],
+        total=paginator.count,
+        page=page_obj.number,
+        per_page=per_page,
+        pages=paginator.num_pages,
+    )
+
+
+@router.get("/my-posts", response=PaginatedPostsResponse, auth=JWTAuth())
+def list_my_posts(
+    request: HttpRequest,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+    sort_by: str = Query("created_at", enum=["created_at", "title"]),
+    sort_order: str = Query("desc", enum=["asc", "desc"]),
+    hashtags: Optional[List[str]] = Query(None),
+):
+    user = request.auth
+    posts = Post.objects.filter(author=user, is_deleted=False)
+
+    # Apply hashtag filtering
+    if hashtags:
+        hashtag_ids = Hashtag.objects.filter(name__in=hashtags).values_list(
+            "id", flat=True
+        )
+        post_ids = HashtagRelation.objects.filter(
+            hashtag_id__in=hashtag_ids,
+            content_type=ContentType.objects.get_for_model(Post),
+        ).values_list("object_id", flat=True)
+        posts = posts.filter(id__in=post_ids).distinct()
+
+    # Todo: Add Filter for sorting by post reactions
+    # Apply sorting
+    order_prefix = "-" if sort_order == "desc" else ""
+    posts = posts.order_by(f"{order_prefix}{sort_by}")
+
+    paginator = Paginator(posts, size)
+    page_obj = paginator.get_page(page)
+    return PaginatedPostsResponse(
+        items=[PostOut.resolve_post(post, user) for post in page_obj],
+        total=paginator.count,
+        page=page,
+        size=size,
+    )
