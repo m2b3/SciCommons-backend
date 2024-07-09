@@ -60,3 +60,6 @@ venv.bak/
 # Poetry
 poetry.lock
 .pypoetry-cache/
+
+# Ignore collected static files
+static/

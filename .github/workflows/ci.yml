@@ -1,48 +1,80 @@
-name: Django CI with pre-commit
+name: Pre-commit and Tests
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
   schedule:
-    - cron: '0 0 * * 1'  # Run every Monday at 00:00 UTC
+    - cron: '0 0 * * 1'  # Runs every Monday at midnight
 
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
+
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
-    - name: Install Poetry
-      run: |
-        curl -sSL https://install.python-poetry.org | python3 -
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        python-version: '3.8'  # Specify the Python version you are using
+
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip
+        pip install poetry
         poetry install
-    - name: Run pre-commit
+
+    - name: Run pre-commit hooks
       run: |
         poetry run pre-commit run --all-files
 
-  test:
+  tests:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: ${{ secrets.DB_NAME }}
+          POSTGRES_USER: ${{ secrets.DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        options: >-
+          --health-cmd "pg_isready -U ${{ secrets.DB_USER }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
+
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
-    - name: Install Poetry
-      run: |
-        curl -sSL https://install.python-poetry.org | python3 -
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        python-version: '3.8'  # Specify the Python version you are using
+
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip
+        pip install poetry
         poetry install
-    - name: Run tests
+
+    - name: Wait for PostgreSQL to be ready
+      run: |
+        echo "Waiting for PostgreSQL to be ready..."
+        while ! pg_isready -h localhost -p 5432 -U ${{ secrets.DB_USER }}; do
+          sleep 1
+        done
+
+    - name: Run Django tests
+      env:
+        DATABASE_URL: postgres://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}
       run: |
         poetry run python manage.py test
