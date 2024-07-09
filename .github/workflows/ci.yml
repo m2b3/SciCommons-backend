@@ -21,7 +21,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.8'  # Specify the Python version you are using
+        python-version: '3.12.3'
 
     - name: Install dependencies
       run: |
@@ -42,11 +42,11 @@ jobs:
         ports:
           - 5432:5432
         env:
-          POSTGRES_DB: ${{ secrets.DB_NAME }}
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
         options: >-
-          --health-cmd "pg_isready -U ${{ secrets.DB_USER }}"
+          --health-cmd "pg_isready -U test_user"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -58,7 +58,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.8'  # Specify the Python version you are using
+        python-version: '3.12.3'
 
     - name: Install dependencies
       run: |
@@ -69,12 +69,12 @@ jobs:
     - name: Wait for PostgreSQL to be ready
       run: |
         echo "Waiting for PostgreSQL to be ready..."
-        while ! pg_isready -h localhost -p 5432 -U ${{ secrets.DB_USER }}; do
+        while ! pg_isready -h localhost -p 5432 -U test_user; do
           sleep 1
         done
 
     - name: Run Django tests
       env:
-        DATABASE_URL: postgres://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}
+        DATABASE_URL: postgres://test_user:test_password@localhost:5432/test_db
       run: |
         poetry run python manage.py test
