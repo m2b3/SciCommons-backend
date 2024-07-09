@@ -134,12 +134,13 @@ class ReviewComment(models.Model):
         on_delete=models.CASCADE,
         related_name="review_replies",
     )
-    user = models.ForeignKey(
+    author = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="review_comments"
     )
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
     reactions = GenericRelation("Reaction", related_query_name="review_comments")
 
     def __str__(self):

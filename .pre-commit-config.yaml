@@ -1,4 +1,4 @@
-exclude: '/migrations/'
+exclude: "/migrations/"
 
 repos:
   - repo: https://github.com/pycqa/isort
@@ -6,8 +6,7 @@ repos:
     hooks:
       - id: isort
         name: isort (python)
-        args: ['--profile=black']
-        
+        args: ["--profile=black"]
 
   - repo: https://github.com/psf/black
     rev: 24.4.2

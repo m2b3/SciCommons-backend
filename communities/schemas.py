@@ -1,26 +1,48 @@
 from datetime import datetime
+from enum import Enum
 from typing import List, Literal, Optional
 
-from ninja import Schema
+from ninja import ModelSchema, Schema
 
-from articles.schemas import ArticleDetails
+from articles.models import Article
+from articles.schemas import ArticleOut
+from communities.models import Community, JoinRequest
+from myapp.schemas import Tag
+from users.models import User
 
 """
 Community management schemas for serialization and validation.
 """
 
 
-class CommunityDetails(Schema):
+class CommunityType(str, Enum):
+    PUBLIC = "public"
+    HIDDEN = "hidden"
+    LOCKED = "locked"
+
+
+class CreateCommunityDetails(Schema):
+    name: str
+    description: str
+    tags: List[Tag]
+    type: CommunityType
+
+
+class CommunityCreateSchema(Schema):
+    details: CreateCommunityDetails
+
+
+class CommunitySchema(ModelSchema):
     id: int
     name: str
     description: str
-    tags: str
-    type: str
-    profile_pic_url: str | None
-    banner_pic_url: str | None
+    tags: List[Tag]
+    type: CommunityType
+    profile_pic_url: Optional[str]
+    banner_pic_url: Optional[str]
     slug: str
-    created_at: datetime | None
-    rules: list[str]
+    created_at: Optional[datetime]
+    rules: List[str]
     num_moderators: int
     num_reviewers: int
     num_members: int
@@ -30,33 +52,84 @@ class CommunityDetails(Schema):
     is_moderator: bool = False
     is_reviewer: bool = False
     is_admin: bool = False
-    join_request_status: str | None = None
+    join_request_status: Optional[str] = None
+
+    class Config:
+        model = Community
+        model_fields = [
+            "id",
+            "name",
+            "description",
+            "tags",
+            "type",
+            "profile_pic_url",
+            "banner_pic_url",
+            "slug",
+            "created_at",
+            "rules",
+        ]
+
+    @staticmethod
+    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+        response_data = CommunitySchema(
+            id=community.id,
+            name=community.name,
+            description=community.description,
+            tags=community.tags,
+            type=community.type,
+            profile_pic_url=(
+                community.profile_pic_url.url if community.profile_pic_url else None
+            ),
+            banner_pic_url=(
+                community.banner_pic_url.url if community.banner_pic_url else None
+            ),
+            slug=community.slug,
+            created_at=community.created_at,
+            rules=community.rules,
+            num_moderators=community.moderators.count(),
+            num_reviewers=community.reviewers.count(),
+            num_members=community.members.count(),
+            num_published_articles=Article.objects.filter(
+                community=community, published=True
+            ).count(),
+            num_articles=Article.objects.filter(community=community).count(),
+        )
+
+        if user and not isinstance(user, bool):
+            response_data.is_member = community.members.filter(id=user.id).exists()
+            response_data.is_moderator = community.moderators.filter(
+                id=user.id
+            ).exists()
+            response_data.is_reviewer = community.reviewers.filter(id=user.id).exists()
+            response_data.is_admin = community.admins.filter(id=user.id).exists()
+
+            # Check if the user has a latest join request
+            join_request = JoinRequest.objects.filter(
+                community=community, user=user
+            ).order_by("-id")
+
+            if join_request.exists():
+                response_data.join_request_status = join_request.first().status
+
+        return response_data
 
 
-class CreateCommunityResponse(Schema):
-    id: int
-    message: str
-
-
-class PaginatedCommunitySchema(Schema):
+class PaginatedCommunities(Schema):
+    items: List[CommunitySchema]
     total: int
     page: int
-    size: int
-    communities: List[CommunityDetails]
-
-
-class CreateCommunitySchema(Schema):
-    name: str
-    description: str
-    tags: str
-    type: str
+    per_page: int
 
 
 class UpdateCommunityDetails(Schema):
     description: str
-    type: str
-    tags: str
-    rules: list[str]
+    type: CommunityType
+    tags: List[Tag]
+    rules: List[str]
+
+
+class CommunityUpdateSchema(Schema):
+    details: UpdateCommunityDetails
 
 
 """
@@ -198,9 +271,9 @@ class MembersResponse(Schema):
 
 
 class AdminArticlesResponse(Schema):
-    published: List[ArticleDetails]
-    unpublished: List[ArticleDetails]
-    submitted: List[ArticleDetails]
+    published: List[ArticleOut]
+    unpublished: List[ArticleOut]
+    submitted: List[ArticleOut]
     community_id: int
 
 

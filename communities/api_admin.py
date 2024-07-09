@@ -6,6 +6,7 @@ from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import Article
+from articles.schemas import ArticleOut
 from communities.models import Community, Membership
 from communities.schemas import (
     AdminArticlesResponse,
@@ -23,42 +24,42 @@ router = Router(auth=JWTAuth(), tags=["Community Admin"])
 
 @router.get(
     "/{community_name}/admin-articles",
-    response={
-        200: AdminArticlesResponse,
-        codes_4xx: Message,
-        codes_5xx: Message,
-    },
+    response={200: AdminArticlesResponse, 403: Message, 404: Message, 500: Message},
+    auth=JWTAuth(),
 )
 def get_articles_by_status(request, community_name: str):
-    try:
-        # Check if the community exists
-        community = Community.objects.get(name=community_name)
+    # Check if the community exists
+    community = Community.objects.get(name=community_name)
 
-        # Check if the user is an admin of the community
-        if not community.admins.filter(id=request.auth.id).exists():
-            return 403, {"message": "You do not have administrative privileges."}
+    # Check if the user is an admin of the community
+    if not community.admins.filter(id=request.auth.id).exists():
+        return 403, Message(message="You do not have administrative privileges.")
 
-        # Categorize articles by their publication status
-        articles = {
-            "published": [],
-            "unpublished": [],
-            "submitted": [],
-            "community_id": community.id,
-        }
+    # Fetch all articles for the community
+    all_articles = Article.objects.filter(community=community)
 
-        for article in Article.objects.filter(community=community):
-            if article.published:
-                articles["published"].append(article)
-            elif article.status == "Approved" and not article.published:
-                articles["unpublished"].append(article)
-            elif article.status == "Pending":
-                articles["submitted"].append(article)
+    # Categorize articles by their publication status
+    published = all_articles.filter(published=True)
+    unpublished = all_articles.filter(Q(status="Approved") & Q(published=False))
+    submitted = all_articles.filter(status="Pending")
 
-        return 200, articles
-    except Community.DoesNotExist:
-        return 404, {"message": "Community not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    response = AdminArticlesResponse(
+        published=[
+            ArticleOut.from_orm_with_custom_fields(article, request.auth)
+            for article in published
+        ],
+        unpublished=[
+            ArticleOut.from_orm_with_custom_fields(article, request.auth)
+            for article in unpublished
+        ],
+        submitted=[
+            ArticleOut.from_orm_with_custom_fields(article, request.auth)
+            for article in submitted
+        ],
+        community_id=community.id,
+    )
+
+    return 200, response
 
 
 @router.post(

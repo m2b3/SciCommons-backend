@@ -3,6 +3,8 @@ Holds the User model and UserManager class.
 """
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.timezone import now, timedelta
 from django.utils.translation import gettext_lazy as _
@@ -118,3 +120,22 @@ class Notification(models.Model):
 
     def set_expiration(self, days: int):
         self.expires_at = now() + timedelta(days=days)
+
+
+class Hashtag(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+
+# Genertic HashTag model
+class HashtagRelation(models.Model):
+    hashtag = models.ForeignKey(Hashtag, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("hashtag", "content_type", "object_id")
+
+    def __str__(self):
+        return f"# {self.hashtag.name}"

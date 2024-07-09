@@ -1,9 +1,9 @@
-from datetime import datetime
+from enum import Enum
 from typing import List, Literal, Optional
 
 from ninja import Field, ModelSchema, Schema
 
-from articles.models import Review, ReviewVersion
+from articles.models import Article, Review, ReviewComment, ReviewVersion
 from users.models import User
 
 """
@@ -18,6 +18,102 @@ class Message(Schema):
 class Tag(Schema):
     value: str
     label: str
+
+
+class FAQSchema(Schema):
+    question: str
+    answer: str
+
+
+class CommunityOut(Schema):
+    id: int
+    name: str
+    description: str
+    profile_pic_url: Optional[str]
+
+
+class UserOut(Schema):
+    id: int
+    username: str
+    profile_pic_url: Optional[str]
+
+
+class SubmissionType(str, Enum):
+    PUBLIC = "Public"
+    PRIVATE = "Private"
+
+
+class ArticleOut(ModelSchema):
+    authors: List[Tag]
+    keywords: List[Tag]
+    faqs: List[FAQSchema]
+    total_reviews: int
+    total_comments: int
+    community: Optional[CommunityOut]
+    user: UserOut
+    is_submitter: bool
+    submission_type: SubmissionType
+
+    class Config:
+        model = Article
+        model_fields = [
+            "id",
+            "slug",
+            "title",
+            "abstract",
+            "article_image_url",
+            "article_pdf_file_url",
+            "created_at",
+            "updated_at",
+            "status",
+            "published",
+        ]
+
+    @staticmethod
+    def from_orm_with_custom_fields(article: Article, current_user: Optional[User]):
+        community_data = None
+        if article.community:
+            community_data = CommunityOut(
+                id=article.community.id,
+                name=article.community.name,
+                description=article.community.description,
+                profile_pic_url=article.community.profile_pic_url,
+            )
+
+        return ArticleOut(
+            id=article.id,
+            slug=article.slug,
+            title=article.title,
+            abstract=article.abstract,
+            article_image_url=article.article_image_url,
+            article_pdf_file_url=article.article_pdf_file_url,
+            created_at=article.created_at,
+            updated_at=article.updated_at,
+            status=article.status,
+            published=article.published,
+            submission_type=article.submission_type,
+            authors=article.authors,
+            keywords=article.keywords,
+            faqs=article.faqs,
+            total_reviews=Review.objects.filter(article=article).count(),
+            total_comments=ReviewComment.objects.filter(
+                review__article=article
+            ).count(),
+            community=community_data,
+            user=UserOut.from_orm(article.submitter),
+            is_submitter=(article.submitter == current_user) if current_user else False,
+        )
+
+
+# Todo: Create a Generic PaginatedResponse Schema
+
+
+class PaginatedArticlesResponse(Schema):
+    items: List[ArticleOut]
+    total: int
+    page: int
+    page_size: int
+    num_pages: int
 
 
 class ArticleCreateDetails(Schema):
@@ -36,37 +132,6 @@ class ArticleResponseSchema(Schema):
     id: int
     title: str
     slug: str
-
-
-class FAQSchema(Schema):
-    question: str
-    answer: str
-
-
-class CommunityDetailsForArticle(Schema):
-    name: str
-    profile_pic_url: str | None
-    description: str
-
-
-class ArticleDetails(Schema):
-    id: int
-    title: str
-    abstract: str
-    keywords: List[Tag]
-    authors: List[Tag]
-    article_image_url: str | None
-    article_pdf_file_url: str | None
-    submission_type: Literal["Public", "Private"]
-    submitter_id: int
-    slug: str
-    community: CommunityDetailsForArticle | None
-    status: str
-    published: bool
-    created_at: datetime
-    updated_at: datetime
-    is_submitter: bool = Field(default=False)
-    faqs: List[FAQSchema] = Field(default_factory=list)
 
 
 class UpdateArticleDetails(Schema):
@@ -117,6 +182,7 @@ class ReviewSchema(ModelSchema):
     versions: List[ReviewVersionSchema] = Field(...)
     user: UserOut = Field(...)
     article_id: int
+    comments_count: int = Field(0)
 
     class Config:
         model = Review
@@ -144,6 +210,7 @@ class ReviewSchema(ModelSchema):
             created_at=review.created_at,
             updated_at=review.updated_at,
             deleted_at=review.deleted_at,
+            comments_count=ReviewComment.objects.filter(review=review).count(),
             is_author=review.user == current_user,
             versions=[
                 ReviewVersionSchema.from_orm(version)
@@ -186,41 +253,39 @@ Comments to Reviews Schemas for serialization and validation
 """
 
 
-class CommentCreateSchema(Schema):
-    content: str
-    parent_id: Optional[int] = None  # For nested comments
-
-
-class CommentSchema(Schema):
-    id: int
-    review_id: int
-    user_id: int
-    content: str
-    parent_id: Optional[int] = None
-    created_at: datetime = Field(..., alias="created_at")
-    updated_at: datetime = Field(..., alias="updated_at")
-    replies: Optional[List["CommentSchema"]] = None  # Recursive definition
+class ReviewCommentOut(ModelSchema):
+    author: UserOut
+    replies: list["ReviewCommentOut"] = Field(...)
+    upvotes: int
+    is_author: bool = Field(False)
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
+        model = ReviewComment
+        model_fields = ["id", "content", "created_at"]
+
+    @staticmethod
+    def from_orm_with_replies(comment: ReviewComment, current_user: Optional[User]):
+        return ReviewCommentOut(
+            id=comment.id,
+            author=UserOut.from_orm(comment.author),
+            content=comment.content,
+            created_at=comment.created_at,
+            upvotes=comment.reactions.filter(vote=1).count(),
+            replies=[
+                ReviewCommentOut.from_orm_with_replies(reply, current_user)
+                # review_replies is the related name for the parent field
+                for reply in comment.review_replies.all()
+            ],
+            is_author=(comment.author == current_user) if current_user else False,
+        )
 
 
-CommentSchema.model_rebuild()
+class ReviewCommentCreateSchema(Schema):
+    content: str
+    parent_id: Optional[int] = Field(
+        None, description="ID of the parent review comment if it's a reply"
+    )
 
 
-class PaginatedCommentsSchema(Schema):
-    total: int
-    page: int
-    size: int
-    comments: List[CommentSchema]
-
-
-class CommentUpdateSchema(Schema):
-    content: Optional[str] = None
-
-
-class DeleteResponseSchema(Schema):
-    success: bool
-    message: str
+class ReviewCommentUpdateSchema(Schema):
+    content: str | None

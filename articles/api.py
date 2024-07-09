@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
@@ -10,13 +10,14 @@ from ninja.responses import codes_4xx, codes_5xx
 from articles.models import Article
 from articles.schemas import (
     ArticleCreateSchema,
-    ArticleDetails,
+    ArticleOut,
     ArticleResponseSchema,
     ArticleUpdateSchema,
-    CommunityDetailsForArticle,
     Message,
+    PaginatedArticlesResponse,
 )
-from users.auth import JWTAuth
+from users.auth import JWTAuth, OptionalJWTAuth
+from users.models import User
 
 router = Router(tags=["Articles"])
 
@@ -123,63 +124,34 @@ def update_article(
 # Todo: Make this Endpoint partially protected
 @router.get(
     "/article/{article_slug}",
-    response={200: ArticleDetails, codes_4xx: Message, codes_5xx: Message},
+    response={200: ArticleOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_article(request, article_slug: str):
-    try:
-        article = Article.objects.get(slug=article_slug)
+    article = Article.objects.get(slug=article_slug)
 
-        # Check submission type and user's access
-        if article.submission_type == "Private" and article.submitter != request.auth:
+    # Check submission type and user's access
+    if article.submission_type == "Private" and article.submitter != request.auth:
+        return 403, {"message": "You don't have access to this article."}
+
+    # If the article is submitted to a hidden community,
+    # only the members can view it
+    if article.community and article.community.type == "private":
+        if request.auth not in article.community.members.all():
             return 403, {"message": "You don't have access to this article."}
 
-        # If the article is submitted to a hidden community,
-        # only the members can view it
-        if article.community and article.community.type == "private":
-            if request.auth not in article.community.members.all():
-                return 403, {"message": "You don't have access to this article."}
+    # Use the custom method to create the ArticleOut instance
+    article_data = ArticleOut.from_orm_with_custom_fields(article, request.auth)
 
-        community = article.community
-
-        if community:
-            community_details = CommunityDetailsForArticle(
-                name=community.name,
-                profile_pic_url=community.profile_pic_url,
-                description=community.description,
-            )
-        else:
-            community_details = None
-
-        article_data = ArticleDetails(
-            id=article.id,
-            title=article.title,
-            abstract=article.abstract,
-            keywords=article.keywords,
-            authors=article.authors,
-            article_image_url=article.article_image_url,
-            article_pdf_file_url=article.article_pdf_file_url,
-            submission_type=article.submission_type,
-            submitter_id=article.submitter.id,
-            slug=article.slug,
-            community=community_details,
-            status=article.status,
-            published=article.published,
-            created_at=article.created_at,
-            updated_at=article.updated_at,
-            faqs=article.faqs,
-            is_submitter=article.submitter == request.auth,
-        )
-
-        return 200, article_data
-
-    except Article.DoesNotExist:
-        return 404, {"message": "Article not found."}
-    except Exception as e:
-        return 500, {"message": f"Internal server error: {str(e)}"}
+    return 200, article_data
 
 
-@router.get("/", response=List[ArticleDetails], summary="Get Public Articles")
+@router.get(
+    "/",
+    response=PaginatedArticlesResponse,
+    summary="Get Public Articles",
+    auth=OptionalJWTAuth,
+)
 def get_public_articles(
     request,
     search: Optional[str] = None,
@@ -212,7 +184,7 @@ def get_public_articles(
         | Q(published=True)
         | Q(community__type="public", status="Approved")
     )
-    articles = Article.objects.filter(query).order_by("-id")
+    articles = Article.objects.filter(query)
 
     if search:
         articles = articles.filter(title__icontains=search)
@@ -223,16 +195,27 @@ def get_public_articles(
 
     if sort:
         if sort == "latest":
-            articles = articles.order_by("-id")
+            articles = articles.order_by("-created_at")
         # Todo: Implement sorting by popularity
         # elif sort == "popular":
-        #     articles = articles.order_right(
-        #         "-popularity"
-        #     )
+        #     articles = articles.order_by("-popularity")
         elif sort == "older":
-            articles = articles.order_by("id")
+            articles = articles.order_by("created_at")
+    else:
+        articles = articles.order_by("-created_at")  # Default sort by latest
 
     paginator = Paginator(articles, limit)
     paginated_articles = paginator.get_page(page)
 
-    return paginated_articles.object_list
+    current_user: Optional[User] = None if not request.auth else request.auth
+
+    return PaginatedArticlesResponse(
+        items=[
+            ArticleOut.from_orm_with_custom_fields(article, current_user)
+            for article in paginated_articles
+        ],
+        total=paginator.count,
+        page=page,
+        page_size=limit,
+        num_pages=paginator.num_pages,
+    )

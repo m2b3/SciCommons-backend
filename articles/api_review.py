@@ -4,16 +4,14 @@ from django.core.paginator import Paginator
 from ninja import Router
 from ninja.responses import codes_4xx
 
-from articles.models import Article, Review, ReviewComment
+from articles.models import Article, Reaction, Review, ReviewComment
 from articles.schemas import (
-    CommentCreateSchema,
-    CommentSchema,
-    CommentUpdateSchema,
     CreateReviewSchema,
-    DeleteResponseSchema,
     Message,
-    PaginatedCommentsSchema,
     PaginatedReviewSchema,
+    ReviewCommentCreateSchema,
+    ReviewCommentOut,
+    ReviewCommentUpdateSchema,
     ReviewResponseSchema,
     ReviewSchema,
     ReviewUpdateSchema,
@@ -105,7 +103,7 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
 
 @router.delete(
     "/reviews/{review_id}/",
-    response={201: DeleteResponseSchema, 404: Message, 500: Message},
+    response={201: Message, 404: Message, 500: Message},
     auth=JWTAuth(),
 )
 def delete_review(request, review_id: int):
@@ -114,17 +112,11 @@ def delete_review(request, review_id: int):
         user = request.auth  # Assuming user is authenticated
 
         if review.user != user:
-            return {
-                "success": False,
-                "message": "You do not have permission to delete this review.",
-            }
+            return 403, {"message": "You do not have permission to delete this review."}
 
         # Delete the review
         review.delete()
-        return 201, {
-            "success": True,
-            "message": "Review and its versions have been deleted.",
-        }
+        return 201, {"message": "Review deleted successfully."}
     except Review.DoesNotExist:
         return 404, {"message": "Review not found."}
     except Exception as e:
@@ -136,118 +128,89 @@ Endpoints for comments on reviews
 """
 
 
+# Create a Comment
 @router.post(
-    "/reviews/{review_id}/comments/",
-    response={201: CommentSchema, codes_4xx: Message, 500: Message},
-    auth=JWTAuth(),
+    "reviews/{review_id}/comments/", response={201: ReviewCommentOut}, auth=JWTAuth()
 )
-def create_comment(request, review_id: int, payload: CommentCreateSchema):
-    try:
-        review = Review.objects.get(id=review_id)
-        user = request.auth
+def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
+    user = request.auth
 
-        # Handle nested comments
-        parent_comment = None
-        if payload.parent_id:
-            parent_comment = ReviewComment.objects.get(id=payload.parent_id)
-            # Check the nesting level
-            if parent_comment.parent and parent_comment.parent.parent:
-                return 400, {"message": "Exceeded maximum comment nesting level of 3"}
+    review = Review.objects.get(id=review_id)
+    parent_comment = None
 
-        comment = ReviewComment.objects.create(
-            review=review, user=user, content=payload.content, parent=parent_comment
-        )
-        return 201, comment
-    except Review.DoesNotExist:
-        return 404, {"message": "Review not found."}
-    except ReviewComment.DoesNotExist:
-        return 404, {"message": "Parent comment not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    if payload.parent_id:
+        parent_comment = ReviewComment.objects.get(id=payload.parent_id)
 
+        if parent_comment.parent and parent_comment.parent.parent:
+            return 400, {"message": "Exceeded maximum comment nesting level of 3"}
 
-def build_comment_tree(comments: List[CommentSchema]) -> List[CommentSchema]:
-    comment_dict = {comment.id: comment for comment in comments}
-    root_comments = []
-    for comment in comments:
-        if comment.parent_id:
-            parent = comment_dict[comment.parent_id]
-            if not parent.replies:
-                parent.replies = []
-            if comment not in parent.replies:
-                parent.replies.append(comment)
-        else:
-            root_comments.append(comment)
-    return root_comments
+    comment = ReviewComment.objects.create(
+        review=review,
+        author=user,
+        content=payload.content,
+        parent=parent_comment,
+    )
+    # Return comment with replies
+    return 201, ReviewCommentOut.from_orm_with_replies(comment, user)
 
 
 @router.get(
-    "/reviews/{review_id}/comments/",
-    response={200: PaginatedCommentsSchema, 404: Message, 500: Message},
+    "reviews/{review_id}/comments/",
+    response=List[ReviewCommentOut],
+    auth=OptionalJWTAuth,
 )
-def get_comments_for_review(request, review_id: int, page: int = 1, size: int = 10):
-    try:
-        review = Review.objects.get(id=review_id)
-        comments_query = ReviewComment.objects.filter(review=review).order_by(
-            "created_at"
-        )
-        total_comments = comments_query.count()
-        paginated_comments = comments_query[(page - 1) * size : page * size]
-        comments = [CommentSchema.from_orm(comment) for comment in paginated_comments]
-        nested_comments = build_comment_tree(comments)
-        return {
-            "total": total_comments,
-            "page": page,
-            "size": size,
-            "comments": nested_comments,
-        }
-
-    except Review.DoesNotExist:
-        return 404, {"message": "Review not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+def list_review_comments(request, review_id: int):
+    review = Review.objects.get(id=review_id)
+    comments = (
+        ReviewComment.objects.filter(review=review, parent=None)
+        .select_related("author")
+        .order_by("-created_at")
+    )
+    current_user: Optional[User] = None if not request.auth else request.auth
+    return [
+        ReviewCommentOut.from_orm_with_replies(comment, current_user)
+        for comment in comments
+    ]
 
 
 @router.put(
-    "/comments/{comment_id}/",
-    response={201: CommentSchema, 404: Message, 500: Message},
+    "reviews/comments/{comment_id}/",
+    response={200: Message, 403: Message},
     auth=JWTAuth(),
 )
-def update_comment(request, comment_id: int, payload: CommentUpdateSchema):
-    try:
-        comment = ReviewComment.objects.get(id=comment_id)
-        if request.auth != comment.user:
-            return 403, {"message": "You do not have permission to update this comment"}
+def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema):
+    comment = ReviewComment.objects.get(id=comment_id)
 
-        if payload.content:
-            comment.content = payload.content
-        comment.save()
-        return 201, comment
-    except ReviewComment.DoesNotExist:
-        return 404, {"message": "Comment not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    if comment.author != request.auth:
+        return 403, {"message": "You do not have permission to update this comment."}
+
+    if payload.content is not None:
+        comment.content = payload.content
+
+    comment.save()
+
+    return 200, {"message": "Comment updated successfully"}
 
 
 @router.delete(
-    "/comments/{comment_id}/",
-    response={201: DeleteResponseSchema, 404: Message, 500: Message},
-    auth=JWTAuth(),
+    "reviews/comments/{comment_id}/", response={204: None, 403: Message}, auth=JWTAuth()
 )
 def delete_comment(request, comment_id: int):
-    try:
-        comment = ReviewComment.objects.get(id=comment_id)
-        if request.auth != comment.user:
-            return {
-                "success": False,
-                "message": "You do not have permission to delete this comment.",
-            }
+    user = request.auth
+    comment = ReviewComment.objects.get(id=comment_id)
 
-        comment.delete()
-        return 201, {"success": True, "message": "Comment deleted successfully."}
+    # Check if the user is the owner of the comment or has permission to delete it
+    if comment.author != user:
+        return 403, {"message": "You do not have permission to delete this comment."}
 
-    except ReviewComment.DoesNotExist:
-        return 404, {"message": "Comment not found."}
+    # Delete reactions associated with the comment
+    Reaction.objects.filter(
+        content_type__model="reviewcomment", object_id=comment.id
+    ).delete()
 
-    except Exception as e:
-        return 500, {"message": str(e)}
+    # Logically delete the comment by clearing its content and marking it as deleted
+    comment.content = "[deleted]"
+    comment.is_deleted = True
+    comment.save()
+
+    return 204, None

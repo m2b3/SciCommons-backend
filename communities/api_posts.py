@@ -1,10 +1,16 @@
-from typing import List, Optional
+from typing import Optional
 
-from ninja import File, Router, UploadedFile
+from django.core.paginator import Paginator
+from ninja import File, Query, Router, UploadedFile
 from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import Article
-from articles.schemas import ArticleCreateSchema, ArticleDetails, ArticleResponseSchema
+from articles.schemas import (
+    ArticleCreateSchema,
+    ArticleOut,
+    ArticleResponseSchema,
+    PaginatedArticlesResponse,
+)
 from communities.models import Community
 from communities.schemas import Message
 from users.auth import JWTAuth, OptionalJWTAuth
@@ -14,10 +20,14 @@ from users.models import Notification
 router = Router(tags=["Community Posts"])
 
 
-# Todo: Add Pagination
 @router.get(
     "/{community_id}/community_articles",
-    response={200: List[ArticleDetails], codes_4xx: Message, codes_5xx: Message},
+    response={
+        200: PaginatedArticlesResponse,
+        403: Message,
+        404: Message,
+        500: Message,
+    },
     auth=OptionalJWTAuth,
     summary="Get articles in a community",
 )
@@ -27,81 +37,62 @@ def get_community_articles(
     search: Optional[str] = None,
     sort: Optional[str] = None,
     rating: Optional[int] = None,
+    page: int = Query(1, gt=0),
+    limit: int = Query(10, gt=0, le=100),
 ):
-    """
-    Retrieves a list of articles associated with a specific community identified by
-    its id. The endpoint filters articles based on community visibility rules:
+    community = Community.objects.get(id=community_id)
+    user = getattr(request, "auth", None)  # Use the authenticated user if present
 
-    This endpoint supports filtering articles by search keywords, sorting
-    (latest, popular, older), and minimum rating.
+    if community.type == "hidden":
+        if not user:
+            return 403, Message(
+                message="You must be logged in to view articles in a hidden community"
+            )
 
-    Parameters:
-        request (HttpRequest): The standard HttpRequest object.
-        community_id (str): The id of the community for which to retrieve articles.
-        search (str, optional): Keyword to filter articles based on their titles.
-        Defaults to None.
-        sort (str, equal to):
-            - 'latest' - Orders articles by newest first.
-            - 'popular' - Orders articles by popularity.
-            - 'older' - Orders articles by oldest first.
-        rating (int, optional): Filters articles that have a rating greater than
-        or equal to the specified value.
+        # The user must be either a member or an admin of the community
+        if not (
+            community.members.filter(id=user.id).exists()
+            or community.admins.filter(id=user.id).exists()
+            or community.reviewers.filter(id=user.id).exists()
+            or community.moderators.filter(id=user.id).exists()
+        ):
+            return 403, Message(
+                message="You must be a member of the community to view articles"
+            )
 
-    Returns:
-        List[ArticleSchema]: A list of articles that meet the criteria, serialized
-        by ArticleSchema.
-        HTTP 404: If the specified community does not exist.
-        HTTP 500: If there is any other error during the retrieval process.
-    """
+    articles = Article.objects.filter(community=community, status="Approved")
 
-    try:
-        community = Community.objects.get(id=community_id)
-        user = getattr(request, "auth", None)  # Use the authenticated user if present
+    if search:
+        articles = articles.filter(title__icontains=search)
 
-        if community.type == "hidden":
-            if not user:
-                return 403, {
-                    "message": "You must be logged in to \
-                    view articles in a hidden community"
-                }
+    # Todo: Add rating field to the Article model
+    # if rating:
+    #     articles = articles.filter(rating__gte=rating)
 
-            # The user must be either a member or an admin of the community
-            if (
-                not community.members.filter(id=user.id).exists()
-                and not community.admins.filter(id=user.id).exists()
-                and not community.reviewers.filter(id=user.id).exists()
-                and not community.moderators.filter(id=user.id).exists()
-            ):
-                return 403, {
-                    "message": "You must be a member of the community to view articles"
-                }
+    if sort:
+        if sort == "latest":
+            articles = articles.order_by("-created_at")
+        # Todo: Add more sorting options
+        # elif sort == "popular":
+        #     articles = articles.order_by("-popularity")
+        elif sort == "older":
+            articles = articles.order_by("created_at")
+    else:
+        articles = articles.order_by("-created_at")  # Default sort by latest
 
-        articles = Article.objects.filter(community=community, status="Approved")
-        if search:
-            articles = articles.filter(title__icontains=search)
+    paginator = Paginator(articles, limit)
+    paginated_articles = paginator.get_page(page)
 
-        # Todo: Add rating field to the Article model
-        # if rating:
-        #     articles = articles.filter(
-        #         rating__gte=rating
-        #     )
-
-        if sort:
-            if sort == "latest":
-                articles = articles.order_by("-id")
-            # Todo: Add more sorting options
-            # elif sort == "popular":
-            #     articles = articles.order_by(
-            #         "-popularity"
-            #     )
-            elif sort == "older":
-                articles = articles.order_by("id")
-
-        return articles
-    except Community.DoesNotExist:
-        return 404, {"error": "Community not found"}
-    except Exception as e:
-        return 500, {"error": str(e)}
+    return 200, PaginatedArticlesResponse(
+        items=[
+            ArticleOut.from_orm_with_custom_fields(article, user)
+            for article in paginated_articles
+        ],
+        total=paginator.count,
+        page=page,
+        page_size=limit,
+        num_pages=paginator.num_pages,
+    )
 
 
 @router.post(
