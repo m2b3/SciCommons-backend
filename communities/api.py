@@ -41,7 +41,7 @@ def create_community(
     new_community = Community.objects.create(
         name=payload.details.name,
         description=payload.details.description,
-        tags=payload.details.tags,
+        tags=[tag.dict() for tag in payload.details.tags],
         type=payload.details.type,
         profile_pic_url=profile_image_file,
     )
