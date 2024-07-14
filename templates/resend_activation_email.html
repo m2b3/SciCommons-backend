@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        /* Add your custom styles here */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 20px;
+            margin: 50px auto;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 20px 0;
+            font-size: 16px;
+            color: #ffffff;
+            background-color: #007BFF;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Reactivate your account</h2>
+        <p>Dear {{ user.first_name }},</p>
+        <p>We received a request to reactivate your account. Please click the button below to reactivate your account:</p>
+        <a href="{{ activation_link }}" class="button">Reactivate Account</a>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>Best regards,<br>The SciCommons Team</p>
+    </div>
+</body>
+</html>

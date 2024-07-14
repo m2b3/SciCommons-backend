@@ -8,38 +8,43 @@ from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError
 from django.http import JsonResponse
+from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
+from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from ninja import Router
 from ninja.errors import HttpError, HttpRequest
+from ninja.responses import codes_4xx, codes_5xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from myapp.schemas import Message
 from users.models import User
 from users.schemas import (
-    EmailSchema,
     LogInSchemaIn,
     LogInSchemaOut,
-    SignUpSchemaIn,
-    StatusMessageSchema,
+    ResetPasswordSchema,
+    UserCreateSchema,
 )
 
 router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
 
 
-@router.post("/signup", response=StatusMessageSchema)
-def signup(request: HttpRequest, payload: SignUpSchemaIn):
+@router.post("/signup", response={201: Message, 400: Message})
+def signup(request: HttpRequest, payload: UserCreateSchema):
     if payload.password != payload.confirm_password:
-        raise HttpError(400, "Passwords do not match.")
+        return 400, {"message": "Passwords do not match."}
 
     if User.objects.filter(username=payload.username).exists():
-        raise HttpError(400, "Username is already taken.")
+        return 400, {"message": "Username is already taken."}
+
     user = User.objects.filter(email=payload.email).first()
+
     if user:
         if not user.is_active:
-            raise HttpError(400, "Email already registered but not activated.")
+            return 400, {"message": "Email already registered but not activated."}
         else:
-            raise HttpError(400, "Email is already in use.")
+            return 400, {"message": "Email is already in use."}
 
     try:
         user = User.objects.create_user(
@@ -57,24 +62,38 @@ def signup(request: HttpRequest, payload: SignUpSchemaIn):
         token = signer.sign(user.pk)
 
         link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
-        send_mail(
-            "Activate your account",
-            f"Please click on the link to activate your account: {link}",
-            "from@example.com",
-            [payload.email],
-            fail_silently=False,
+
+        # Render the HTML template with context
+        html_content = render_to_string(
+            "templates/activation_email.html",
+            {
+                "user": user,
+                "activation_link": link,
+            },
         )
+        plain_message = strip_tags(html_content)
+
+        # Send email
+        send_mail(
+            subject="Activate your account",
+            message=plain_message,
+            from_email="from@example.com",
+            recipient_list=[payload.email],
+            html_message=html_content,
+        )
+
     except IntegrityError:
         raise HttpError(500, "User could not be created.")
 
-    return {
-        "status": "success",
-        "message": "Account created successfully. Please check your email to activate \
-            your account.",
+    return 201, {
+        "message": (
+            "Account created successfully. Please check your "
+            "email to activate your account."
+        )
     }
 
 
-@router.get("/activate/{token}", response=StatusMessageSchema)
+@router.get("/activate/{token}", response={200: Message, 400: Message, 404: Message})
 def activate(request: HttpRequest, token: str):
     try:
         # Extract the user ID from the token and check expiration
@@ -82,55 +101,64 @@ def activate(request: HttpRequest, token: str):
         user = User.objects.get(pk=user_id)
 
         if user.is_active:
-            raise HttpError(400, "Account already activated.")
+            return 400, {"message": "Account already activated."}
 
         user.is_active = True
         user.save()
 
     except SignatureExpired:
-        raise HttpError(400, "Activation link expired.")
+        return 400, {"message": "Activation link expired."}
 
     except BadSignature:
-        raise HttpError(400, "Invalid activation link.")
+        return 400, {"message": "Invalid activation link."}
 
-    except User.DoesNotExist:
-        raise HttpError(404, "User not found.")
-
-    return {"status": "success", "message": "Account activated successfully."}
+    return 200, {"message": "Account activated successfully."}
 
 
-@router.post("/resend-activation", response=StatusMessageSchema)
-def resend_activation(request: HttpRequest, payload: EmailSchema):
-    email = payload.email
+@router.post(
+    "/resend-activation/{email}", response={200: Message, 400: Message, 404: Message}
+)
+def resend_activation(request: HttpRequest, email: str):
     try:
         user = User.objects.get(email=email)
 
         if user.is_active:
-            raise HttpError(
-                400, "This account is already active. Consider logging in instead."
-            )
+            return 400, {
+                "message": "This account is already active. Consider logging in."
+            }
 
         # Generate a new and unique activation token
         token = signer.sign(user.pk)
         link = f"{request.scheme}://{request.get_host()}/activate/{token}"
+
+        # Render the HTML template with context
+        html_content = render_to_string(
+            "templates/resend_activation_email.html",
+            {
+                "user": user,
+                "activation_link": link,
+            },
+        )
+        plain_message = strip_tags(html_content)
+
+        # Send email
         send_mail(
-            "Activate your account",
-            f"Please click on the link to activate your account: {link}",
-            "from@example.com",
-            [email],
-            fail_silently=False,
+            subject="Activate your account",
+            message=plain_message,
+            from_email="from@example.com",
+            recipient_list=[email],
+            html_message=html_content,
         )
 
     except User.DoesNotExist:
         raise HttpError(404, "No account associated with this email was found.")
 
-    return {
-        "status": "success",
-        "message": "Activation link sent. Please check your email.",
-    }
+    return 200, {"message": "Activation link sent. Please check your email."}
 
 
-@router.post("/login", response=LogInSchemaOut)
+@router.post(
+    "/login", response={200: LogInSchemaOut, codes_4xx: Message, codes_5xx: Message}
+)
 def login_user(request, payload: LogInSchemaIn):
     # Attempt to retrieve user by username or email
     user = (
@@ -138,16 +166,18 @@ def login_user(request, payload: LogInSchemaIn):
         or User.objects.filter(email=payload.login).first()
     )
     if not user:
-        raise HttpError(404, "No account found with the provided username/email.")
+        return 404, {"message": "No account found with the provided username/email."}
 
     # Check if the user's account is active
     if not user.is_active:
-        raise HttpError(403, "This account is inactive. Please activate your account.")
+        return 403, {
+            "message": "This account is inactive. Please activate your account."
+        }
 
     # Authenticate the user
     user = authenticate(username=user.username, password=payload.password)
     if user is None:
-        raise HttpError(401, "Invalid password.")
+        return 401, {"message": "Invalid password."}
 
     login(request, user)
 
@@ -185,10 +215,10 @@ def login_user(request, payload: LogInSchemaIn):
     return response
 
 
-@router.post("/forgot-password", response=StatusMessageSchema)
-def request_reset(request: HttpRequest, payload: EmailSchema):
+@router.post("/forgot-password/{email}", response={200: Message, 404: Message})
+def request_reset(request: HttpRequest, email: str):
     try:
-        user = User.objects.get(email=payload.email)
+        user = User.objects.get(email=email)
     except User.DoesNotExist:
         raise HttpError(404, "No user found with this email address.")
 
@@ -196,29 +226,38 @@ def request_reset(request: HttpRequest, payload: EmailSchema):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     signed_uid = signer.sign(uid)
 
-    # Send an email with the reset link
+    # Generate the reset link
     reset_link = f"{request.scheme}://{request.get_host()}/reset-password/{signed_uid}"
+
+    # Render the HTML template with context
+    html_content = render_to_string(
+        "templates/password_reset_email.html",
+        {
+            "user": user,
+            "reset_link": reset_link,
+        },
+    )
+    plain_message = strip_tags(html_content)
+
+    # Send email
     send_mail(
-        "Password Reset Request",
-        f"Please click on the link below to reset your password:\n{reset_link}",
-        "from@example.com",
-        [user.email],
-        fail_silently=False,
+        subject="Password Reset Request",
+        message=plain_message,
+        from_email="from@example.com",
+        recipient_list=[user.email],
+        html_message=html_content,
     )
 
-    return {
-        "status": "success",
-        "message": "Password reset link has been sent to your email.",
-    }
+    return {"message": "Password reset link has been sent to your email."}
 
 
-@router.post("/reset-password")
-def reset_password(
-    request: HttpRequest, uidb64: str, new_password: str, confirm_password: str
-):
+@router.post("/reset-password", response={200: Message, 400: Message})
+def reset_password(request: HttpRequest, payload: ResetPasswordSchema):
     try:
         # Unsign to verify the token and extract the UID
-        original_uid = signer.unsign(uidb64, max_age=3600)  # Token expires after 1 hour
+        original_uid = signer.unsign(
+            payload.token, max_age=3600
+        )  # Token expires after 1 hour
         uid = urlsafe_base64_decode(original_uid).decode()
         user = User.objects.get(pk=uid)
 
@@ -228,18 +267,12 @@ def reset_password(
     except BadSignature:
         raise HttpError(400, "Invalid activation link.")
 
-    except User.DoesNotExist:
-        raise HttpError(404, "User not found.")
-
     # Check if passwords match
-    if new_password != confirm_password:
+    if payload.password != payload.confirm_password:
         raise HttpError(400, "Passwords do not match.")
 
     # Set the new password
-    user.set_password(new_password)
+    user.set_password(payload.password)
     user.save()
 
-    return {
-        "status": "success",
-        "message": "Your password has been reset successfully.",
-    }
+    return {"message": "Password reset successfully."}

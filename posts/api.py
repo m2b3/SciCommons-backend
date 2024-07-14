@@ -51,19 +51,19 @@ def list_posts(
     size: int = Query(10, ge=1, le=100),
     sort_by: str = Query("created_at", enum=["created_at", "title", "upvotes"]),
     sort_order: str = Query("desc", enum=["asc", "desc"]),
-    hashtags: Optional[List[str]] = Query(None),
+    hashtag: Optional[str] = Query(None),
 ):
     user: Optional[User] = None if not request.auth else request.auth
     posts = Post.objects.filter(is_deleted=False)
 
     # Apply hashtag filtering
-    if hashtags:
+    if hashtag:
         posts = posts.filter(
             id__in=HashtagRelation.objects.filter(
-                hashtag__name__in=hashtags,
+                hashtag__name=hashtag,
                 content_type=ContentType.objects.get_for_model(Post),
             ).values_list("object_id", flat=True)
-        ).distinct()
+        )
 
     # Apply sorting
     order_prefix = "-" if sort_order == "desc" else ""

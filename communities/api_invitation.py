@@ -32,61 +32,53 @@ Invitation Management Endpoints
     response={200: Message, codes_4xx: Message, codes_5xx: Message},
 )
 def invite_registered_users(request, community_id: int, payload: InvitePayload):
-    try:
-        community = Community.objects.get(pk=community_id)
+    community = Community.objects.get(pk=community_id)
 
-        # Check if the requester is an admin of the community
-        if request.auth not in community.admins.all():
-            return 403, {"message": "Only community admins can send invitations."}
+    # Check if the requester is an admin of the community
+    if request.auth not in community.admins.all():
+        return 403, {"message": "Only community admins can send invitations."}
 
-        # check for non-existing users
-        existing_users = User.objects.filter(username__in=payload.usernames)
-        if len(existing_users) != len(payload.usernames):
-            nonexistent_users = set(payload.usernames) - set(
-                user.username for user in existing_users
-            )
-            return 400, {
-                "message": f"User(s) {', '.join(nonexistent_users)} do not exist."
-            }
+    # check for non-existing users
+    existing_users = User.objects.filter(username__in=payload.usernames)
+    if len(existing_users) != len(payload.usernames):
+        nonexistent_users = set(payload.usernames) - set(
+            user.username for user in existing_users
+        )
+        return 400, {"message": f"User(s) {', '.join(nonexistent_users)} do not exist."}
 
-        # check for existing invitations
-        existing_invitations = Invitation.objects.filter(
-            community=community,
-            username__in=payload.usernames,
-            status=Invitation.PENDING,
+    # check for existing invitations
+    existing_invitations = Invitation.objects.filter(
+        community=community,
+        username__in=payload.usernames,
+        status=Invitation.PENDING,
+    )
+
+    if existing_invitations.exists():
+        invited_usernames = [inv.username for inv in existing_invitations]
+        return 400, {
+            "message": f"Invitation(s) already exists for "
+            f"{', '.join(invited_usernames)}."
+        }
+
+    # Send invitations
+    for user in existing_users:
+        invitation = Invitation.objects.create(
+            community=community, username=user.username, status=Invitation.PENDING
+        )
+        link = (
+            f"{settings.FRONTEND_URL}/community/{community_id}"
+            f"/invitations/registered/{invitation.id}"
+        )
+        Notification.objects.create(
+            user=user,
+            message=f"You have been invited to join {community.name} community.",
+            content=payload.note,
+            link=link,
+            category="communities",
+            notification_type="join_request_received",
         )
 
-        if existing_invitations.exists():
-            invited_usernames = [inv.username for inv in existing_invitations]
-            return 400, {
-                "message": f"Invitation(s) already exists for "
-                f"{', '.join(invited_usernames)}."
-            }
-
-        # Send invitations
-        for user in existing_users:
-            invitation = Invitation.objects.create(
-                community=community, username=user.username, status=Invitation.PENDING
-            )
-            link = (
-                f"{settings.FRONTEND_URL}/community/{community_id}"
-                f"/invitations/registered/{invitation.id}"
-            )
-            Notification.objects.create(
-                user=user,
-                message=f"You have been invited to join {community.name} community.",
-                content=payload.note,
-                link=link,
-                category="communities",
-                notification_type="join_request_received",
-            )
-
-        return 200, {"message": "Invitations sent successfully."}
-
-    except Community.DoesNotExist:
-        return 404, {"message": "Community not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    return 200, {"message": "Invitations sent successfully."}
 
 
 @router.post(
@@ -149,78 +141,73 @@ def respond_to_invitation(
 def send_invitations_to_unregistered_users(
     request, community_id: int, payload: SendInvitationsPayload
 ):
-    try:
-        community = Community.objects.get(pk=community_id)
+    community = Community.objects.get(pk=community_id)
 
-        # Check if the requester is an admin of the community
-        if request.auth not in community.admins.all():
-            return 403, {"message": "Only community admins can send invitations."}
+    # Check if the requester is an admin of the community
+    if request.auth not in community.admins.all():
+        return 403, {"message": "Only community admins can send invitations."}
 
-        # validate all emails
-        valid_emails = []
-        invalid_emails = []
-        for email in payload.emails:
-            try:
-                validate_email(email)
-                valid_emails.append(email)
-            except ValidationError:
-                invalid_emails.append(email)
+    # validate all emails
+    valid_emails = []
+    invalid_emails = []
+    for email in payload.emails:
+        try:
+            validate_email(email)
+            valid_emails.append(email)
+        except ValidationError:
+            invalid_emails.append(email)
 
-        if invalid_emails:
-            return 400, {"message": f"Invalid email(s): {', '.join(invalid_emails)}."}
+    if invalid_emails:
+        return 400, {"message": f"Invalid email(s): {', '.join(invalid_emails)}."}
 
-        # Check for existing users
-        existing_users = User.objects.filter(email__in=payload.emails)
+    # Check for existing users
+    existing_users = User.objects.filter(email__in=payload.emails)
 
-        if existing_users.exists():
-            existing_emails = [user.email for user in existing_users]
-            return 400, {
-                "message": f"User(s) with email(s) "
-                f"{', '.join(existing_emails)} already exist."
-            }
+    if existing_users.exists():
+        existing_emails = [user.email for user in existing_users]
+        return 400, {
+            "message": f"User(s) with email(s) "
+            f"{', '.join(existing_emails)} already exist."
+        }
 
-        # Check for existing invitations
-        existing_invitations = Invitation.objects.filter(
-            community=community,
-            email__in=payload.emails,
-            status=Invitation.PENDING,
-        )
+    # Check for existing invitations
+    existing_invitations = Invitation.objects.filter(
+        community=community,
+        email__in=payload.emails,
+        status=Invitation.PENDING,
+    )
 
-        if existing_invitations.exists():
-            existing_emails = [inv.email for inv in existing_invitations]
-            return 400, {
-                "message": f"Invitation(s) already exists for "
-                f"{', '.join(existing_emails)}."
-            }
+    if existing_invitations.exists():
+        existing_emails = [inv.email for inv in existing_invitations]
+        return 400, {
+            "message": f"Invitation(s) already exists for "
+            f"{', '.join(existing_emails)}."
+        }
 
-        # Send invitations
-        signer = TimestampSigner()
-        for email in valid_emails:
-            try:
-                signed_email = signer.sign(email)
-                invitation = Invitation.objects.create(
-                    community=community, email=email, status=Invitation.PENDING
-                )
-                message = (
-                    f"{payload.body} \n Your referral link: "
-                    f"{settings.FRONTEND_URL}/community/{community_id}/"
-                    f"invitations/unregistered/{invitation.id}/{signed_email}"
-                )
-                send_mail(
-                    subject=payload.subject,
-                    message=message,
-                    from_email="no-reply@example.com",
-                    recipient_list=[email],
-                    fail_silently=False,
-                )
-            except Exception as e:
-                return 500, {"message": str(e)}
+    # Send invitations
+    signer = TimestampSigner()
+    for email in valid_emails:
+        try:
+            signed_email = signer.sign(email)
+            invitation = Invitation.objects.create(
+                community=community, email=email, status=Invitation.PENDING
+            )
+            message = (
+                f"{payload.body} \n Your referral link: "
+                f"{settings.FRONTEND_URL}/community/{community_id}/"
+                f"invitations/unregistered/{invitation.id}/{signed_email}"
+            )
+            send_mail(
+                subject=payload.subject,
+                message=message,
+                from_email="no-reply@example.com",
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return 500, {"message": str(e)}
 
-        return 200, {"message": "Invitations sent successfully."}
-    except Community.DoesNotExist:
-        return 404, {"message": "Community not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    return 200, {"message": "Invitations sent successfully."}
 
 
 @router.post(
@@ -296,35 +283,30 @@ def respond_to_email_invitation(
     response={200: list[InvitationDetails], codes_4xx: Message, codes_5xx: Message},
 )
 def get_community_invitations(request, community_id: int):
-    try:
-        # Ensure the community exists
-        community = Community.objects.get(pk=community_id)
+    # Ensure the community exists
+    community = Community.objects.get(pk=community_id)
 
-        # Verify if the authenticated user is an admin of this community
-        if request.auth not in community.admins.all():
-            return 403, {"detail": "Only community admins can access the invitations."}
+    # Verify if the authenticated user is an admin of this community
+    if request.auth not in community.admins.all():
+        return 403, {"detail": "Only community admins can access the invitations."}
 
-        # Fetch invitations related to the specified community
-        invitations = Invitation.objects.filter(community=community).select_related(
-            "community"
-        )
+    # Fetch invitations related to the specified community
+    invitations = Invitation.objects.filter(community=community).select_related(
+        "community"
+    )
 
-        result = [
-            {
-                "id": invite.id,
-                "email": invite.email,
-                "username": invite.username,
-                "invited_at": invite.invited_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": invite.get_status_display(),
-            }
-            for invite in invitations
-        ]
+    result = [
+        {
+            "id": invite.id,
+            "email": invite.email,
+            "username": invite.username,
+            "invited_at": invite.invited_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": invite.get_status_display(),
+        }
+        for invite in invitations
+    ]
 
-        return result
-    except Community.DoesNotExist:
-        return 404, {"message": "Community not found"}
-    except Exception as e:
-        return 500, {"message": str(e)}
+    return result
 
 
 @router.get(

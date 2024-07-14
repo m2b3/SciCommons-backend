@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from ninja import NinjaAPI, Router
 from ninja.errors import AuthenticationError, HttpError, HttpRequest, ValidationError
 
@@ -14,6 +15,10 @@ from users.api import router as users_general_router
 from users.api_auth import router as users_router
 
 api = NinjaAPI(docs_url="docs/", title="MyApp API", urls_namespace="api_v1")
+
+"""
+Global Exception Handlers (Error Handlers)
+"""
 
 
 @api.exception_handler(AuthenticationError)
@@ -37,6 +42,12 @@ def validation_error_handler(request: HttpRequest, exc: ValidationError):
     return api.create_response(request, {"message": exc.errors}, status=422)
 
 
+@api.exception_handler(ObjectDoesNotExist)
+def object_not_found_handler(request, exc):
+    # Return a 404 response if the object is not found
+    return api.create_response(request, {"message": exc.args[0]}, status=404)
+
+
 @api.exception_handler(Exception)
 def generic_error_handler(request: HttpRequest, exc: Exception):
     if settings.DEBUG:
@@ -45,6 +56,11 @@ def generic_error_handler(request: HttpRequest, exc: Exception):
         error_message = "Internal Server Error"
 
     return api.create_response(request, {"message": error_message}, status=500)
+
+
+"""
+Registering the routers
+"""
 
 
 # Create a parent router to aggregate all user-related endpoints

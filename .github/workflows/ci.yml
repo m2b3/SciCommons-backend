@@ -75,6 +75,28 @@ jobs:
 
     - name: Run Django tests
       env:
+        # Django
+        EMAIL_HOST_USER: 'dummy@example.com'
+        EMAIL_HOST_PASSWORD: 'dummypassword'
+        EMAIL_PORT: '587'
+        EMAIL_USE_TLS: 'True'
+        DEFAULT_FROM_EMAIL: 'noreply@example.com'
+        # Database
+        DB_NAME: test_db
+        DB_USER: test_user
+        DB_PASSWORD: test_password
+        DB_HOST: localhost
+        DB_PORT: 5432
+        # Production Database URL
         DATABASE_URL: postgres://test_user:test_password@localhost:5432/test_db
+        # Frontend URL
+        FRONTEND_URL: 'https://dummy-frontend.example.com'
+        # AWS S3 Configuration
+        AWS_ACCESS_KEY_ID: 'DUMMYACCESSKEYID'
+        AWS_SECRET_ACCESS_KEY: 'DUMMYSECRETACCESSKEY'
+        AWS_STORAGE_BUCKET_NAME: 'dummy-bucket'
+        AWS_S3_REGION_NAME: 'us-east-1'
+        # Django Configuration
+        DEBUG: 'False'
       run: |
         poetry run python manage.py test

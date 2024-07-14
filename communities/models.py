@@ -85,15 +85,39 @@ class JoinRequest(models.Model):
         return f"{self.user} requesting to join {self.community}"
 
 
-# Todo: Delete this later
-# class CommunityComment(models.Model):
-#     post = models.ForeignKey(
-#         CommunityPost, related_name="comments", on_delete=models.CASCADE
-#     )
-#     author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-#     content = models.TextField()
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
+class CommunityArticle(models.Model):
+    SUBMISSION_STATUS = [
+        ("submitted", "Submitted"),
+        ("approved", "Approved by Admin"),
+        ("under_review", "Under Review"),
+        ("accepted", "Accepted"),
+        ("rejected", "Rejected"),
+        ("published", "Published"),
+    ]
+    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE)
+    community = models.ForeignKey(Community, on_delete=models.CASCADE)
+    status = models.CharField(
+        max_length=20, choices=SUBMISSION_STATUS, default="submitted"
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
 
-#     def __str__(self):
-#         return f"{self.author}: {self.content[:50]}..."
+
+class ArticleSubmissionAssessment(models.Model):
+    community_article = models.ForeignKey(
+        CommunityArticle, on_delete=models.CASCADE, related_name="assessments"
+    )
+    assessor = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="article_assessments"
+    )
+    is_moderator = models.BooleanField(default=False)
+    approved = models.BooleanField(null=True)
+    comments = models.TextField(blank=True)
+    assessed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["community_article", "assessor"], name="unique_article_assessor"
+            )
+        ]
