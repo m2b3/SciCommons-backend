@@ -7,9 +7,9 @@ from articles.api import router as articles_router
 from articles.api_review import router as articles_review_router
 from communities.api import router as communities_router
 from communities.api_admin import router as communities_admin_router
+from communities.api_articles import router as communities_posts_router
 from communities.api_invitation import router as communities_invitation_router
 from communities.api_join import router as communities_join_router
-from communities.api_posts import router as communities_posts_router
 from posts.api import router as posts_router
 from users.api import router as users_general_router
 from users.api_auth import router as users_router

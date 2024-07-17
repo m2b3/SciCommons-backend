@@ -2,13 +2,19 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
+from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 from ninja import ModelSchema, Schema
 
-from articles.models import Article
 from articles.schemas import ArticleOut
-from communities.models import Community, JoinRequest
-from myapp.schemas import Tag
-from users.models import User
+from communities.models import (
+    ArticleSubmissionAssessment,
+    Community,
+    CommunityArticle,
+    JoinRequest,
+)
+from myapp.schemas import UserStats
+from users.models import HashtagRelation, User
 
 """
 Community management schemas for serialization and validation.
@@ -24,7 +30,7 @@ class CommunityType(str, Enum):
 class CreateCommunityDetails(Schema):
     name: str
     description: str
-    tags: List[Tag]
+    tags: List[str]
     type: CommunityType
 
 
@@ -32,16 +38,16 @@ class CommunityCreateSchema(Schema):
     details: CreateCommunityDetails
 
 
-class CommunitySchema(ModelSchema):
+class CommunityOut(ModelSchema):
     id: int
     name: str
     description: str
-    tags: List[Tag]
+    tags: List[str]
     type: CommunityType
-    profile_pic_url: Optional[str]
-    banner_pic_url: Optional[str]
+    profile_pic_url: Optional[str] = None
+    banner_pic_url: Optional[str] = None
     slug: str
-    created_at: Optional[datetime]
+    created_at: Optional[datetime] = None
     rules: List[str]
     num_moderators: int
     num_reviewers: int
@@ -60,7 +66,6 @@ class CommunitySchema(ModelSchema):
             "id",
             "name",
             "description",
-            "tags",
             "type",
             "profile_pic_url",
             "banner_pic_url",
@@ -71,11 +76,22 @@ class CommunitySchema(ModelSchema):
 
     @staticmethod
     def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
-        response_data = CommunitySchema(
+        tags = [
+            relation.hashtag.name
+            for relation in HashtagRelation.objects.filter(
+                content_type=ContentType.objects.get_for_model(Community),
+                object_id=community.id,
+            )
+        ]
+        num_published_articles = CommunityArticle.objects.filter(
+            community=community, status="published"
+        ).count()
+        num_articles = CommunityArticle.objects.filter(community=community).count()
+        response_data = CommunityOut(
             id=community.id,
             name=community.name,
             description=community.description,
-            tags=community.tags,
+            tags=tags,
             type=community.type,
             profile_pic_url=(
                 community.profile_pic_url.url if community.profile_pic_url else None
@@ -89,10 +105,8 @@ class CommunitySchema(ModelSchema):
             num_moderators=community.moderators.count(),
             num_reviewers=community.reviewers.count(),
             num_members=community.members.count(),
-            num_published_articles=Article.objects.filter(
-                community=community, published=True
-            ).count(),
-            num_articles=Article.objects.filter(community=community).count(),
+            num_published_articles=num_published_articles,
+            num_articles=num_articles,
         )
 
         if user and not isinstance(user, bool):
@@ -115,7 +129,7 @@ class CommunitySchema(ModelSchema):
 
 
 class PaginatedCommunities(Schema):
-    items: List[CommunitySchema]
+    items: List[CommunityOut]
     total: int
     page: int
     per_page: int
@@ -124,7 +138,7 @@ class PaginatedCommunities(Schema):
 class UpdateCommunityDetails(Schema):
     description: str
     type: CommunityType
-    tags: List[Tag]
+    tags: List[str]
     rules: List[str]
 
 
@@ -151,6 +165,70 @@ class InviteSchema(Schema):
 """
 Community post schemas for serialization and validation.
 """
+
+
+class ArticleStatus(str, Enum):
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    UNDER_REVIEW = "under_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    PUBLISHED = "published"
+
+
+class Filters(Schema):
+    status: Optional[ArticleStatus] = None
+    submitted_after: Optional[datetime] = None
+    submitted_before: Optional[datetime] = None
+
+
+class AssessorSchema(ModelSchema):
+    assessor: UserStats
+
+    class Config:
+        model = ArticleSubmissionAssessment
+        model_fields = [
+            "id",
+            "assessor",
+            "is_moderator",
+            "approved",
+            "comments",
+            "assessed_at",
+        ]
+
+    @staticmethod
+    def from_orm_with_custom_fields(assessment: ArticleSubmissionAssessment):
+        return AssessorSchema(
+            id=assessment.id,
+            assessor=UserStats.from_model(assessment.assessor, basic_details=True),
+            is_moderator=assessment.is_moderator,
+            approved=assessment.approved,
+            comments=assessment.comments,
+            assessed_at=assessment.assessed_at,
+        )
+
+
+class AssessmentSubmissionSchema(Schema):
+    approved: bool
+    comments: str
+
+
+class ArticleStatusSchema(Schema):
+    status: str
+    submitted_at: Optional[timezone.datetime]
+    published_at: Optional[timezone.datetime]
+    assessors: List[AssessorSchema]
+    article: ArticleOut
+
+
+"""
+Assessors related schemas
+"""
+
+
+class AssessorArticleSchema(Schema):
+    article: ArticleOut
+    assessor: AssessorSchema
 
 
 class CommunityPostOut(Schema):
@@ -291,3 +369,8 @@ class JoinRequestSchema(Schema):
     requested_at: datetime
     status: Literal["pending", "approved", "rejected"]
     rejection_timestamp: datetime | None
+
+
+"""
+Article Approval Schemas
+"""

@@ -12,7 +12,6 @@ class Community(models.Model):
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
-    tags = models.JSONField(default=list)
     type = models.CharField(max_length=10, choices=COMMUNITY_TYPES, default=PUBLIC)
     profile_pic_url = models.FileField(upload_to="community_images/", null=True)
     banner_pic_url = models.FileField(upload_to="community_images/", null=True)
@@ -31,6 +30,9 @@ class Community(models.Model):
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
+
+    def is_member(self, user):
+        return self.members.filter(pk=user.pk).exists()
 
     def __str__(self):
         return self.name

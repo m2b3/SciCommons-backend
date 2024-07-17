@@ -18,7 +18,7 @@ from ninja.responses import codes_4xx, codes_5xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
-from users.models import User
+from users.models import Reputation, User
 from users.schemas import (
     LogInSchemaIn,
     LogInSchemaOut,
@@ -35,9 +35,6 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
     if payload.password != payload.confirm_password:
         return 400, {"message": "Passwords do not match."}
 
-    if User.objects.filter(username=payload.username).exists():
-        return 400, {"message": "Username is already taken."}
-
     user = User.objects.filter(email=payload.email).first()
 
     if user:
@@ -45,6 +42,9 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
             return 400, {"message": "Email already registered but not activated."}
         else:
             return 400, {"message": "Email is already in use."}
+
+    if User.objects.filter(username=payload.username).exists():
+        return 400, {"message": "Username is already taken."}
 
     try:
         user = User.objects.create_user(
@@ -65,7 +65,7 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
 
         # Render the HTML template with context
         html_content = render_to_string(
-            "templates/activation_email.html",
+            "activation_email.html",
             {
                 "user": user,
                 "activation_link": link,
@@ -104,6 +104,10 @@ def activate(request: HttpRequest, token: str):
             return 400, {"message": "Account already activated."}
 
         user.is_active = True
+
+        # Create Reputation object for the user
+        Reputation.objects.create(user=user)
+
         user.save()
 
     except SignatureExpired:
@@ -133,7 +137,7 @@ def resend_activation(request: HttpRequest, email: str):
 
         # Render the HTML template with context
         html_content = render_to_string(
-            "templates/resend_activation_email.html",
+            "resend_activation_email.html",
             {
                 "user": user,
                 "activation_link": link,
@@ -231,7 +235,7 @@ def request_reset(request: HttpRequest, email: str):
 
     # Render the HTML template with context
     html_content = render_to_string(
-        "templates/password_reset_email.html",
+        "password_reset_email.html",
         {
             "user": user,
             "reset_link": reset_link,

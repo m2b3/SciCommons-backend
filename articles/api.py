@@ -1,124 +1,63 @@
-from typing import Optional
+from typing import List, Optional
 
-from django.core.exceptions import ValidationError
+from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.utils.text import slugify
 from ninja import File, Router, UploadedFile
 from ninja.responses import codes_4xx, codes_5xx
 
-from articles.models import Article
+from articles.models import Article, ArticlePDF
 from articles.schemas import (
     ArticleCreateSchema,
     ArticleOut,
-    ArticleResponseSchema,
     ArticleUpdateSchema,
     Message,
     PaginatedArticlesResponse,
 )
+from communities.models import Community, CommunityArticle
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import User
+from users.models import Hashtag, HashtagRelation, User
 
 router = Router(tags=["Articles"])
 
 
 @router.post(
     "/articles/",
-    response={200: ArticleResponseSchema, codes_4xx: Message, codes_5xx: Message},
+    response={200: ArticleOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def create_article(
     request,
     details: ArticleCreateSchema,
     image_file: File[UploadedFile] = None,
-    pdf_file: File[UploadedFile] = None,
+    pdf_files: List[UploadedFile] = File(...),
 ):
-    # Process the uploaded files
-    image_file = image_file if image_file else None
-    pdf_file = pdf_file if pdf_file else None
+    # Create the Article instance
+    article = Article.objects.create(
+        title=details.payload.title,
+        abstract=details.payload.abstract,
+        authors=[author.dict() for author in details.payload.authors],
+        article_image_url=image_file,
+        submission_type=details.payload.submission_type,
+        submitter=request.auth,
+    )
 
-    # Generate slug from title
-    slug = slugify(details.payload.title)
-
-    try:
-        # Check if the slug already exists
-        if Article.objects.filter(slug=slug).exists():
-            return 400, {"message": "An article with this title already exists."}
-
-        # Create the Article instance
-        article = Article.objects.create(
-            title=details.payload.title,
-            abstract=details.payload.abstract,
-            keywords=[keyword.dict() for keyword in details.payload.keywords],
-            authors=[author.dict() for author in details.payload.authors],
-            article_image_url=image_file,
-            article_pdf_file_url=pdf_file,
-            submission_type=details.payload.submission_type,
-            submitter=request.auth,
-            slug=slug,
+    for file in pdf_files:
+        ArticlePDF.objects.create(article=article, pdf_file_url=file)
+    # Todo: Create a common method to handle the creation of hashtags
+    content_type = ContentType.objects.get_for_model(Article)
+    for hashtag_name in details.payload.keywords:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=article.id
         )
 
-        return {"id": article.id, "title": article.title, "slug": article.slug}
+    if details.payload.community_id:
+        community = Community.objects.get(id=details.payload.community_id)
+        CommunityArticle.objects.create(article=article, community=community)
+        # Todo: Send notification to the community admin
 
-    except ValidationError as ve:
-        return 422, {"message": f"Validation error: {ve.message_dict}"}
-    except Exception as e:
-        return 500, {"message": f"Internal server error: {str(e)}"}
-
-
-# Update Article
-@router.put(
-    "/{article_id}",
-    response={200: ArticleResponseSchema, codes_4xx: Message, codes_5xx: Message},
-    auth=JWTAuth(),
-)
-def update_article(
-    request,
-    article_id: int,
-    details: ArticleUpdateSchema,
-    image_file: File[UploadedFile] = None,
-    pdf_file: File[UploadedFile] = None,
-):
-    # Process the uploaded files
-    image_file = image_file if image_file else None
-    pdf_file = pdf_file if pdf_file else None
-
-    try:
-        article = Article.objects.get(id=article_id)
-
-        # Check if the user is the submitter
-        if article.submitter != request.auth:
-            return 403, {"message": "You don't have permission to update this article."}
-
-        # Update the article fields only if they are provided
-        if details.payload.title:
-            article.title = details.payload.title
-        if details.payload.abstract:
-            article.abstract = details.payload.abstract
-        if details.payload.keywords:
-            article.keywords = [keyword.dict() for keyword in details.payload.keywords]
-        if details.payload.authors:
-            article.authors = [author.dict() for author in details.payload.authors]
-        if details.payload.faqs:
-            article.faqs = [faq.dict() for faq in details.payload.faqs]
-
-        # Only update the image and pdf file if a new file is uploaded
-        if image_file:
-            article.article_image_url = image_file
-        if pdf_file:
-            article.article_pdf_file_url = pdf_file
-
-        article.submission_type = details.payload.submission_type
-        article.save()
-
-        return {"id": article.id, "title": article.title, "slug": article.slug}
-
-    except Article.DoesNotExist:
-        return 404, {"message": "Article not found."}
-    except ValidationError as ve:
-        return 422, {"message": f"Validation error: {ve.message_dict}"}
-    except Exception as e:
-        return 500, {"message": f"Internal server error: {str(e)}"}
+    return ArticleOut.from_orm_with_custom_fields(article, request.auth)
 
 
 # Todo: Make this Endpoint partially protected
@@ -127,18 +66,33 @@ def update_article(
     response={200: ArticleOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def get_article(request, article_slug: str):
+def get_article(request, article_slug: str, community_name: Optional[str] = None):
     article = Article.objects.get(slug=article_slug)
 
     # Check submission type and user's access
     if article.submission_type == "Private" and article.submitter != request.auth:
         return 403, {"message": "You don't have access to this article."}
 
-    # If the article is submitted to a hidden community,
-    # only the members can view it
-    if article.community and article.community.type == "private":
-        if request.auth not in article.community.members.all():
-            return 403, {"message": "You don't have access to this article."}
+    community = Community.objects.get(name=community_name) if community_name else None
+
+    if community:
+        community_article = CommunityArticle.objects.get(
+            article=article, community=community
+        )
+        if (
+            community_article.status != "Accepted"
+            or community_article.status != "Published"
+        ):
+            return 403, {"message": "This article is not available in this community."}
+
+        if community.type == "hidden":
+            if request.auth not in community.members.all():
+                return 403, {
+                    "message": (
+                        "You don't have access to this article in this community."
+                        "Please request access from the community admin."
+                    )
+                }
 
     # Use the custom method to create the ArticleOut instance
     article_data = ArticleOut.from_orm_with_custom_fields(article, request.auth)
@@ -146,45 +100,92 @@ def get_article(request, article_slug: str):
     return 200, article_data
 
 
+# Update Article
+@router.put(
+    "/{article_id}",
+    response={200: ArticleOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def update_article(
+    request,
+    article_id: int,
+    details: ArticleUpdateSchema,
+    image_file: File[UploadedFile] = None,
+):
+    article = Article.objects.get(id=article_id)
+
+    # Check if the user is the submitter
+    if article.submitter != request.auth:
+        return 403, {"message": "You don't have permission to update this article."}
+
+    # Update the article fields only if they are provided
+    article.title = details.payload.title
+    article.abstract = details.payload.abstract
+    article.authors = [author.dict() for author in details.payload.authors]
+    article.faqs = [faq.dict() for faq in details.payload.faqs]
+
+    # Update Keywords
+    content_type = ContentType.objects.get_for_model(Article)
+    HashtagRelation.objects.filter(
+        content_type=content_type, object_id=article.id
+    ).delete()
+    for hashtag_name in details.payload.keywords:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=article.id
+        )
+
+    # Only update the image and pdf file if a new file is uploaded
+    if image_file:
+        article.article_image_url = image_file
+
+    article.submission_type = details.payload.submission_type
+    article.save()
+
+    return ArticleOut.from_orm_with_custom_fields(article, request.auth)
+
+
 @router.get(
     "/",
-    response=PaginatedArticlesResponse,
+    response={200: PaginatedArticlesResponse, 400: Message},
     summary="Get Public Articles",
     auth=OptionalJWTAuth,
 )
-def get_public_articles(
+def get_articles(
     request,
+    community_id: Optional[int] = None,
     search: Optional[str] = None,
     sort: Optional[str] = None,
     rating: Optional[int] = None,
     page: int = 1,
-    limit: int = 10,
+    per_page: int = 10,
 ):
-    """
-    Fetches and filters articles visible to the public based on their submission status
-    and community affiliation.
+    # Start with all public articles
+    articles = Article.objects.filter(submission_type="Public").order_by("-created_at")
 
-    This endpoint allows for filtering and sorting of articles that:
-    i) Are not submitted to any community.
-    ii) Are published by communities.
-    iii) Are submitted and accepted (but not published) in a public community.
+    current_user: Optional[User] = None if not request.auth else request.auth
 
-    Parameters:
-    - search (str, optional): Filter articles by title.
-    - community (int, optional): Filter articles by community ID.
-    - sort (str, optional): Sort articles ('latest', 'popular', 'older').
-    - rating (int, optional): Filter articles by minimum rating.
+    if community_id:
+        community = Community.objects.get(id=community_id)
+        articles = articles.filter(
+            communityarticle__community=community, communityarticle__status="accepted"
+        )
 
-    Returns:
-    - List[ArticleSchema]: Serialized articles matching the filters.
-    """
-
-    query = (
-        Q(community__isnull=True)
-        | Q(published=True)
-        | Q(community__type="public", status="Approved")
-    )
-    articles = Article.objects.filter(query)
+        # If the community is hidden and the user is not a member,
+        # return an empty queryset
+        if community.type == "hidden" and (
+            not current_user or not community.is_member(current_user)
+        ):
+            return 400, {"message": "You don't have access to this community."}
+    else:
+        # For non-community articles or when no specific community is requested
+        articles = articles.filter(
+            Q(communityarticle__isnull=True)  # Not associated with any community
+            | Q(
+                communityarticle__status="published",
+                communityarticle__community__type="hidden",
+            )  # Published in hidden communities
+        ).distinct()
 
     if search:
         articles = articles.filter(title__icontains=search)
@@ -204,7 +205,7 @@ def get_public_articles(
     else:
         articles = articles.order_by("-created_at")  # Default sort by latest
 
-    paginator = Paginator(articles, limit)
+    paginator = Paginator(articles, per_page)
     paginated_articles = paginator.get_page(page)
 
     current_user: Optional[User] = None if not request.auth else request.auth
@@ -216,6 +217,25 @@ def get_public_articles(
         ],
         total=paginator.count,
         page=page,
-        page_size=limit,
+        per_page=per_page,
         num_pages=paginator.num_pages,
     )
+
+
+# Delete Article
+@router.delete(
+    "/{article_id}",
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def delete_article(request, article_id: int):
+    article = Article.objects.get(id=article_id)
+
+    # Check if the user is the submitter
+    if article.submitter != request.auth:
+        return 403, {"message": "You don't have permission to delete this article."}
+
+    # Do not delete the article, just mark it as deleted
+    article.title = f"Deleted - {article.title}"
+
+    return {"message": "Article deleted successfully."}

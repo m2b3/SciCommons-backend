@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db.models import Q
 from ninja import File, Router, UploadedFile
@@ -6,12 +7,13 @@ from ninja.errors import HttpRequest
 from communities.models import Community
 from communities.schemas import (
     CommunityCreateSchema,
-    CommunitySchema,
+    CommunityOut,
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
 from myapp.schemas import Message
 from users.auth import JWTAuth, OptionalJWTAuth
+from users.models import Hashtag, HashtagRelation
 
 router = Router(tags=["Communities"])
 
@@ -23,7 +25,7 @@ Community Management Endpoints
 
 @router.post(
     "/communities/",
-    response={201: CommunitySchema, 400: Message, 500: Message},
+    response={201: CommunityOut, 400: Message, 500: Message},
     auth=JWTAuth(),
 )
 def create_community(
@@ -41,16 +43,23 @@ def create_community(
     new_community = Community.objects.create(
         name=payload.details.name,
         description=payload.details.description,
-        tags=[tag.dict() for tag in payload.details.tags],
         type=payload.details.type,
         profile_pic_url=profile_image_file,
     )
-    # new_community.full_clean()  # Validate fields
+
+    # Create Tags
+    content_type = ContentType.objects.get_for_model(Community)
+
+    for hashtag_name in payload.details.tags:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=new_community.id
+        )
 
     new_community.admins.add(user)  # Add the creator as an admin
     new_community.members.add(user)  # Add the creator as a member
 
-    return 201, CommunitySchema.from_orm_with_custom_fields(new_community, user)
+    return 201, CommunityOut.from_orm_with_custom_fields(new_community, user)
 
 
 @router.get(
@@ -61,36 +70,36 @@ def create_community(
         500: Message,
     },
 )
-def list_communities(request: HttpRequest, page: int = 1, limit: int = 10):
+def list_communities(request: HttpRequest, page: int = 1, per_page: int = 10):
     communities = Community.objects.filter(~Q(type="hidden")).order_by("-created_at")
 
-    paginator = Paginator(communities, limit)
+    paginator = Paginator(communities, per_page)
     paginated_communities = paginator.get_page(page)
 
     results = [
-        CommunitySchema.from_orm_with_custom_fields(community)
+        CommunityOut.from_orm_with_custom_fields(community)
         for community in paginated_communities.object_list
     ]
 
     return 200, PaginatedCommunities(
-        items=results, total=paginator.count, page=page, per_page=limit
+        items=results, total=paginator.count, page=page, per_page=per_page
     )
 
 
 @router.get(
     "/community/{community_name}/",
-    response={200: CommunitySchema, 400: Message, 500: Message},
+    response={200: CommunityOut, 400: Message, 500: Message},
     auth=OptionalJWTAuth,
 )
 def get_community(request, community_name: str):
     community = Community.objects.get(name=community_name)
     user = request.auth
-    return 200, CommunitySchema.from_orm_with_custom_fields(community, user)
+    return 200, CommunityOut.from_orm_with_custom_fields(community, user)
 
 
 @router.put(
     "/{community_id}/",
-    response={200: Message, 400: Message, 500: Message},
+    response={200: CommunityOut, 400: Message, 500: Message},
     auth=JWTAuth(),
 )
 def update_community(
@@ -109,9 +118,18 @@ def update_community(
     # Update fields
     community.description = payload.details.description
     community.type = payload.details.type
-    # Make tags JSON serializable
-    community.tags = [tag.dict() for tag in payload.details.tags]
     community.rules = payload.details.rules
+
+    # Update Tags
+    content_type = ContentType.objects.get_for_model(Community)
+    HashtagRelation.objects.filter(
+        content_type=content_type, object_id=community.id
+    ).delete()
+    for hashtag_name in payload.details.tags:
+        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        HashtagRelation.objects.create(
+            hashtag=hashtag, content_type=content_type, object_id=community.id
+        )
 
     if banner_pic_file:
         community.banner_pic_url = banner_pic_file
@@ -120,7 +138,7 @@ def update_community(
 
     community.save()
 
-    return 200, {"message": "Community details updated successfully."}
+    return 200, CommunityOut.from_orm_with_custom_fields(community, request.auth)
 
 
 @router.delete("/{community_id}/", response={204: None}, auth=JWTAuth())

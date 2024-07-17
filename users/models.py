@@ -2,6 +2,8 @@
 Holds the User model and UserManager class.
 """
 
+from typing import Literal, Optional, Tuple
+
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -83,6 +85,7 @@ class Notification(models.Model):
         ("post_replied", "Post Replied"),
         ("comment_replied", "Comment Replied"),
         ("article_submitted", "Article Submitted"),
+        ("article_assigned", "Article Assigned"),
     ]
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
@@ -136,7 +139,7 @@ class HashtagRelation(models.Model):
 
 
 class Reputation(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    user = models.OneToOneField("User", on_delete=models.CASCADE)
     score = models.IntegerField(default=0)
     level = models.CharField(max_length=20, default="Novice")
 
@@ -151,6 +154,19 @@ class Reputation(models.Model):
     CREATE_POST = 5
     COMMENT_ON_POST = 2
 
+    # Define the allowed action types
+    ActionType = Literal[
+        "SUBMIT_ARTICLE",
+        "REVIEW_ARTICLE",
+        "COMMENT_ON_REVIEW",
+        "CREATE_COMMUNITY",
+        "SUBMIT_TO_COMMUNITY",
+        "REVIEW_COMMUNITY_ARTICLE",
+        "COMMENT_COMMUNITY_ARTICLE",
+        "CREATE_POST",
+        "COMMENT_ON_POST",
+    ]
+
     # Thresholds for different levels
     LEVELS = {
         "Novice": 0,
@@ -160,7 +176,7 @@ class Reputation(models.Model):
         "Guru": 1000,
     }
 
-    def add_reputation(self, action):
+    def add_reputation(self, action: ActionType) -> None:
         """
         Add reputation points based on the action performed
         """
@@ -169,7 +185,7 @@ class Reputation(models.Model):
         self.update_level()
         self.save()
 
-    def update_level(self):
+    def update_level(self) -> None:
         """
         Update the user's level based on their current score
         """
@@ -181,7 +197,7 @@ class Reputation(models.Model):
                 break
 
     @property
-    def next_level(self):
+    def next_level(self) -> Tuple[Optional[str], int]:
         """
         Return the next level and points needed to reach it
         """
@@ -193,14 +209,14 @@ class Reputation(models.Model):
         return None, 0
 
     @classmethod
-    def get_top_users(cls, limit=10):
+    def get_top_users(cls, limit: int = 10):
         """
         Return the top users by reputation score
         """
         return cls.objects.order_by("-score")[:limit]
 
     @classmethod
-    def calculate_community_reputation(cls, community):
+    def calculate_community_reputation(cls, community) -> int:
         """
         Calculate the total reputation of a community based on its members
         """
@@ -211,7 +227,7 @@ class Reputation(models.Model):
             or 0
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.user.username} - {self.level} ({self.score} points)"
 
 

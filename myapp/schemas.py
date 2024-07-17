@@ -2,6 +2,8 @@
 Common schema for all the models
 """
 
+from typing import Optional
+
 from ninja import ModelSchema, Schema
 
 from articles.models import Article, Review, ReviewComment
@@ -28,19 +30,30 @@ class UserStats(ModelSchema):
     reputation_score: int
     reputation_level: str
     # submitted, reviewed or commented articles
-    contributed_articles: int
+    contributed_articles: Optional[int] = None
     # communities joined
-    communities_joined: int
+    communities_joined: Optional[int] = None
     # posts created or commented
-    contributed_posts: int
+    contributed_posts: Optional[int] = None
 
     class Config:
         model = User
         model_fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
 
     @staticmethod
-    def from_model(user: User):
-        # Todo: Change the logic to get the contributed articles and posts
+    def from_model(user: User, basic_details: bool = False):
+        reputation, created = Reputation.objects.get_or_create(user=user)
+        basic_data = {
+            "id": user.id,
+            "username": user.username,
+            "profile_pic_url": user.profile_pic_url,
+            "reputation_score": reputation.score,
+            "reputation_level": reputation.level,
+        }
+
+        if basic_details:
+            return UserStats(**basic_data)
+
         contributed_articles = (
             Article.objects.filter(submitter=user).count()
             + Review.objects.filter(user=user).count()
@@ -50,16 +63,12 @@ class UserStats(ModelSchema):
             Post.objects.filter(author=user).count()
             + Comment.objects.filter(author=user).count()
         )
-
         community_joined = Community.objects.filter(members=user).count()
+
         return UserStats(
-            id=user.id,
-            username=user.username,
+            **basic_data,
             bio=user.bio,
-            profile_pic_url=user.profile_pic_url,
             home_page_url=user.home_page_url,
-            reputation_score=Reputation.objects.get(user=user).score,
-            reputation_level=Reputation.objects.get(user=user).level,
             contributed_articles=contributed_articles,
             communities_joined=community_joined,
             contributed_posts=contributed_posts,

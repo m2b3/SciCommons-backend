@@ -2,10 +2,11 @@ import uuid
 
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.text import slugify
+from faker import Faker
 
-from communities.models import Community
 from users.models import User
 
 
@@ -13,13 +14,9 @@ class Article(models.Model):
     title = models.CharField(max_length=255)
     abstract = models.TextField()
     # Todo: Add Validator
-    keywords = models.JSONField(default=list)
     authors = models.JSONField(default=list)
     article_image_url = models.ImageField(
         upload_to="article_images/", null=True, blank=True
-    )
-    article_pdf_file_url = models.FileField(
-        upload_to="article_pdfs/", null=True, blank=True
     )
     submission_type = models.CharField(
         max_length=10, choices=[("Public", "Public"), ("Private", "Private")]
@@ -29,26 +26,6 @@ class Article(models.Model):
     )
     faqs = models.JSONField(default=list)
     slug = models.SlugField(max_length=255, unique=True, blank=True)
-    # Community to which the article is submitted
-    community = models.ForeignKey(
-        Community,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="articles",
-    )
-    # Status when submitted to a community by the author
-    status = models.CharField(
-        max_length=10,
-        choices=[
-            ("Pending", "Pending"),
-            ("Approved", "Approved"),
-            ("Rejected", "Rejected"),
-        ],
-        default="Pending",
-    )
-    # Status when the article is published by the community
-    published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -65,12 +42,43 @@ class Article(models.Model):
         return self.title
 
 
+class ArticlePDF(models.Model):
+    article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
+    pdf_file_url = models.FileField(upload_to="article_pdfs/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.article.title} - PDF {self.id}"
+
+
+class AnonymousIdentity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    fake_name = models.CharField(max_length=100)
+
+    class Meta:
+        unique_together = ("user", "article")
+
+    @classmethod
+    def get_or_create_fake_name(cls, user, article):
+        identity, created = cls.objects.get_or_create(
+            user=user, article=article, defaults={"fake_name": Faker().name()}
+        )
+        return identity.fake_name
+
+
 class Review(models.Model):
     article = models.ForeignKey(
         Article, related_name="reviews", on_delete=models.CASCADE
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
-    rating = models.IntegerField()
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
+
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
     subject = models.CharField(max_length=255)
     content = models.TextField()
     version = models.PositiveIntegerField(default=1)
@@ -97,9 +105,15 @@ class Review(models.Model):
                 self.version = old_review.version + 1
         super().save(*args, **kwargs)
 
+    def get_anonymous_name(self):
+        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article)
+
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
         super().delete(*args, **kwargs)
+
+    class Meta:
+        unique_together = ("article", "user", "community")
 
 
 class ReviewVersion(models.Model):
@@ -137,6 +151,12 @@ class ReviewComment(models.Model):
     author = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="review_comments"
     )
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)], null=True, blank=True
+    )
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -150,6 +170,11 @@ class ReviewComment(models.Model):
         if self.parent and self.parent.parent and self.parent.parent.parent:
             raise ValueError("Exceeded maximum comment nesting level of 3")
         super().save(*args, **kwargs)
+
+    def get_anonymous_name(self):
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.author, self.review.article
+        )
 
     class Meta:
         ordering = ["created_at"]
