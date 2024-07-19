@@ -4,7 +4,8 @@ from ninja import NinjaAPI, Router
 from ninja.errors import AuthenticationError, HttpError, HttpRequest, ValidationError
 
 from articles.api import router as articles_router
-from articles.api_review import router as articles_review_router
+from articles.discussion_api import router as articles_discussion_router
+from articles.review_api import router as articles_review_router
 from communities.api import router as communities_router
 from communities.api_admin import router as communities_admin_router
 from communities.api_articles import router as communities_posts_router
@@ -73,6 +74,7 @@ users_parent_router.add_router("", users_general_router)
 articles_parent_router = Router()
 articles_parent_router.add_router("", articles_router)
 articles_parent_router.add_router("", articles_review_router)
+articles_parent_router.add_router("", articles_discussion_router)
 
 # Create a parent router to aggregate all community-related endpoints
 communities_parent_router = Router()

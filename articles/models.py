@@ -18,6 +18,7 @@ class Article(models.Model):
     article_image_url = models.ImageField(
         upload_to="article_images/", null=True, blank=True
     )
+    article_link = models.URLField(null=True, blank=True, unique=True)
     submission_type = models.CharField(
         max_length=10, choices=[("Public", "Public"), ("Private", "Private")]
     )
@@ -211,13 +212,17 @@ class Discussion(models.Model):
     article = models.ForeignKey(
         Article, on_delete=models.CASCADE, related_name="discussions"
     )
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
     author = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="discussions"
     )
-    title = models.CharField(max_length=200)
+    topic = models.CharField(max_length=200)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     reactions = GenericRelation("Reaction")
 
     def __str__(self):
@@ -226,13 +231,19 @@ class Discussion(models.Model):
     class Meta:
         ordering = ["-created_at"]
 
+    def get_anonymous_name(self):
+        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article)
+
 
 class DiscussionComment(models.Model):
     discussion = models.ForeignKey(
-        Discussion, on_delete=models.CASCADE, related_name="comments"
+        Discussion, on_delete=models.CASCADE, related_name="discussion_comments"
+    )
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
     )
     author = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="discussion_comments"
+        User, on_delete=models.CASCADE, related_name="authored_discussion_comments"
     )
     parent = models.ForeignKey(
         "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
@@ -249,6 +260,11 @@ class DiscussionComment(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+    def get_anonymous_name(self):
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.author, self.discussion.article
+        )
 
 
 # # Delete review history when a review is deleted

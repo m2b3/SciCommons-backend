@@ -348,13 +348,6 @@ class MembersResponse(Schema):
     admins: List[UserSchema]
 
 
-class AdminArticlesResponse(Schema):
-    published: List[ArticleOut]
-    unpublished: List[ArticleOut]
-    submitted: List[ArticleOut]
-    community_id: int
-
-
 class UserToJoin(Schema):
     id: int
     username: str

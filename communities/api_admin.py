@@ -6,170 +6,163 @@ from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import Article
-from articles.schemas import ArticleOut
 from communities.models import Community, Membership
-from communities.schemas import (
-    AdminArticlesResponse,
-    MembersResponse,
-    Message,
-    UserSchema,
-)
+from communities.schemas import MembersResponse, Message, UserSchema
 from users.auth import JWTAuth
-from users.models import Notification
 
 router = Router(auth=JWTAuth(), tags=["Community Admin"])
 
 # Todo: Create a decorator function to check if the user is an admin of the community
 
 
-@router.get(
-    "/{community_name}/admin-articles",
-    response={200: AdminArticlesResponse, 403: Message, 404: Message, 500: Message},
-    auth=JWTAuth(),
-)
-def get_articles_by_status(request, community_name: str):
-    # Check if the community exists
-    community = Community.objects.get(name=community_name)
+# @router.get(
+#     "/{community_name}/admin-articles",
+#     response={200: AdminArticlesResponse, 403: Message, 404: Message, 500: Message},
+#     auth=JWTAuth(),
+# )
+# def get_articles_by_status(request, community_name: str):
+#     # Check if the community exists
+#     community = Community.objects.get(name=community_name)
 
-    # Check if the user is an admin of the community
-    if not community.admins.filter(id=request.auth.id).exists():
-        return 403, Message(message="You do not have administrative privileges.")
+#     # Check if the user is an admin of the community
+#     if not community.admins.filter(id=request.auth.id).exists():
+#         return 403, Message(message="You do not have administrative privileges.")
 
-    # Fetch all articles for the community
-    all_articles = Article.objects.filter(community=community)
+#     # Fetch all articles for the community
+#     all_articles = Article.objects.filter(community=community)
 
-    # Categorize articles by their publication status
-    published = all_articles.filter(published=True)
-    unpublished = all_articles.filter(Q(status="Approved") & Q(published=False))
-    submitted = all_articles.filter(status="Pending")
+#     # Categorize articles by their publication status
+#     published = all_articles.filter(published=True)
+#     unpublished = all_articles.filter(Q(status="Approved") & Q(published=False))
+#     submitted = all_articles.filter(status="Pending")
 
-    response = AdminArticlesResponse(
-        published=[
-            ArticleOut.from_orm_with_custom_fields(article, request.auth)
-            for article in published
-        ],
-        unpublished=[
-            ArticleOut.from_orm_with_custom_fields(article, request.auth)
-            for article in unpublished
-        ],
-        submitted=[
-            ArticleOut.from_orm_with_custom_fields(article, request.auth)
-            for article in submitted
-        ],
-        community_id=community.id,
-    )
+#     response = AdminArticlesResponse(
+#         published=[
+#             ArticleOut.from_orm_with_custom_fields(article, request.auth)
+#             for article in published
+#         ],
+#         unpublished=[
+#             ArticleOut.from_orm_with_custom_fields(article, request.auth)
+#             for article in unpublished
+#         ],
+#         submitted=[
+#             ArticleOut.from_orm_with_custom_fields(article, request.auth)
+#             for article in submitted
+#         ],
+#         community_id=community.id,
+#     )
 
-    return 200, response
+#     return 200, response
 
 
-@router.post(
-    "/{community_id}/manage-article/{article_id}/{action}",
-    # url_name="manage_article",
-    summary="Manage an article",
-    response={200: Message, codes_4xx: Message, codes_5xx: Message},
-)
-def manage_article(
-    request,
-    community_id: int,
-    article_id: int,
-    action: Literal["approve", "publish", "reject", "unpublish", "remove"],
-):
-    try:
-        # Validate the action
-        if action not in ["approve", "publish", "reject", "unpublish", "remove"]:
-            return 400, {"message": "Invalid action."}
+# @router.post(
+#     "/{community_id}/manage-article/{article_id}/{action}",
+#     # url_name="manage_article",
+#     summary="Manage an article",
+#     response={200: Message, codes_4xx: Message, codes_5xx: Message},
+# )
+# def manage_article(
+#     request,
+#     community_id: int,
+#     article_id: int,
+#     action: Literal["approve", "publish", "reject", "unpublish", "remove"],
+# ):
+#     try:
+#         # Validate the action
+#         if action not in ["approve", "publish", "reject", "unpublish", "remove"]:
+#             return 400, {"message": "Invalid action."}
 
-        community = Community.objects.get(id=community_id)
+#         community = Community.objects.get(id=community_id)
 
-        # check if the user is an admin of the community
-        if not community.admins.filter(id=request.auth.id).exists():
-            return 403, {
-                "message": "You do not have administrative "
-                "privileges in this community."
-            }
+#         # check if the user is an admin of the community
+#         if not community.admins.filter(id=request.auth.id).exists():
+#             return 403, {
+#                 "message": "You do not have administrative "
+#                 "privileges in this community."
+#             }
 
-        # Check if the article exists
-        article = Article.objects.get(id=article_id)
+#         # Check if the article exists
+#         article = Article.objects.get(id=article_id)
 
-        if not article.community:
-            return 400, {"message": "Article is not submitted to any community."}
+#         if not article.community:
+#             return 400, {"message": "Article is not submitted to any community."}
 
-        # Check if the article belongs to the community
-        if article.community != community:
-            return 400, {"message": "Article does not belong to this community."}
+#         # Check if the article belongs to the community
+#         if article.community != community:
+#             return 400, {"message": "Article does not belong to this community."}
 
-        # Process the action
-        if action == "approve":
-            if article.status != "Pending":
-                return 400, {
-                    "message": "Only articles in 'Pending' status can be approved."
-                }
-            article.status = "Approved"
-            article.save()
-            # Send a notification to the author
-            Notification.objects.create(
-                user=article.submitter,
-                article=article,
-                community=community,
-                category="articles",
-                notification_type="article_approved",
-                message=f"Your article '{article.title}' has been approved.",
-                link=f"/community/{community.name}/{article.slug}",
-                content=article.title,
-            )
+#         # Process the action
+#         if action == "approve":
+#             if article.status != "Pending":
+#                 return 400, {
+#                     "message": "Only articles in 'Pending' status can be approved."
+#                 }
+#             article.status = "Approved"
+#             article.save()
+#             # Send a notification to the author
+#             Notification.objects.create(
+#                 user=article.submitter,
+#                 article=article,
+#                 community=community,
+#                 category="articles",
+#                 notification_type="article_approved",
+#                 message=f"Your article '{article.title}' has been approved.",
+#                 link=f"/community/{community.name}/{article.slug}",
+#                 content=article.title,
+#             )
 
-            return {"message": "Article approved successfully."}
+#             return {"message": "Article approved successfully."}
 
-        elif action == "reject":
-            if article.status != "Pending":
-                return 400, {
-                    "message": "Only articles in 'Pending' status can be rejected."
-                }
-            article.status = "Rejected"
-            article.save()
-            # Send a notification to the author
-            Notification.objects.create(
-                user=article.submitter,
-                community=community,
-                article=article,
-                category="articles",
-                notification_type="article_rejected",
-                message=f"Your article '{article.title}' has been rejected.",
-                link=f"/community/{community.id}/{article.id}",
-                content=article.title,
-            )
+#         elif action == "reject":
+#             if article.status != "Pending":
+#                 return 400, {
+#                     "message": "Only articles in 'Pending' status can be rejected."
+#                 }
+#             article.status = "Rejected"
+#             article.save()
+#             # Send a notification to the author
+#             Notification.objects.create(
+#                 user=article.submitter,
+#                 community=community,
+#                 article=article,
+#                 category="articles",
+#                 notification_type="article_rejected",
+#                 message=f"Your article '{article.title}' has been rejected.",
+#                 link=f"/community/{community.id}/{article.id}",
+#                 content=article.title,
+#             )
 
-            return 400, {"message": "Article rejected successfully."}
+#             return 400, {"message": "Article rejected successfully."}
 
-        elif action == "publish":
-            if article.status != "Approved":
-                return 400, {
-                    "message": "Only approved articles can be published.  \
-                        Please approve the article first."
-                }
-            article.published = True
-            article.save()
-            return {"message": "Article published successfully."}
+#         elif action == "publish":
+#             if article.status != "Approved":
+#                 return 400, {
+#                     "message": "Only approved articles can be published.  \
+#                         Please approve the article first."
+#                 }
+#             article.published = True
+#             article.save()
+#             return {"message": "Article published successfully."}
 
-        elif action == "unpublish":
-            if not article.published:
-                return 400, {"message": "Article is not published."}
-            article.published = False
-            article.save()
-            return {"message": "Article unpublished successfully."}
-        elif action == "remove":
-            # remove from the community
-            article.community = None
-            article.status = "Pending"
-            article.published = False
-            article.save()
+#         elif action == "unpublish":
+#             if not article.published:
+#                 return 400, {"message": "Article is not published."}
+#             article.published = False
+#             article.save()
+#             return {"message": "Article unpublished successfully."}
+#         elif action == "remove":
+#             # remove from the community
+#             article.community = None
+#             article.status = "Pending"
+#             article.published = False
+#             article.save()
 
-    except Community.DoesNotExist:
-        return 404, {"message": "Community not found."}
-    except Article.DoesNotExist:
-        return 404, {"message": "Article not found."}
-    except Exception as e:
-        return 500, {"message": str(e)}
+#     except Community.DoesNotExist:
+#         return 404, {"message": "Community not found."}
+#     except Article.DoesNotExist:
+#         return 404, {"message": "Article not found."}
+#     except Exception as e:
+#         return 500, {"message": str(e)}
 
 
 @router.get(

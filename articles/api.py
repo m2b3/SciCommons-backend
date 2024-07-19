@@ -16,7 +16,7 @@ from articles.schemas import (
 )
 from communities.models import Community, CommunityArticle
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Hashtag, HashtagRelation, User
+from users.models import Hashtag, HashtagRelation, Notification, User
 
 router = Router(tags=["Articles"])
 
@@ -32,12 +32,18 @@ def create_article(
     image_file: File[UploadedFile] = None,
     pdf_files: List[UploadedFile] = File(...),
 ):
+    # Check if the article link is unique
+    if details.payload.article_link:
+        if Article.objects.filter(article_link=details.payload.article_link).exists():
+            return 400, {"message": "This article has already been submitted."}
+
     # Create the Article instance
     article = Article.objects.create(
         title=details.payload.title,
         abstract=details.payload.abstract,
         authors=[author.dict() for author in details.payload.authors],
         article_image_url=image_file,
+        article_link=details.payload.article_link or None,
         submission_type=details.payload.submission_type,
         submitter=request.auth,
     )
@@ -52,10 +58,22 @@ def create_article(
             hashtag=hashtag, content_type=content_type, object_id=article.id
         )
 
-    if details.payload.community_id:
-        community = Community.objects.get(id=details.payload.community_id)
+    if details.payload.community_name:
+        community = Community.objects.get(name=details.payload.community_name)
         CommunityArticle.objects.create(article=article, community=community)
-        # Todo: Send notification to the community admin
+
+        # Send notification to the community admin
+        Notification.objects.create(
+            user=community.admins.first(),
+            community=community,
+            category="communities",
+            notification_type="article_submitted",
+            message=(
+                f"New article submitted in {community.name} by {request.auth.username}"
+            ),
+            link=f"/community/{community.name}/submissions",
+            content=article.title,
+        )
 
     return ArticleOut.from_orm_with_custom_fields(article, request.auth)
 
@@ -80,8 +98,8 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
             article=article, community=community
         )
         if (
-            community_article.status != "Accepted"
-            or community_article.status != "Published"
+            community_article.status != "accepted"
+            and community_article.status != "published"
         ):
             return 403, {"message": "This article is not available in this community."}
 
@@ -167,9 +185,17 @@ def get_articles(
 
     if community_id:
         community = Community.objects.get(id=community_id)
+        # Only display articles that are published or accepted in the community
         articles = articles.filter(
-            communityarticle__community=community, communityarticle__status="accepted"
-        )
+            Q(
+                communityarticle__community=community,
+                communityarticle__status="published",
+            )
+            | Q(
+                communityarticle__community=community,
+                communityarticle__status="accepted",
+            )
+        ).distinct()
 
         # If the community is hidden and the user is not a member,
         # return an empty queryset
@@ -178,14 +204,10 @@ def get_articles(
         ):
             return 400, {"message": "You don't have access to this community."}
     else:
-        # For non-community articles or when no specific community is requested
-        articles = articles.filter(
-            Q(communityarticle__isnull=True)  # Not associated with any community
-            | Q(
-                communityarticle__status="published",
-                communityarticle__community__type="hidden",
-            )  # Published in hidden communities
-        ).distinct()
+        # Just do not display articles that belong to hidden communities
+        articles = articles.exclude(
+            communityarticle__community__type="hidden",
+        )
 
     if search:
         articles = articles.filter(title__icontains=search)

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from django.core.paginator import Paginator
 from django.utils import timezone
@@ -66,11 +66,11 @@ Community Admin related API endpoints to manage articles
 
 @router.get(
     "/communities/{community_name}/articles/",
-    response=PaginatedArticlesResponse,
+    response={200: PaginatedArticlesResponse, 400: Message},
     summary="List articles in a community",
     auth=OptionalJWTAuth,
 )
-def list_community_articles(
+def list_community_articles_by_status(
     request,
     community_name: str,
     filters: Filters = Query(...),
@@ -124,48 +124,52 @@ def list_community_articles(
 
 
 @router.post(
-    "/communities/{community_id}/articles/{article_id}/approve/",
+    "/communities/{community_id}/articles/{article_id}/{action}/",
     response={200: Message, 400: Message},
     auth=JWTAuth(),
 )
-def approve_article(request, community_id: int, article_id: int):
+def manage_article(
+    request,
+    community_id: int,
+    article_id: int,
+    action: Literal["approve", "reject", "publish"],
+):
     community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
+        article_id=article_id, community_id=community_id
     )
     if request.auth not in community_article.community.admins.all():
         return 400, {"message": "You are not an admin of this community"}
 
-    reviewer_count = community_article.community.reviewers.count()
-    moderator_count = community_article.community.moderators.count()
+    if action == "approve":
+        reviewer_count = community_article.community.reviewers.count()
+        moderator_count = community_article.community.moderators.count()
 
-    if reviewer_count == 0 and moderator_count == 0:
-        community_article.status = "accepted"
+        if reviewer_count == 0 and moderator_count == 0:
+            community_article.status = "accepted"
+            community_article.save()
+            return 200, {
+                "message": "No reviewers or moderators in the community. \
+                      Article approved"
+            }
+
+        assign_assessors(community_article)
+        community_article.status = "under_review"
         community_article.save()
-        return {
-            "message": "No reviewers or moderators in the community. Article approved"
-        }
+        return 200, {"message": "Article approved and assessors assigned"}
 
-    assign_assessors(community_article)
-    community_article.status = "under_review"
-    community_article.save()
-    return {"message": "Article approved and assessors assigned"}
+    elif action == "reject":
+        community_article.status = "rejected"
+        community_article.save()
+        return 200, {"message": "Article rejected successfully"}
 
+    elif action == "publish":
+        if community_article.status != "accepted":
+            return 400, {"message": "Only accepted articles can be published"}
 
-@router.post(
-    "/communities/{community_id}/articles/{article_id}/reject/",
-    response={200: Message, 400: Message},
-    auth=JWTAuth(),
-)
-def reject_article(request, community_id: int, article_id: int):
-    community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
-    )
-    if request.auth not in community_article.community.admins.all():
-        return 400, {"message": "You are not an admin of this community"}
-
-    community_article.status = "rejected"
-    community_article.save()
-    return {"message": "Article rejected successfully"}
+        community_article.status = "published"
+        community_article.published_at = timezone.now()
+        community_article.save()
+        return 200, {"message": "Article published successfully"}
 
 
 def assign_assessors(community_article: CommunityArticle):
@@ -234,26 +238,6 @@ def get_article_status(request, community_id: int, article_id: int):
             community_article.article, request.auth
         ),
     }
-
-
-@router.post(
-    "/communities/{community_id}/articles/{article_id}/publish/",
-    response={200: Message, 400: Message},
-)
-def publish_article(request, community_id: int, article_id: int):
-    community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
-    )
-    if request.auth not in community_article.community.admins.all():
-        return 400, {"message": "You are not an admin of this community"}
-
-    if community_article.status != "accepted":
-        return 400, {"message": "Only accepted articles can be published"}
-
-    community_article.status = "published"
-    community_article.published_at = timezone.now()
-    community_article.save()
-    return {"message": "Article published successfully"}
 
 
 """
