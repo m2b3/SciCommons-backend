@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db.models import Q
@@ -12,7 +14,7 @@ from communities.schemas import (
     PaginatedCommunities,
 )
 from myapp.schemas import Message
-from users.auth import JWTAuth, OptionalJWTAuth
+from users.auth import JWTAuth
 from users.models import Hashtag, HashtagRelation
 
 router = Router(tags=["Communities"])
@@ -69,9 +71,38 @@ def create_community(
         400: Message,
         500: Message,
     },
+    summary="Get Communities",
 )
-def list_communities(request: HttpRequest, page: int = 1, per_page: int = 10):
-    communities = Community.objects.filter(~Q(type="hidden")).order_by("-created_at")
+def list_communities(
+    request: HttpRequest,
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 10,
+):
+    # Start with all non-hidden communities
+    communities = Community.objects.filter(~Q(type="hidden"))
+
+    # Apply search if provided
+    if search:
+        communities = communities.filter(
+            Q(name__icontains=search) | Q(description__icontains=search)
+        )
+
+    # Apply sorting
+    if sort:
+        if sort == "latest":
+            communities = communities.order_by("-created_at")
+        elif sort == "oldest":
+            communities = communities.order_by("created_at")
+        elif sort == "name_asc":
+            communities = communities.order_by("name")
+        elif sort == "name_desc":
+            communities = communities.order_by("-name")
+        # Add more sorting options if needed
+    else:
+        # Default sort by latest
+        communities = communities.order_by("-created_at")
 
     paginator = Paginator(communities, per_page)
     paginated_communities = paginator.get_page(page)
@@ -82,14 +113,18 @@ def list_communities(request: HttpRequest, page: int = 1, per_page: int = 10):
     ]
 
     return 200, PaginatedCommunities(
-        items=results, total=paginator.count, page=page, per_page=per_page
+        items=results,
+        total=paginator.count,
+        page=page,
+        per_page=per_page,
+        num_pages=paginator.num_pages,
     )
 
 
 @router.get(
     "/community/{community_name}/",
     response={200: CommunityOut, 400: Message, 500: Message},
-    auth=OptionalJWTAuth,
+    auth=JWTAuth(),
 )
 def get_community(request, community_name: str):
     community = Community.objects.get(name=community_name)

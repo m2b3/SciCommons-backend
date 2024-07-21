@@ -5,7 +5,7 @@ and other user-related actions.
 
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from ninja import ModelSchema, Schema
@@ -224,6 +224,8 @@ class ContentTypeEnum(str, Enum):
     COMMENT = "posts.comment"
     REVIEWCOMMENT = "articles.reviewcomment"
     REVIEW = "articles.review"
+    DISCUSSION = "articles.discussion"
+    DISCUSSIONCOMMENT = "articles.discussioncomment"
 
 
 class VoteEnum(int, Enum):
@@ -288,10 +290,14 @@ class BookmarkSchema(Schema):
 
 
 class BookmarkToggleSchema(Schema):
-    content_type: Literal["post", "community", "article"]
+    content_type: ContentTypeEnum
     object_id: int
 
 
 class BookmarkToggleResponseSchema(Schema):
     message: str
+    is_bookmarked: bool
+
+
+class BookmarkStatusResponseSchema(Schema):
     is_bookmarked: bool

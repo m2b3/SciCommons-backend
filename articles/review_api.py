@@ -41,21 +41,29 @@ def create_review(
     if article.submitter == user:
         return 400, {"message": "You can't review your own article."}
 
-    # Check if the user has already reviewed the article
-    if Review.objects.filter(article=article, user=user).exists():
-        return 400, {"message": "You have already reviewed this article."}
-
-    community = None
+    # Check if the user has already reviewed the article in the same context
+    existing_review = Review.objects.filter(article=article, user=user)
 
     if community_id:
         community = Community.objects.get(id=community_id)
         if not community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
 
+        if existing_review.filter(community=community).exists():
+            return 400, {
+                "message": "You have already reviewed this article in this community."
+            }
+    else:
+        if existing_review.filter(community__isnull=True).exists():
+            return 400, {
+                "message": "You have already reviewed this article on\
+                      the official public page."
+            }
+
     review = Review.objects.create(
         article=article,
         user=user,
-        community=community,
+        community=community if community_id else None,
         rating=review_data.rating,
         subject=review_data.subject,
         content=review_data.content,

@@ -133,6 +133,7 @@ class PaginatedCommunities(Schema):
     total: int
     page: int
     per_page: int
+    num_pages: int
 
 
 class UpdateCommunityDetails(Schema):
@@ -336,6 +337,7 @@ class UserSchema(Schema):
     id: int
     username: str
     email: str
+    profile_pic_url: str | None
     joined_at: datetime | None
     articles_published: int
 

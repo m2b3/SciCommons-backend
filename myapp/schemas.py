@@ -2,6 +2,7 @@
 Common schema for all the models
 """
 
+from enum import Enum
 from typing import Optional
 
 from ninja import ModelSchema, Schema
@@ -73,3 +74,9 @@ class UserStats(ModelSchema):
             communities_joined=community_joined,
             contributed_posts=contributed_posts,
         )
+
+
+class FilterType(str, Enum):
+    POPULAR = "popular"
+    RECENT = "recent"
+    RELEVANT = "relevant"

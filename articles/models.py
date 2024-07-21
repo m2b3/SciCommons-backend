@@ -1,3 +1,4 @@
+import random
 import uuid
 
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -54,16 +55,39 @@ class ArticlePDF(models.Model):
 
 class AnonymousIdentity(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    article = models.ForeignKey("Article", on_delete=models.CASCADE)
     fake_name = models.CharField(max_length=100)
 
     class Meta:
         unique_together = ("user", "article")
 
+    @staticmethod
+    def generate_reddit_style_username():
+        fake = Faker()
+
+        def cap_word():
+            return fake.word(ext_word_list=None).capitalize()
+
+        def low_word():
+            return fake.word(ext_word_list=None).lower()
+
+        patterns = [
+            lambda: f"{cap_word()}{cap_word()}{random.randint(0, 9999)}",
+            lambda: f"{cap_word()}_{cap_word()}",
+            lambda: f"{low_word()}_{random.randint(0, 999)}",
+            lambda: (
+                f"{fake.first_name()}{random.choice(['_', ''])}"
+                f"{''.join(random.choices('aeiou', k=2))}{random.randint(0, 99)}"
+            ),
+        ]
+        return random.choice(patterns)()
+
     @classmethod
     def get_or_create_fake_name(cls, user, article):
         identity, created = cls.objects.get_or_create(
-            user=user, article=article, defaults={"fake_name": Faker().name()}
+            user=user,
+            article=article,
+            defaults={"fake_name": cls.generate_reddit_style_username()},
         )
         return identity.fake_name
 

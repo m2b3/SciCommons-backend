@@ -51,7 +51,8 @@ class PaginatedPostsResponse(Schema):
     items: List[PostOut]
     total: int
     page: int
-    size: int
+    per_page: int
+    num_pages: int
 
 
 class Message(Schema):

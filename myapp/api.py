@@ -7,13 +7,14 @@ from articles.api import router as articles_router
 from articles.discussion_api import router as articles_discussion_router
 from articles.review_api import router as articles_review_router
 from communities.api import router as communities_router
-from communities.api_admin import router as communities_admin_router
 from communities.api_articles import router as communities_posts_router
 from communities.api_invitation import router as communities_invitation_router
 from communities.api_join import router as communities_join_router
+from communities.members_api import router as communities_admin_router
 from posts.api import router as posts_router
 from users.api import router as users_general_router
 from users.api_auth import router as users_router
+from users.common_api import router as users_common_router
 
 api = NinjaAPI(docs_url="docs/", title="MyApp API", urls_namespace="api_v1")
 
@@ -69,6 +70,7 @@ users_parent_router = Router()
 
 users_parent_router.add_router("", users_router)
 users_parent_router.add_router("", users_general_router)
+users_parent_router.add_router("", users_common_router)
 
 # Create a parent router to aggregate all article-related endpoints
 articles_parent_router = Router()

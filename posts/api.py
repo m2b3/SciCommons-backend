@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import HttpRequest
 from ninja import Query, Router
 
@@ -44,17 +45,24 @@ def create_post(request: HttpRequest, data: PostCreateSchema):
     return 201, PostOut.resolve_post(post, user)
 
 
-@router.get("/", response=PaginatedPostsResponse, auth=OptionalJWTAuth)
+@router.get(
+    "/", response={200: PaginatedPostsResponse, 400: Message}, auth=OptionalJWTAuth
+)
 def list_posts(
     request: HttpRequest,
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
+    per_page: int = Query(10, ge=1, le=100),
     sort_by: str = Query("created_at", enum=["created_at", "title", "upvotes"]),
     sort_order: str = Query("desc", enum=["asc", "desc"]),
     hashtag: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
 ):
     user: Optional[User] = None if not request.auth else request.auth
     posts = Post.objects.filter(is_deleted=False)
+
+    # Apply search
+    if search:
+        posts = posts.filter(Q(title__icontains=search) | Q(content__icontains=search))
 
     # Apply hashtag filtering
     if hashtag:
@@ -69,13 +77,14 @@ def list_posts(
     order_prefix = "-" if sort_order == "desc" else ""
     posts = posts.order_by(f"{order_prefix}{sort_by}")
 
-    paginator = Paginator(posts, size)
+    paginator = Paginator(posts, per_page)
     page_obj = paginator.get_page(page)
     return PaginatedPostsResponse(
         items=[PostOut.resolve_post(post, user) for post in page_obj],
         total=paginator.count,
         page=page,
-        size=size,
+        per_page=per_page,
+        num_pages=paginator.num_pages,
     )
 
 

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from django.core.paginator import Paginator
 from ninja import Router
@@ -209,9 +209,9 @@ def get_comment(request, comment_id: int):
     current_user: Optional[User] = None if not request.auth else request.auth
 
     if (
-        comment.community
-        and not comment.community.is_member(current_user)
-        and comment.community.type == "hidden"
+        comment.discussion.community
+        and not comment.discussion.community.is_member(current_user)
+        and comment.discussion.community.type == "hidden"
     ):
         return 403, {"message": "You are not a member of this community."}
 
@@ -220,7 +220,7 @@ def get_comment(request, comment_id: int):
 
 @router.get(
     "/discussions/{discussion_id}/comments/",
-    response={200: PaginatedDiscussionSchema, 404: Message},
+    response={200: List[DiscussionCommentOut], 404: Message},
     auth=OptionalJWTAuth,
 )
 def list_discussion_comments(
@@ -237,7 +237,7 @@ def list_discussion_comments(
         return 403, {"message": "You are not a member of this community."}
 
     comments = (
-        DiscussionComment.objects.filter(discussion=discussion)
+        DiscussionComment.objects.filter(discussion=discussion, parent=None)
         .select_related("author")
         .order_by("-created_at")
     )
@@ -259,7 +259,9 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
     if comment.author != request.auth:
         return 403, {"message": "You do not have permission to update this comment."}
 
-    if comment.community and not comment.community.is_member(request.auth):
+    if comment.discussion.community and not comment.discussion.community.is_member(
+        request.auth
+    ):
         return 403, {"message": "You are not a member of this community."}
 
     comment.content = payload.content or comment.content

@@ -16,7 +16,7 @@ from articles.models import (
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
-from myapp.schemas import UserStats
+from myapp.schemas import FilterType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -68,6 +68,7 @@ class ArticleOut(ModelSchema):
     authors: List[Tag]
     keywords: List[str]
     faqs: List[FAQSchema]
+    total_discussions: int
     total_reviews: int
     total_comments: int
     community_article_status: Optional[CommunityArticleStatusSchema]
@@ -89,8 +90,10 @@ class ArticleOut(ModelSchema):
             "updated_at",
         ]
 
-    @staticmethod
-    def from_orm_with_custom_fields(article: Article, current_user: Optional[User]):
+    @classmethod
+    def from_orm_with_custom_fields(
+        cls, article: Article, current_user: Optional[User]
+    ):
         keywords = [
             relation.hashtag.name
             for relation in HashtagRelation.objects.filter(
@@ -104,6 +107,7 @@ class ArticleOut(ModelSchema):
         ]
 
         total_reviews = Review.objects.filter(article=article).count()
+        total_discussions = Discussion.objects.filter(article=article).count()
         total_comments = ReviewComment.objects.filter(review__article=article).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
@@ -119,7 +123,7 @@ class ArticleOut(ModelSchema):
                 published_at=community_article.published_at,
             )
 
-        return ArticleOut(
+        return cls(
             id=article.id,
             slug=article.slug,
             title=article.title,
@@ -134,8 +138,44 @@ class ArticleOut(ModelSchema):
             keywords=keywords,
             faqs=article.faqs,
             total_reviews=total_reviews,
+            total_discussions=total_discussions,
             total_comments=total_comments,
             community_article_status=community_article_status,
+            user=user,
+            is_submitter=(article.submitter == current_user) if current_user else False,
+        )
+
+
+class ArticleBasicOut(ModelSchema):
+    total_reviews: int
+    total_discussions: int
+    user: UserStats
+    is_submitter: bool
+
+    class Config:
+        model = Article
+        model_fields = [
+            "id",
+            "slug",
+            "title",
+            "article_image_url",
+        ]
+
+    @classmethod
+    def from_orm_with_custom_fields(
+        cls, article: Article, current_user: Optional[User]
+    ):
+        total_reviews = Review.objects.filter(article=article).count()
+        total_discussions = Discussion.objects.filter(article=article).count()
+        user = UserStats.from_model(article.submitter, basic_details=True)
+
+        return cls(
+            id=article.id,
+            slug=article.slug,
+            title=article.title,
+            article_image_url=article.article_image_url,
+            total_reviews=total_reviews,
+            total_discussions=total_discussions,
             user=user,
             is_submitter=(article.submitter == current_user) if current_user else False,
         )
@@ -177,6 +217,14 @@ class UpdateArticleDetails(Schema):
 
 class ArticleUpdateSchema(Schema):
     payload: UpdateArticleDetails
+
+
+class ArticleFilters(Schema):
+    filter_type: FilterType
+    article_id: Optional[int] = None
+    limit: int = 10
+    offset: int = 0
+    community_id: Optional[int] = None
 
 
 """
@@ -295,6 +343,7 @@ class ReviewCommentOut(ModelSchema):
 
         return ReviewCommentOut(
             id=comment.id,
+            rating=comment.rating,
             author=author,
             content=comment.content,
             created_at=comment.created_at,
@@ -403,7 +452,7 @@ class DiscussionCommentOut(ModelSchema):
             article=comment.discussion.article, user=comment.author
         ).fake_name
 
-        return ReviewCommentOut(
+        return DiscussionCommentOut(
             id=comment.id,
             author=author,
             content=comment.content,

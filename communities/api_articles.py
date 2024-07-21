@@ -215,13 +215,13 @@ def assign_assessors(community_article: CommunityArticle):
 
 
 @router.get(
-    "/communities/{community_id}/articles/{article_id}/status/",
-    response=ArticleStatusSchema,
+    "/communities/{community_id}/community-articles/{article_id}/status/",
+    response={200: ArticleStatusSchema, 400: Message},
     auth=JWTAuth(),
 )
 def get_article_status(request, community_id: int, article_id: int):
     community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
+        article_id=article_id, community_id=community_id
     )
     if request.auth not in community_article.community.members.all():
         return 400, {"message": "You are not a member of this community"}
@@ -253,26 +253,27 @@ Assessor related API endpoints to assess articles
 )
 def get_assigned_articles(request, community_id: int):
     assigned_articles = ArticleSubmissionAssessment.objects.filter(
-        assessor=request.auth, approved=None
-    ).values_list("community_article_id", flat=True)
-    community_articles = CommunityArticle.objects.filter(
-        id__in=assigned_articles, community_id=community_id
-    )
+        assessor=request.auth,
+        approved__isnull=True,
+        community_article__community_id=community_id,
+    ).select_related("community_article__article")
 
     return [
-        ArticleOut.from_orm_with_custom_fields(community_article.article, request.auth)
-        for community_article in community_articles
+        ArticleOut.from_orm_with_custom_fields(
+            assessment.community_article.article, request.auth
+        )
+        for assessment in assigned_articles
     ]
 
 
 @router.get(
-    "/communities/{community_id}/articles/{article_id}/assessment/",
+    "/communities/{community_name}/community-articles/{article_id}/assessment/",
     response={200: AssessorArticleSchema, 400: Message},
     auth=JWTAuth(),
 )
-def get_assessment_details(request, community_id: int, article_id: int):
+def get_assessment_details(request, community_name: str, article_id: int):
     community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
+        article_id=article_id, community__name=community_name
     )
     assessment = ArticleSubmissionAssessment.objects.get(
         community_article=community_article, assessor=request.auth
@@ -288,7 +289,7 @@ def get_assessment_details(request, community_id: int, article_id: int):
 
 
 @router.post(
-    "/communities/{community_id}/articles/{article_id}/submit-assessment/",
+    "/communities/{community_id}/community-articles/{article_id}/submit-assessment/",
     response={200: Message, 400: Message},
     auth=JWTAuth(),
 )
@@ -296,7 +297,7 @@ def submit_assessment(
     request, community_id: int, article_id: int, payload: AssessmentSubmissionSchema
 ):
     community_article = CommunityArticle.objects.get(
-        id=article_id, community_id=community_id
+        article_id=article_id, community_id=community_id
     )
     assessment = ArticleSubmissionAssessment.objects.get(
         community_article=community_article, assessor=request.auth
