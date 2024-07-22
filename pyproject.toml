@@ -4,7 +4,10 @@ version = "0.1.0"
 description = ""
 authors = ["dinakar17 <85105044+dinakar17@users.noreply.github.com>"]
 readme = "README.md"
-packages=[] # This lines disables package mode
+packages = [{include = "scripts"}]
+
+[tool.poetry.scripts]
+post_install = "scripts.post_install:main"
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -21,7 +24,6 @@ waitress = "^3.0.0"
 whitenoise = "^6.7.0"
 dj-database-url = "^2.2.0"
 faker = "^26.0.0"
-
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
