@@ -18,6 +18,7 @@ class Community(models.Model):
     slug = models.SlugField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     rules = models.JSONField(default=list)
+    about = models.JSONField(default=dict)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")

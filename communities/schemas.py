@@ -49,6 +49,7 @@ class CommunityOut(ModelSchema):
     slug: str
     created_at: Optional[datetime] = None
     rules: List[str]
+    about: dict
     num_moderators: int
     num_reviewers: int
     num_members: int
@@ -72,6 +73,7 @@ class CommunityOut(ModelSchema):
             "slug",
             "created_at",
             "rules",
+            "about",
         ]
 
     @staticmethod
@@ -102,6 +104,7 @@ class CommunityOut(ModelSchema):
             slug=community.slug,
             created_at=community.created_at,
             rules=community.rules,
+            about=community.about,
             num_moderators=community.moderators.count(),
             num_reviewers=community.reviewers.count(),
             num_members=community.members.count(),
@@ -141,6 +144,7 @@ class UpdateCommunityDetails(Schema):
     type: CommunityType
     tags: List[str]
     rules: List[str]
+    about: dict
 
 
 class CommunityUpdateSchema(Schema):

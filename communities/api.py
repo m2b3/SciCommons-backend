@@ -129,6 +129,10 @@ def list_communities(
 def get_community(request, community_name: str):
     community = Community.objects.get(name=community_name)
     user = request.auth
+
+    if community.type == "hidden" and not community.is_member(user):
+        return 403, {"message": "You do not have permission to view this community."}
+
     return 200, CommunityOut.from_orm_with_custom_fields(community, user)
 
 
@@ -154,6 +158,7 @@ def update_community(
     community.description = payload.details.description
     community.type = payload.details.type
     community.rules = payload.details.rules
+    community.about = payload.details.about
 
     # Update Tags
     content_type = ContentType.objects.get_for_model(Community)
