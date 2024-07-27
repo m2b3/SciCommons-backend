@@ -1,20 +1,27 @@
+from datetime import timedelta
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Q
-from ninja import File, Router, UploadedFile
+from django.db.models import Avg, Count, Q
+from django.utils import timezone
+from ninja import File, Query, Router, UploadedFile
 from ninja.responses import codes_4xx, codes_5xx
 
-from articles.models import Article, ArticlePDF
+from articles.models import Article, ArticlePDF, Discussion, Reaction, Review
 from articles.schemas import (
+    ArticleBasicOut,
     ArticleCreateSchema,
+    ArticleFilters,
     ArticleOut,
     ArticleUpdateSchema,
+    CommunityArticleStatsResponse,
     Message,
+    OfficialArticleStatsResponse,
     PaginatedArticlesResponse,
 )
 from communities.models import Community, CommunityArticle
+from myapp.schemas import FilterType
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation, Notification, User
 
@@ -261,3 +268,221 @@ def delete_article(request, article_id: int):
     article.title = f"Deleted - {article.title}"
 
     return {"message": "Article deleted successfully."}
+
+
+"""
+Article Stats Endpoints
+"""
+
+
+@router.get(
+    "/article/{article_slug}/official-stats",
+    response={200: OfficialArticleStatsResponse, 400: Message},
+    auth=JWTAuth(),
+)
+def get_official_article_stats(request, article_slug: str):
+    article = Article.objects.get(slug=article_slug)
+
+    # Get discussions count
+    discussions_count = Discussion.objects.filter(article=article).count()
+
+    # Get likes count
+    likes_count = Reaction.objects.filter(
+        content_type__model="article", object_id=article.id, vote=Reaction.LIKE
+    ).count()
+
+    # Get reviews count
+    reviews_count = Review.objects.filter(article=article).count()
+
+    # Get recent reviews
+    recent_reviews = Review.objects.filter(article=article).order_by("-created_at")[:3]
+
+    # Get reviews over time (last 7 days)
+    end_date = timezone.now().date()
+    start_date = end_date - timedelta(days=6)
+    reviews_over_time = (
+        Review.objects.filter(
+            article=article, created_at__date__range=[start_date, end_date]
+        )
+        .values("created_at__date")
+        .annotate(count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    # Get likes over time (last 7 days)
+    likes_over_time = (
+        Reaction.objects.filter(
+            content_type__model="article",
+            object_id=article.id,
+            vote=Reaction.LIKE,
+            created_at__date__range=[start_date, end_date],
+        )
+        .values("created_at__date")
+        .annotate(count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    # Get average rating
+    average_rating = Review.objects.filter(article=article).aggregate(Avg("rating"))[
+        "rating__avg"
+    ]
+
+    return {
+        "title": article.title,
+        "submission_date": article.created_at,
+        "submitter": article.submitter.username,
+        "discussions": discussions_count,
+        "likes": likes_count,
+        "reviews_count": reviews_count,
+        "recent_reviews": [
+            {"excerpt": review.content[:100], "date": review.created_at}
+            for review in recent_reviews
+        ],
+        "reviews_over_time": [
+            {"date": item["created_at__date"], "count": item["count"]}
+            for item in reviews_over_time
+        ],
+        "likes_over_time": [
+            {"date": item["created_at__date"], "count": item["count"]}
+            for item in likes_over_time
+        ],
+        "average_rating": average_rating or 0,
+    }
+
+
+@router.get(
+    "/article/{article_slug}/community-stats",
+    response={200: CommunityArticleStatsResponse, 400: Message},
+    auth=JWTAuth(),
+)
+def get_community_article_stats(request, article_slug: str):
+    article = Article.objects.get(slug=article_slug)
+
+    try:
+        community_article = CommunityArticle.objects.get(article=article)
+        community = community_article.community
+        submission_date = community_article.submitted_at
+        community_name = community.name  # Assuming Community model has a 'name' field
+    except CommunityArticle.DoesNotExist:
+        community = None
+        submission_date = article.created_at
+        community_name = None
+
+    # Get discussions count
+    discussions_count = Discussion.objects.filter(
+        article=article, community=community
+    ).count()
+
+    # Get likes count
+    likes_count = Reaction.objects.filter(
+        content_type__model="article", object_id=article.id, vote=Reaction.LIKE
+    ).count()
+
+    # Get reviews count and data
+    reviews = Review.objects.filter(article=article, community=community)
+    reviews_count = reviews.count()
+
+    # Get recent reviews
+    recent_reviews = reviews.order_by("-created_at")[:3]
+
+    # Get reviews over time (last 7 days)
+    end_date = timezone.now().date()
+    start_date = end_date - timedelta(days=6)
+    reviews_over_time = (
+        reviews.filter(created_at__date__range=[start_date, end_date])
+        .values("created_at__date")
+        .annotate(count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    # Get likes over time (last 7 days)
+    likes_over_time = (
+        Reaction.objects.filter(
+            content_type__model="article",
+            object_id=article.id,
+            vote=Reaction.LIKE,
+            created_at__date__range=[start_date, end_date],
+        )
+        .values("created_at__date")
+        .annotate(count=Count("id"))
+        .order_by("created_at__date")
+    )
+
+    # Get average rating
+    average_rating = reviews.aggregate(Avg("rating"))["rating__avg"]
+
+    return {
+        "title": article.title,
+        "submission_date": submission_date,
+        "submitter": article.submitter.username,
+        "community_name": community_name,
+        "discussions": discussions_count,
+        "likes": likes_count,
+        "reviews_count": reviews_count,
+        "recent_reviews": [
+            {"excerpt": review.content[:100], "date": review.created_at}
+            for review in recent_reviews
+        ],
+        "reviews_over_time": [
+            {"date": item["created_at__date"], "count": item["count"]}
+            for item in reviews_over_time
+        ],
+        "likes_over_time": [
+            {"date": item["created_at__date"], "count": item["count"]}
+            for item in likes_over_time
+        ],
+        "average_rating": average_rating or 0,
+    }
+
+
+"""
+Relevant Articles Endpoint
+"""
+
+
+@router.get(
+    "/{article_id}/relevant-articles",
+    response=List[ArticleBasicOut],
+    auth=OptionalJWTAuth,
+)
+def get_relevant_articles(
+    request, article_id: int, filters: ArticleFilters = Query(...)
+):
+    base_article = Article.objects.get(id=article_id)
+
+    # Get hashtags of the base article
+    base_hashtags = base_article.hashtags.values_list("hashtag_id", flat=True)
+
+    # Query for relevant articles
+    queryset = Article.objects.exclude(id=article_id).exclude(
+        communityarticle__community__type="hidden"
+    )
+
+    # Calculate relevance score based on shared hashtags
+    queryset = queryset.annotate(
+        relevance_score=Count(
+            "hashtags", filter=Q(hashtags__hashtag_id__in=base_hashtags)
+        )
+    ).filter(relevance_score__gt=0)
+
+    if filters.community_id:
+        queryset = queryset.filter(
+            communityarticle__community_id=filters.community_id,
+            communityarticle__community__type__ne="hidden",
+        )
+
+    if filters.filter_type == FilterType.POPULAR:
+        queryset = queryset.annotate(
+            popularity_score=Count("reviews") + Count("discussions")
+        ).order_by("-popularity_score", "-relevance_score")
+    elif filters.filter_type == FilterType.RECENT:
+        queryset = queryset.order_by("-created_at", "-relevance_score")
+    else:  # "relevant" is the default
+        queryset = queryset.order_by("-relevance_score", "-created_at")
+
+    articles = queryset[filters.offset : filters.offset + filters.limit]
+
+    return [
+        ArticleBasicOut.from_orm_with_custom_fields(article, request.auth)
+        for article in articles
+    ]

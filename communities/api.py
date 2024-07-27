@@ -1,20 +1,26 @@
-from typing import Optional
+from datetime import timedelta
+from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Q
-from ninja import File, Router, UploadedFile
+from django.db.models import Count, Q
+from django.utils import timezone
+from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
 
-from communities.models import Community
+from articles.models import Discussion, Review
+from communities.models import Community, CommunityArticle
 from communities.schemas import (
+    CommunityBasicOut,
     CommunityCreateSchema,
+    CommunityFilters,
     CommunityOut,
+    CommunityStatsResponse,
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
 from myapp.schemas import Message
-from users.auth import JWTAuth
+from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation
 
 router = Router(tags=["Communities"])
@@ -193,3 +199,125 @@ def delete_community(request: HttpRequest, community_id: int):
     community.delete()
 
     return 204, None
+
+
+@router.get(
+    "/{community_id}/relevant-communities",
+    response={200: List[CommunityBasicOut], 400: Message},
+    auth=OptionalJWTAuth,
+)
+def get_relevant_communities(
+    request, community_id: int, filters: CommunityFilters = Query(...)
+):
+    base_community = Community.objects.get(id=community_id)
+
+    # Get hashtags of the base community
+    base_hashtags = base_community.hashtags.values_list("hashtag_id", flat=True)
+
+    # Query for relevant communities
+    queryset = Community.objects.exclude(id=community_id).exclude(type="hidden")
+
+    # Calculate relevance score based on shared hashtags
+    queryset = queryset.annotate(
+        relevance_score=Count(
+            "hashtags", filter=Q(hashtags__hashtag_id__in=base_hashtags)
+        )
+    ).filter(relevance_score__gt=0)
+
+    if filters.filter_type == "popular":
+        queryset = queryset.annotate(
+            popularity_score=Count("members")
+            + Count("communityarticle", filter=Q(communityarticle__status="published"))
+        ).order_by("-popularity_score", "-relevance_score")
+    elif filters.filter_type == "recent":
+        queryset = queryset.order_by("-created_at", "-relevance_score")
+    else:  # "relevant" is the default
+        queryset = queryset.order_by("-relevance_score", "-created_at")
+
+    communities = queryset[filters.offset : filters.offset + filters.limit]
+
+    return [CommunityBasicOut.from_orm(community) for community in communities]
+
+
+"""
+Community Stats Endpoint
+"""
+
+
+@router.get(
+    "/{community_slug}/dashboard",
+    response={200: CommunityStatsResponse, 400: Message},
+)
+def get_community_dashboard(request, community_slug: str):
+    community = Community.objects.get(slug=community_slug)
+    now = timezone.now()
+    week_ago = now - timedelta(days=7)
+
+    # Member stats
+    total_members = community.members.count()
+    new_members_this_week = community.members.filter(
+        membership__joined_at__gte=week_ago
+    ).count()
+
+    # Article stats
+    community_articles = CommunityArticle.objects.filter(community=community)
+    total_articles = community_articles.count()
+    new_articles_this_week = community_articles.filter(
+        submitted_at__gte=week_ago
+    ).count()
+    articles_published = community_articles.filter(status="published").count()
+    new_published_articles_this_week = community_articles.filter(
+        status="published", published_at__gte=week_ago
+    ).count()
+
+    # Review and discussion stats
+    total_reviews = Review.objects.filter(community=community).count()
+    total_discussions = Discussion.objects.filter(community=community).count()
+
+    # Member growth over time (last 5 days)
+    member_growth = []
+    for i in range(5):
+        date = now - timedelta(days=i)
+        count = community.members.filter(membership__joined_at__date__lte=date).count()
+        member_growth.append({"date": date.date(), "count": count})
+    member_growth.reverse()
+
+    # Article submission trends (last 5 days)
+    article_submission_trends = []
+    for i in range(5):
+        date = now - timedelta(days=i)
+        count = community_articles.filter(submitted_at__date__lte=date).count()
+        article_submission_trends.append({"date": date.date(), "count": count})
+    article_submission_trends.reverse()
+
+    # Recently published articles
+    recently_published = community_articles.filter(status="published").order_by(
+        "-published_at"
+    )[
+        :5
+    ]  # Fetching the 5 most recent articles
+
+    recently_published_articles = [
+        {
+            "title": article.article.title,
+            "submission_date": article.submitted_at,
+            "author": article.article.submitter.username,
+        }
+        for article in recently_published
+    ]
+
+    return {
+        "name": community.name,
+        "description": community.description,
+        "total_members": total_members,
+        "new_members_this_week": new_members_this_week,
+        "total_articles": total_articles,
+        "new_articles_this_week": new_articles_this_week,
+        "articles_published": articles_published,
+        "new_published_articles_this_week": new_published_articles_this_week,
+        "total_reviews": total_reviews,
+        "total_discussions": total_discussions,
+        "member_growth": member_growth,
+        "article_submission_trends": article_submission_trends,
+        "recently_published_articles": recently_published_articles,
+    }

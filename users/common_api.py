@@ -6,23 +6,34 @@ from datetime import timedelta
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.utils import timezone
 from ninja import Query, Router
+from ninja.errors import HttpRequest
 
-from articles.models import Article
+# Todo: Move the Reaction model to the users app
+from articles.models import Article, Reaction
 from articles.schemas import ArticleBasicOut, ArticleFilters
 from communities.models import Community
 from myapp.schemas import FilterType, Message
 from posts.models import Post
+from posts.schemas import PaginatedPostsResponse, PostOut
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Bookmark, HashtagRelation, User
+from users.models import Bookmark, Hashtag, HashtagRelation, User
 from users.schemas import (
     BookmarkSchema,
     BookmarkStatusResponseSchema,
     BookmarkToggleResponseSchema,
     BookmarkToggleSchema,
     ContentTypeEnum,
+    HashtagOut,
+    PaginatedHashtagOut,
+    ReactionCountOut,
+    ReactionIn,
+    ReactionOut,
+    SortEnum,
+    VoteEnum,
 )
 
 router = Router(tags=["Users Common API"])
@@ -179,3 +190,168 @@ def get_relevant_articles(request, filters: ArticleFilters = Query(...)):
         ArticleBasicOut.from_orm_with_custom_fields(article, request.auth)
         for article in articles
     ]
+
+
+"""
+Reaction API (Like/Dislike)
+"""
+
+
+@router.post(
+    "/reactions",
+    response={200: Message, 400: Message},
+    auth=JWTAuth(),
+)
+def post_reaction(request, reaction: ReactionIn):
+    content_type = get_content_type(reaction.content_type.value)
+
+    existing_reaction = Reaction.objects.filter(
+        user=request.auth, content_type=content_type, object_id=reaction.object_id
+    ).first()
+
+    if existing_reaction:
+        if existing_reaction.vote == reaction.vote.value:
+            # User is clicking the same reaction type, so remove it
+            existing_reaction.delete()
+            return ReactionOut(
+                id=None,
+                user_id=request.auth.id,
+                vote=None,
+                created_at=None,
+                message="Reaction removed",
+            )
+        else:
+            # User is changing their reaction from like to dislike or vice versa
+            existing_reaction.vote = reaction.vote.value
+            existing_reaction.save()
+            return ReactionOut(
+                id=existing_reaction.id,
+                user_id=existing_reaction.user_id,
+                vote=VoteEnum(existing_reaction.vote),
+                created_at=existing_reaction.created_at.isoformat(),
+                message="Reaction updated",
+            )
+    else:
+        # User is reacting for the first time
+        new_reaction = Reaction.objects.create(
+            user=request.auth,
+            content_type=content_type,
+            object_id=reaction.object_id,
+            vote=reaction.vote.value,
+        )
+        return ReactionOut(
+            id=new_reaction.id,
+            user_id=new_reaction.user_id,
+            vote=VoteEnum(new_reaction.vote),
+            created_at=new_reaction.created_at.isoformat(),
+            message="Reaction added",
+        )
+
+
+@router.get(
+    "/reaction_count/{content_type}/{object_id}/",
+    response=ReactionCountOut,
+    auth=OptionalJWTAuth,
+)
+def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
+    content_type = get_content_type(content_type.value)
+
+    reactions = Reaction.objects.filter(content_type=content_type, object_id=object_id)
+
+    likes = reactions.filter(vote=VoteEnum.LIKE.value).count()
+    dislikes = reactions.filter(vote=VoteEnum.DISLIKE.value).count()
+
+    # Check if the authenticated user is the author
+    current_user: Optional[User] = None if not request.auth else request.auth
+    user_reaction = None
+
+    if current_user:
+        user_reaction_obj = reactions.filter(user=current_user).first()
+        if user_reaction_obj:
+            user_reaction = VoteEnum(user_reaction_obj.vote)
+
+    return ReactionCountOut(
+        likes=likes,
+        dislikes=dislikes,
+        user_reaction=user_reaction,
+    )
+
+
+"""
+Hashtags API
+"""
+
+
+@router.get("/hashtags/", response=PaginatedHashtagOut)
+def get_hashtags(
+    request,
+    sort: SortEnum = Query(SortEnum.POPULAR),
+    search: str = Query(None),
+    page: int = Query(1),
+    per_page: int = Query(20),
+):
+    """
+    Get a list of hashtags from the database.
+    """
+    hashtags = Hashtag.objects.annotate(count=Count("hashtagrelation"))
+
+    if search:
+        hashtags = hashtags.filter(name__icontains=search)
+
+    if sort == SortEnum.POPULAR:
+        hashtags = hashtags.order_by("-count", "name")
+    elif sort == SortEnum.RECENT:
+        hashtags = hashtags.order_by("-id")
+    else:  # ALPHABETICAL
+        hashtags = hashtags.order_by("name")
+
+    paginator = Paginator(hashtags, per_page)
+    page_obj = paginator.get_page(page)
+
+    return PaginatedHashtagOut(
+        items=[HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list],
+        total=paginator.count,
+        page=page_obj.number,
+        per_page=per_page,
+        pages=paginator.num_pages,
+    )
+
+
+# Todo: Delete this API endpoint
+@router.get("/my-posts", response=PaginatedPostsResponse, auth=JWTAuth())
+def list_my_posts(
+    request: HttpRequest,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+    sort_by: str = Query("created_at", enum=["created_at", "title"]),
+    sort_order: str = Query("desc", enum=["asc", "desc"]),
+    hashtag: Optional[str] = Query(None),
+):
+    user = request.auth
+    posts = Post.objects.filter(author=user, is_deleted=False)
+
+    # Apply hashtag filtering
+    if hashtag:
+        hashtag_id = (
+            Hashtag.objects.filter(name=hashtag).values_list("id", flat=True).first()
+        )
+        if hashtag_id:
+            post_ids = HashtagRelation.objects.filter(
+                hashtag_id=hashtag_id,
+                content_type=ContentType.objects.get_for_model(Post),
+            ).values_list("object_id", flat=True)
+            posts = posts.filter(id__in=post_ids)
+
+    # Todo: Add Filter for sorting by post reactions
+    # Apply sorting
+    order_prefix = "-" if sort_order == "desc" else ""
+    posts = posts.order_by(f"{order_prefix}{sort_by}")
+
+    paginator = Paginator(posts, size)
+    page_obj = paginator.get_page(page)
+    return PaginatedPostsResponse(
+        items=[PostOut.resolve_post(post, user) for post in page_obj],
+        total=paginator.count,
+        page=page,
+        size=size,
+    )

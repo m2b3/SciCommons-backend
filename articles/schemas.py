@@ -221,7 +221,6 @@ class ArticleUpdateSchema(Schema):
 
 class ArticleFilters(Schema):
     filter_type: FilterType
-    article_id: Optional[int] = None
     limit: int = 10
     offset: int = 0
     community_id: Optional[int] = None
@@ -473,3 +472,45 @@ class DiscussionCommentCreateSchema(Schema):
 
 class DiscussionCommentUpdateSchema(Schema):
     content: str | None
+
+
+"""
+Article Stats Related Schemas for serialization and deserialization
+"""
+
+
+class ReviewExcerpt(Schema):
+    excerpt: str
+    date: datetime
+
+
+class DateCount(Schema):
+    date: datetime
+    count: int
+
+
+class OfficialArticleStatsResponse(Schema):
+    title: str
+    submission_date: datetime
+    submitter: str
+    discussions: int
+    likes: int
+    reviews_count: int
+    recent_reviews: List[ReviewExcerpt]
+    reviews_over_time: List[DateCount]
+    likes_over_time: List[DateCount]
+    average_rating: float
+
+
+class CommunityArticleStatsResponse(Schema):
+    title: str
+    submission_date: datetime
+    submitter: str
+    community_name: Optional[str]
+    discussions: int
+    likes: int
+    reviews_count: int
+    recent_reviews: List[ReviewExcerpt]
+    reviews_over_time: List[DateCount]
+    likes_over_time: List[DateCount]
+    average_rating: float

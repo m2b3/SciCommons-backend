@@ -1,7 +1,8 @@
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.utils.text import slugify
 
-from users.models import User
+from users.models import HashtagRelation, User
 
 
 class Community(models.Model):
@@ -26,6 +27,8 @@ class Community(models.Model):
     members = models.ManyToManyField(
         User, related_name="member_communities", through="Membership"
     )
+
+    hashtags = GenericRelation(HashtagRelation, related_query_name="communities")
 
     def save(self, *args, **kwargs):
         if not self.slug:

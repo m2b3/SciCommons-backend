@@ -13,7 +13,7 @@ from communities.models import (
     CommunityArticle,
     JoinRequest,
 )
-from myapp.schemas import UserStats
+from myapp.schemas import FilterType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -334,7 +334,7 @@ class InvitationDetailsSchema(Schema):
         return obj.invited_at.strftime("%I:%M %p, %d %b, %Y")
 
 
-"""Admin schemas for serialization and validation."""
+"""Community Members Related schemas for serialization and validation."""
 
 
 class UserSchema(Schema):
@@ -371,5 +371,60 @@ class JoinRequestSchema(Schema):
 
 
 """
-Article Approval Schemas
+Relevant Communities schemas for serialization and validation.
 """
+
+
+class CommunityFilters(Schema):
+    offset: int = 0
+    limit: int = 10
+    filter_type: FilterType = "recent"  # Can be "popular", "recent", or "relevant"
+
+
+class CommunityBasicOut(Schema):
+    id: int
+    name: str
+    profile_pic_url: Optional[str]
+    total_published_articles: int
+    total_members: int
+
+    @staticmethod
+    def from_orm(community: Community):
+        return CommunityBasicOut(
+            id=community.id,
+            name=community.name,
+            profile_pic_url=(
+                community.profile_pic_url.url if community.profile_pic_url else None
+            ),
+            total_published_articles=CommunityArticle.objects.filter(
+                community=community, status="published"
+            ).count(),
+            total_members=community.members.count(),
+        )
+
+
+"""
+Community Stats schemas for serialization and validation.
+"""
+
+
+class RecentArticleSchema(Schema):
+    title: str
+    submission_date: datetime
+    author: str
+
+
+class CommunityStatsResponse(Schema):
+    name: str
+    description: str
+    total_members: int
+    new_members_this_week: int
+    total_articles: int
+    new_articles_this_week: int
+    articles_published: int
+    new_published_articles_this_week: int
+    total_reviews: int
+    total_discussions: int
+    member_growth: List[dict]
+    article_submission_trends: List[dict]
+    recently_published_articles: List[RecentArticleSchema]

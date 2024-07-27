@@ -8,7 +8,7 @@ from django.db import models
 from django.utils.text import slugify
 from faker import Faker
 
-from users.models import User
+from users.models import HashtagRelation, User
 
 
 class Article(models.Model):
@@ -30,6 +30,8 @@ class Article(models.Model):
     slug = models.SlugField(max_length=255, unique=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    hashtags = GenericRelation(HashtagRelation, related_query_name="articles")
 
     def save(self, *args, **kwargs):
         if not self.slug:
