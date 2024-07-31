@@ -15,8 +15,9 @@ from communities.models import Community
 from myapp.schemas import Message, UserStats
 from posts.models import Post
 from users.auth import JWTAuth
-from users.models import Hashtag, HashtagRelation, Notification, User
+from users.models import Bookmark, Hashtag, HashtagRelation, Notification, User
 from users.schemas import (
+    BookmarkSchema,
     FavoriteItemSchema,
     NotificationSchema,
     UserArticleSchema,
@@ -296,6 +297,50 @@ def get_my_favorites(request):
             )
 
     return favorites
+
+
+@router.get(
+    "/bookmarks", response={200: List[BookmarkSchema], 400: Message}, auth=JWTAuth()
+)
+def get_my_bookmarks(request):
+    user = request.auth
+    bookmarks = Bookmark.objects.filter(user=user).select_related("content_type")
+
+    result = []
+    for bookmark in bookmarks:
+        obj = bookmark.content_object
+        if isinstance(obj, Article):
+            result.append(
+                {
+                    "id": bookmark.id,
+                    "title": obj.title,
+                    "type": "Article",
+                    "details": f"Article by {obj.author.get_full_name()}",
+                }
+            )
+        elif isinstance(obj, Community):
+            result.append(
+                {
+                    "id": bookmark.id,
+                    "title": obj.name,
+                    "type": "Community",
+                    "details": f"{obj.members.count()} members",
+                }
+            )
+        elif isinstance(obj, Post):
+            result.append(
+                {
+                    "id": bookmark.id,
+                    "title": obj.title,
+                    "type": "Post",
+                    "details": (
+                        f"Post by {obj.author.username} · "
+                        f"{obj.reactions.filter(vote=1).count()} likes"
+                    ),
+                }
+            )
+
+    return result
 
 
 """

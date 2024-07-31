@@ -2,8 +2,9 @@
 Common schema for all the models
 """
 
+from datetime import date
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from ninja import ModelSchema, Schema
 
@@ -80,3 +81,14 @@ class FilterType(str, Enum):
     POPULAR = "popular"
     RECENT = "recent"
     RELEVANT = "relevant"
+
+
+class DateCount(Schema):
+    date: date
+    count: int
+
+    @classmethod
+    def json_encode(cls, obj: Any) -> Any:
+        if isinstance(obj, date):
+            return obj.strftime("%Y-%m-%d")
+        return obj

@@ -103,10 +103,10 @@ def activate(request: HttpRequest, token: str):
         if user.is_active:
             return 400, {"message": "Account already activated."}
 
-        user.is_active = True
-
         # Create Reputation object for the user
-        Reputation.objects.create(user=user)
+        Reputation.objects.get_or_create(user=user)
+
+        user.is_active = True
 
         user.save()
 

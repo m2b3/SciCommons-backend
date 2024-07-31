@@ -9,6 +9,7 @@ from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
 
 from articles.models import Discussion, Review
+from articles.schemas import ArticleBasicOut
 from communities.models import Community, CommunityArticle
 from communities.schemas import (
     CommunityBasicOut,
@@ -19,7 +20,7 @@ from communities.schemas import (
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
-from myapp.schemas import Message
+from myapp.schemas import DateCount, Message
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation
 
@@ -247,6 +248,7 @@ Community Stats Endpoint
 @router.get(
     "/{community_slug}/dashboard",
     response={200: CommunityStatsResponse, 400: Message},
+    auth=JWTAuth(),
 )
 def get_community_dashboard(request, community_slug: str):
     community = Community.objects.get(slug=community_slug)
@@ -279,7 +281,7 @@ def get_community_dashboard(request, community_slug: str):
     for i in range(5):
         date = now - timedelta(days=i)
         count = community.members.filter(membership__joined_at__date__lte=date).count()
-        member_growth.append({"date": date.date(), "count": count})
+        member_growth.append(DateCount(date=date.date(), count=count))
     member_growth.reverse()
 
     # Article submission trends (last 5 days)
@@ -287,7 +289,7 @@ def get_community_dashboard(request, community_slug: str):
     for i in range(5):
         date = now - timedelta(days=i)
         count = community_articles.filter(submitted_at__date__lte=date).count()
-        article_submission_trends.append({"date": date.date(), "count": count})
+        article_submission_trends.append(DateCount(date=date.date(), count=count))
     article_submission_trends.reverse()
 
     # Recently published articles
@@ -298,26 +300,24 @@ def get_community_dashboard(request, community_slug: str):
     ]  # Fetching the 5 most recent articles
 
     recently_published_articles = [
-        {
-            "title": article.article.title,
-            "submission_date": article.submitted_at,
-            "author": article.article.submitter.username,
-        }
-        for article in recently_published
+        ArticleBasicOut.from_orm_with_custom_fields(
+            community_article.article, request.auth
+        )
+        for community_article in recently_published
     ]
 
-    return {
-        "name": community.name,
-        "description": community.description,
-        "total_members": total_members,
-        "new_members_this_week": new_members_this_week,
-        "total_articles": total_articles,
-        "new_articles_this_week": new_articles_this_week,
-        "articles_published": articles_published,
-        "new_published_articles_this_week": new_published_articles_this_week,
-        "total_reviews": total_reviews,
-        "total_discussions": total_discussions,
-        "member_growth": member_growth,
-        "article_submission_trends": article_submission_trends,
-        "recently_published_articles": recently_published_articles,
-    }
+    return CommunityStatsResponse(
+        name=community.name,
+        description=community.description,
+        total_members=total_members,
+        new_members_this_week=new_members_this_week,
+        total_articles=total_articles,
+        new_articles_this_week=new_articles_this_week,
+        articles_published=articles_published,
+        new_published_articles_this_week=new_published_articles_this_week,
+        total_reviews=total_reviews,
+        total_discussions=total_discussions,
+        member_growth=member_growth,
+        article_submission_trends=article_submission_trends,
+        recently_published_articles=recently_published_articles,
+    )
