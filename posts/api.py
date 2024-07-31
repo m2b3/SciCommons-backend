@@ -6,6 +6,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpRequest
 from ninja import Query, Router
+from django_ratelimit.decorators import ratelimit
 
 from articles.models import Reaction
 from posts.models import Comment, Post
@@ -48,6 +49,7 @@ def create_post(request: HttpRequest, data: PostCreateSchema):
 @router.get(
     "/", response={200: PaginatedPostsResponse, 400: Message}, auth=OptionalJWTAuth
 )
+@ratelimit(key="user_or_ip", rate="5/m", method=ratelimit.ALL, block=True)
 def list_posts(
     request: HttpRequest,
     page: int = Query(1, ge=1),

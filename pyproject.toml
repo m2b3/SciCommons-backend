@@ -24,6 +24,7 @@ waitress = "^3.0.0"
 whitenoise = "^6.7.0"
 dj-database-url = "^2.2.0"
 faker = "^26.0.0"
+django-ratelimit = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"

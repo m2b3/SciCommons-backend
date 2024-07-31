@@ -77,6 +77,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "myapp.middleware.process_put_patch",
+    "django_ratelimit.middleware.RatelimitMiddleware",
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
