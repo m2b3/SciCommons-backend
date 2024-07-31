@@ -1,3 +1,6 @@
+import shutil
+import tempfile
+
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -5,8 +8,6 @@ from django.db.utils import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils.text import slugify
 from faker import Faker
-import shutil
-import tempfile
 
 from communities.models import Community
 
