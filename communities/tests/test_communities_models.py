@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from articles.models import Article
 
-from .models import (
+from ..models import (
     ArticleSubmissionAssessment,
     Community,
     CommunityArticle,

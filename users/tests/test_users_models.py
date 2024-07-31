@@ -9,7 +9,7 @@ from communities.models import Community
 from posts.models import Post
 from users.models import Bookmark, Hashtag, HashtagRelation, Reputation
 
-from .models import Notification
+from ..models import Notification
 
 User = get_user_model()
 

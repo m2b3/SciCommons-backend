@@ -5,7 +5,7 @@ from faker import Faker
 from articles.models import Reaction
 from users.models import Hashtag, HashtagRelation
 
-from .models import Comment, Post
+from ..models import Comment, Post
 
 User = get_user_model()
 fake = Faker()

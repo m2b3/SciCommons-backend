@@ -5,10 +5,12 @@ from django.db.utils import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils.text import slugify
 from faker import Faker
+import shutil
+import tempfile
 
 from communities.models import Community
 
-from .models import (
+from ..models import (
     AnonymousIdentity,
     Article,
     ArticlePDF,
@@ -79,8 +81,18 @@ class ArticleModelTest(TestCase):
         self.assertIsNotNone(article.updated_at)
 
 
-@override_settings(DEFAULT_FILE_STORAGE="django.core.files.storage.FileSystemStorage")
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class ArticlePDFModelTest(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_dir = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.temp_dir)
+        super().tearDownClass()
+
     def setUp(self):
         self.user = User.objects.create_user(
             username="testuser", email="testuser@example.com", password="password123"
