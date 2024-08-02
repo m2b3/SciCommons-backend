@@ -14,7 +14,7 @@ from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from ninja import Router
 from ninja.errors import HttpError, HttpRequest
-from ninja.responses import codes_4xx, codes_5xx
+from ninja.responses import codes_4xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
@@ -110,13 +110,13 @@ def activate(request: HttpRequest, token: str):
 
         user.save()
 
+        return 200, {"message": "Account activated successfully."}
+
     except SignatureExpired:
         return 400, {"message": "Activation link expired."}
 
     except BadSignature:
         return 400, {"message": "Invalid activation link."}
-
-    return 200, {"message": "Account activated successfully."}
 
 
 @router.post(
@@ -155,14 +155,12 @@ def resend_activation(request: HttpRequest, email: str):
         )
 
     except User.DoesNotExist:
-        raise HttpError(404, "No account associated with this email was found.")
+        return 404, {"message": "No account associated with this email was found."}
 
     return 200, {"message": "Activation link sent. Please check your email."}
 
 
-@router.post(
-    "/login", response={200: LogInSchemaOut, codes_4xx: Message, codes_5xx: Message}
-)
+@router.post("/login", response={200: LogInSchemaOut, codes_4xx: Message})
 def login_user(request, payload: LogInSchemaIn):
     # Attempt to retrieve user by username or email
     user = (
@@ -224,7 +222,7 @@ def request_reset(request: HttpRequest, email: str):
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
-        raise HttpError(404, "No user found with this email address.")
+        return 404, {"message": "No user found with this email address."}
 
     # Encode user's primary key and sign it with a timestamp
     uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -252,7 +250,7 @@ def request_reset(request: HttpRequest, email: str):
         html_message=html_content,
     )
 
-    return {"message": "Password reset link has been sent to your email."}
+    return 200, {"message": "Password reset link has been sent to your email."}
 
 
 @router.post("/reset-password", response={200: Message, 400: Message})
@@ -265,18 +263,18 @@ def reset_password(request: HttpRequest, payload: ResetPasswordSchema):
         uid = urlsafe_base64_decode(original_uid).decode()
         user = User.objects.get(pk=uid)
 
+        # Check if passwords match
+        if payload.password != payload.confirm_password:
+            return 400, {"message": "Passwords do not match."}
+
+        # Set the new password
+        user.set_password(payload.password)
+        user.save()
+
+        return 200, {"message": "Password reset successfully."}
+
     except SignatureExpired:
-        raise HttpError(400, "Activation link expired.")
+        return 400, {"message": "Password reset link expired."}
 
     except BadSignature:
-        raise HttpError(400, "Invalid activation link.")
-
-    # Check if passwords match
-    if payload.password != payload.confirm_password:
-        raise HttpError(400, "Passwords do not match.")
-
-    # Set the new password
-    user.set_password(payload.password)
-    user.save()
-
-    return {"message": "Password reset successfully."}
+        return 400, {"message": "Invalid password reset link."}
