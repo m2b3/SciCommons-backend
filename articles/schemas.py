@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
@@ -16,7 +16,7 @@ from articles.models import (
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
-from myapp.schemas import FilterType, UserStats
+from myapp.schemas import DateCount, FilterType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -484,14 +484,9 @@ class ReviewExcerpt(Schema):
     date: datetime
 
 
-class DateCount(Schema):
-    date: datetime
-    count: int
-
-
 class OfficialArticleStatsResponse(Schema):
     title: str
-    submission_date: datetime
+    submission_date: date
     submitter: str
     discussions: int
     likes: int

@@ -6,14 +6,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from ninja import ModelSchema, Schema
 
-from articles.schemas import ArticleOut
+from articles.schemas import ArticleBasicOut, ArticleOut
 from communities.models import (
     ArticleSubmissionAssessment,
     Community,
     CommunityArticle,
     JoinRequest,
 )
-from myapp.schemas import FilterType, UserStats
+from myapp.schemas import DateCount, FilterType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -408,12 +408,6 @@ Community Stats schemas for serialization and validation.
 """
 
 
-class RecentArticleSchema(Schema):
-    title: str
-    submission_date: datetime
-    author: str
-
-
 class CommunityStatsResponse(Schema):
     name: str
     description: str
@@ -425,6 +419,6 @@ class CommunityStatsResponse(Schema):
     new_published_articles_this_week: int
     total_reviews: int
     total_discussions: int
-    member_growth: List[dict]
-    article_submission_trends: List[dict]
-    recently_published_articles: List[RecentArticleSchema]
+    member_growth: List[DateCount]
+    article_submission_trends: List[DateCount]
+    recently_published_articles: List[ArticleBasicOut]

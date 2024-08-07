@@ -16,9 +16,11 @@ from articles.schemas import (
     ArticleOut,
     ArticleUpdateSchema,
     CommunityArticleStatsResponse,
+    DateCount,
     Message,
     OfficialArticleStatsResponse,
     PaginatedArticlesResponse,
+    ReviewExcerpt,
 )
 from communities.models import Community, CommunityArticle
 from myapp.schemas import FilterType
@@ -37,7 +39,7 @@ def create_article(
     request,
     details: ArticleCreateSchema,
     image_file: File[UploadedFile] = None,
-    pdf_files: List[UploadedFile] = File(...),
+    pdf_files: List[UploadedFile] = File(None),
 ):
     # Check if the article link is unique
     if details.payload.article_link:
@@ -55,8 +57,10 @@ def create_article(
         submitter=request.auth,
     )
 
-    for file in pdf_files:
-        ArticlePDF.objects.create(article=article, pdf_file_url=file)
+    if pdf_files:  # Only process pdf_files if they are provided
+        for file in pdf_files:
+            ArticlePDF.objects.create(article=article, pdf_file_url=file)
+
     # Todo: Create a common method to handle the creation of hashtags
     content_type = ContentType.objects.get_for_model(Article)
     for hashtag_name in details.payload.keywords:
@@ -280,7 +284,7 @@ Article Stats Endpoints
     response={200: OfficialArticleStatsResponse, 400: Message},
     auth=JWTAuth(),
 )
-def get_official_article_stats(request, article_slug: str):
+def get_article_official_stats(request, article_slug: str):
     article = Article.objects.get(slug=article_slug)
 
     # Get discussions count
@@ -297,19 +301,33 @@ def get_official_article_stats(request, article_slug: str):
     # Get recent reviews
     recent_reviews = Review.objects.filter(article=article).order_by("-created_at")[:3]
 
-    # Get reviews over time (last 7 days)
+    # Get reviews and likes over time (last 7 days)
     end_date = timezone.now().date()
     start_date = end_date - timedelta(days=6)
+    date_range = [start_date + timedelta(days=i) for i in range(7)]
+
+    # Reviews over time
     reviews_over_time = (
         Review.objects.filter(
             article=article, created_at__date__range=[start_date, end_date]
         )
         .values("created_at__date")
         .annotate(count=Count("id"))
-        .order_by("created_at__date")
     )
 
-    # Get likes over time (last 7 days)
+    reviews_dict = {
+        item["created_at__date"]: item["count"] for item in reviews_over_time
+    }
+
+    reviews_over_time = [
+        DateCount(
+            date=date,
+            count=sum(reviews_dict.get(d, 0) for d in date_range if d <= date),
+        )
+        for date in date_range
+    ]
+
+    # Likes over time
     likes_over_time = (
         Reaction.objects.filter(
             content_type__model="article",
@@ -319,35 +337,37 @@ def get_official_article_stats(request, article_slug: str):
         )
         .values("created_at__date")
         .annotate(count=Count("id"))
-        .order_by("created_at__date")
     )
+
+    likes_dict = {item["created_at__date"]: item["count"] for item in likes_over_time}
+
+    likes_over_time = [
+        DateCount(
+            date=date, count=sum(likes_dict.get(d, 0) for d in date_range if d <= date)
+        )
+        for date in date_range
+    ]
 
     # Get average rating
     average_rating = Review.objects.filter(article=article).aggregate(Avg("rating"))[
         "rating__avg"
     ]
 
-    return {
-        "title": article.title,
-        "submission_date": article.created_at,
-        "submitter": article.submitter.username,
-        "discussions": discussions_count,
-        "likes": likes_count,
-        "reviews_count": reviews_count,
-        "recent_reviews": [
-            {"excerpt": review.content[:100], "date": review.created_at}
+    return OfficialArticleStatsResponse(
+        title=article.title,
+        submission_date=article.created_at.date(),
+        submitter=article.submitter.username,
+        discussions=discussions_count,
+        likes=likes_count,
+        reviews_count=reviews_count,
+        recent_reviews=[
+            ReviewExcerpt(excerpt=review.content[:100], date=review.created_at.date())
             for review in recent_reviews
         ],
-        "reviews_over_time": [
-            {"date": item["created_at__date"], "count": item["count"]}
-            for item in reviews_over_time
-        ],
-        "likes_over_time": [
-            {"date": item["created_at__date"], "count": item["count"]}
-            for item in likes_over_time
-        ],
-        "average_rating": average_rating or 0,
-    }
+        reviews_over_time=reviews_over_time,
+        likes_over_time=likes_over_time,
+        average_rating=average_rating or 0,
+    )
 
 
 @router.get(
@@ -385,17 +405,31 @@ def get_community_article_stats(request, article_slug: str):
     # Get recent reviews
     recent_reviews = reviews.order_by("-created_at")[:3]
 
-    # Get reviews over time (last 7 days)
+    # Get reviews and likes over time (last 7 days)
     end_date = timezone.now().date()
     start_date = end_date - timedelta(days=6)
+    date_range = [start_date + timedelta(days=i) for i in range(7)]
+
+    # Reviews over time
     reviews_over_time = (
         reviews.filter(created_at__date__range=[start_date, end_date])
         .values("created_at__date")
         .annotate(count=Count("id"))
-        .order_by("created_at__date")
     )
 
-    # Get likes over time (last 7 days)
+    reviews_dict = {
+        item["created_at__date"]: item["count"] for item in reviews_over_time
+    }
+
+    reviews_over_time = [
+        DateCount(
+            date=date,
+            count=sum(reviews_dict.get(d, 0) for d in date_range if d <= date),
+        )
+        for date in date_range
+    ]
+
+    # Likes over time
     likes_over_time = (
         Reaction.objects.filter(
             content_type__model="article",
@@ -405,34 +439,36 @@ def get_community_article_stats(request, article_slug: str):
         )
         .values("created_at__date")
         .annotate(count=Count("id"))
-        .order_by("created_at__date")
     )
+
+    likes_dict = {item["created_at__date"]: item["count"] for item in likes_over_time}
+
+    likes_over_time = [
+        DateCount(
+            date=date, count=sum(likes_dict.get(d, 0) for d in date_range if d <= date)
+        )
+        for date in date_range
+    ]
 
     # Get average rating
     average_rating = reviews.aggregate(Avg("rating"))["rating__avg"]
 
-    return {
-        "title": article.title,
-        "submission_date": submission_date,
-        "submitter": article.submitter.username,
-        "community_name": community_name,
-        "discussions": discussions_count,
-        "likes": likes_count,
-        "reviews_count": reviews_count,
-        "recent_reviews": [
-            {"excerpt": review.content[:100], "date": review.created_at}
+    return CommunityArticleStatsResponse(
+        title=article.title,
+        submission_date=submission_date.date(),
+        submitter=article.submitter.username,
+        community_name=community_name,
+        discussions=discussions_count,
+        likes=likes_count,
+        reviews_count=reviews_count,
+        recent_reviews=[
+            ReviewExcerpt(excerpt=review.content[:100], date=review.created_at.date())
             for review in recent_reviews
         ],
-        "reviews_over_time": [
-            {"date": item["created_at__date"], "count": item["count"]}
-            for item in reviews_over_time
-        ],
-        "likes_over_time": [
-            {"date": item["created_at__date"], "count": item["count"]}
-            for item in likes_over_time
-        ],
-        "average_rating": average_rating or 0,
-    }
+        reviews_over_time=reviews_over_time,
+        likes_over_time=likes_over_time,
+        average_rating=average_rating or 0,
+    )
 
 
 """
