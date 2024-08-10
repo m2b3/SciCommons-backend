@@ -92,3 +92,7 @@ class DateCount(Schema):
         if isinstance(obj, date):
             return obj.strftime("%Y-%m-%d")
         return obj
+
+
+class PermissionCheckOut(Schema):
+    has_permission: bool

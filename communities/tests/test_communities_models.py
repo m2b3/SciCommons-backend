@@ -3,9 +3,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from articles.models import Article
-
-from ..models import (
-    ArticleSubmissionAssessment,
+from communities.models import (
     Community,
     CommunityArticle,
     Invitation,
@@ -534,91 +532,3 @@ class CommunityArticleTestCase(TestCase):
         community_article.status = "under_review"
         community_article.save()
         self.assertEqual(community_article.published_at, now)
-
-
-class ArticleSubmissionAssessmentTestCase(TestCase):
-    def setUp(self):
-        # Create sample data for testing
-        self.user1 = User.objects.create_user(
-            username="testuser1", email="testuser1@example.com", password="testpass"
-        )
-        self.user2 = User.objects.create_user(
-            username="testuser2", email="testuser2@example.com", password="testpass"
-        )
-        self.community = Community.objects.create(name="Test Community")
-        self.article = Article.objects.create(
-            title="Test Article",
-            abstract="This is a test article.",
-            authors=["Author 1", "Author 2"],
-            submission_type="Public",
-            submitter=self.user1,
-            faqs=["FAQ 1", "FAQ 2"],
-        )
-        self.community_article = CommunityArticle.objects.create(
-            article=self.article, community=self.community
-        )
-
-    def test_article_submission_assessment_creation(self):
-        # Create an ArticleSubmissionAssessment instance
-        assessment = ArticleSubmissionAssessment.objects.create(
-            community_article=self.community_article,
-            assessor=self.user1,
-            is_moderator=True,
-            approved=True,
-            comments="Good article.",
-        )
-
-        # Check if the ArticleSubmissionAssessment instance is created
-        self.assertIsInstance(assessment, ArticleSubmissionAssessment)
-
-        # Check if is_moderator is set correctly
-        self.assertTrue(assessment.is_moderator)
-
-        # Check if approved is set correctly
-        self.assertTrue(assessment.approved)
-
-        # Check if comments are set correctly
-        self.assertEqual(assessment.comments, "Good article.")
-
-        # Check if assessed_at is set automatically
-        self.assertIsNotNone(assessment.assessed_at)
-
-    def test_unique_constraint(self):
-        # Create the first assessment
-        ArticleSubmissionAssessment.objects.create(
-            community_article=self.community_article,
-            assessor=self.user1,
-            is_moderator=True,
-            approved=True,
-            comments="Good article.",
-        )
-
-        # Try to create a second assessment with the same community_article and assessor
-        with self.assertRaises(Exception) as context:
-            ArticleSubmissionAssessment.objects.create(
-                community_article=self.community_article,
-                assessor=self.user1,
-                is_moderator=False,
-                approved=False,
-                comments="Needs improvement.",
-            )
-
-        # Check if the exception is raised due to the unique constraint
-        self.assertTrue("unique_article_assessor" in str(context.exception))
-
-    def test_assessment_with_different_assessor(self):
-        # Create an assessment with a different assessor
-        assessment = ArticleSubmissionAssessment.objects.create(
-            community_article=self.community_article,
-            assessor=self.user2,
-            is_moderator=False,
-            approved=False,
-            comments="Needs improvement.",
-        )
-
-        # Check if the assessment is created successfully
-        self.assertIsInstance(assessment, ArticleSubmissionAssessment)
-        self.assertEqual(assessment.assessor, self.user2)
-        self.assertFalse(assessment.is_moderator)
-        self.assertFalse(assessment.approved)
-        self.assertEqual(assessment.comments, "Needs improvement.")

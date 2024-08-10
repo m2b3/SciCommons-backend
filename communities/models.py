@@ -38,6 +38,9 @@ class Community(models.Model):
     def is_member(self, user):
         return self.members.filter(pk=user.pk).exists()
 
+    def is_admin(self, user):
+        return self.admins.filter(pk=user.pk).exists()
+
     def __str__(self):
         return self.name
 
@@ -92,38 +95,43 @@ class JoinRequest(models.Model):
 
 
 class CommunityArticle(models.Model):
+    SUBMITTED = "submitted"
+    APPROVED_BY_ADMIN = "approved"
+    UNDER_REVIEW = "under_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    PUBLISHED = "published"
+
     SUBMISSION_STATUS = [
-        ("submitted", "Submitted"),
-        ("approved", "Approved by Admin"),
-        ("under_review", "Under Review"),
-        ("accepted", "Accepted"),
-        ("rejected", "Rejected"),
-        ("published", "Published"),
+        (SUBMITTED, "Submitted"),
+        (APPROVED_BY_ADMIN, "Approved by Admin"),
+        (UNDER_REVIEW, "Under Review"),
+        (ACCEPTED, "Accepted"),
+        (REJECTED, "Rejected"),
+        (PUBLISHED, "Published"),
     ]
+
     article = models.ForeignKey("articles.Article", on_delete=models.CASCADE)
     community = models.ForeignKey(Community, on_delete=models.CASCADE)
     status = models.CharField(
-        max_length=20, choices=SUBMISSION_STATUS, default="submitted"
+        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
-
-class ArticleSubmissionAssessment(models.Model):
-    community_article = models.ForeignKey(
-        CommunityArticle, on_delete=models.CASCADE, related_name="assessments"
+    assigned_reviewers = models.ManyToManyField(
+        User, related_name="assigned_reviews", blank=True
     )
-    assessor = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="article_assessments"
+    assigned_moderator = models.ForeignKey(
+        User,
+        related_name="assigned_moderations",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
     )
-    is_moderator = models.BooleanField(default=False)
-    approved = models.BooleanField(null=True)
-    comments = models.TextField(blank=True)
-    assessed_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["community_article", "assessor"], name="unique_article_assessor"
-            )
-        ]
+    def __str__(self):
+        return (
+            f"{self.article.title} in {self.community.name} - "
+            f"{self.get_status_display()}"
+        )

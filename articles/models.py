@@ -95,6 +95,15 @@ class AnonymousIdentity(models.Model):
 
 
 class Review(models.Model):
+    REVIEWER = "reviewer"
+    MODERATOR = "moderator"
+    PUBLIC = "public"
+    REVIEW_TYPES = [
+        (REVIEWER, "Reviewer Review"),
+        (MODERATOR, "Moderator Decision"),
+        (PUBLIC, "Public Review"),
+    ]
+
     article = models.ForeignKey(
         Article, related_name="reviews", on_delete=models.CASCADE
     )
@@ -102,12 +111,17 @@ class Review(models.Model):
     community = models.ForeignKey(
         "communities.Community", null=True, blank=True, on_delete=models.CASCADE
     )
+    community_article = models.ForeignKey(
+        "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
+    )
 
+    review_type = models.CharField(max_length=10, choices=REVIEW_TYPES, default=PUBLIC)
     rating = models.IntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     subject = models.CharField(max_length=255)
     content = models.TextField()
+    is_approved = models.BooleanField(default=False)
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,12 +129,13 @@ class Review(models.Model):
     reaction = GenericRelation("Reaction", related_query_name="reviews")
 
     def __str__(self):
-        return f"{self.subject} by {self.user.username}"
+        return (
+            f"{self.subject} by {self.user.username} ({self.get_review_type_display()})"
+        )
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
             old_review = Review.objects.get(pk=self.pk)
-            # Todo: Fix versioning logic
             if old_review.content != self.content:
                 ReviewVersion.objects.create(
                     review=self,

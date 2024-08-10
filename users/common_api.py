@@ -2,7 +2,7 @@
 A common API for HashTags, Reactions, and Bookmarks
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -11,8 +11,9 @@ from ninja import Query, Router
 from ninja.errors import HttpRequest
 
 # Todo: Move the Reaction model to the users app
-from articles.models import Reaction
-from myapp.schemas import Message
+from articles.models import Article, Reaction
+from communities.models import Community
+from myapp.schemas import Message, PermissionCheckOut
 from posts.models import Post
 from posts.schemas import PaginatedPostsResponse, PostOut
 from users.auth import JWTAuth, OptionalJWTAuth
@@ -32,6 +33,33 @@ from users.schemas import (
 )
 
 router = Router(tags=["Users Common API"])
+
+"""
+Check Permissions
+"""
+
+
+@router.get("/check-permission", response=PermissionCheckOut, auth=JWTAuth())
+def check_permission(
+    request,
+    dashboard_type: Optional[Literal["article", "community"]] = Query(None),
+    resource_id: Optional[str] = Query(None),
+):
+    user = request.auth
+    if not user:
+        return {"has_permission": False}
+
+    if dashboard_type == "article":
+        article = Article.objects.get(slug=resource_id)
+        has_permission = article.submitter == user
+    elif dashboard_type == "community":
+        community = Community.objects.get(name=resource_id)
+        has_permission = community.is_admin(user)
+    else:
+        has_permission = False
+
+    return {"has_permission": has_permission}
+
 
 """
 Bookmarks API

@@ -108,10 +108,7 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
         community_article = CommunityArticle.objects.get(
             article=article, community=community
         )
-        if (
-            community_article.status != "accepted"
-            and community_article.status != "published"
-        ):
+        if community_article.status == "rejected":
             return 403, {"message": "This article is not available in this community."}
 
         if community.type == "hidden":

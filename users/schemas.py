@@ -60,7 +60,6 @@ class ResetPasswordSchema(Schema):
 
     password: str
     confirm_password: str
-    token: str
 
 
 class AcademicStatusSchema(Schema):

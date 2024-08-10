@@ -2,7 +2,6 @@ from enum import Enum
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
-from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
@@ -10,7 +9,6 @@ from ninja.responses import codes_4xx, codes_5xx
 
 # Todo: Move the Reaction model to the users app
 from articles.models import Article, Reaction
-from articles.schemas import ArticleOut, PaginatedArticlesResponse
 from communities.models import Community
 from myapp.schemas import Message, UserStats
 from posts.models import Post
@@ -99,7 +97,7 @@ User's Content API
     response={200: List[UserArticleSchema], 400: Message, 500: Message},
     auth=JWTAuth(),
 )
-def get_articles(request: HttpRequest):
+def get_my_articles(request: HttpRequest):
     user = request.auth
     articles = Article.objects.filter(submitter=user).order_by("-created_at")
     return articles
@@ -168,40 +166,6 @@ def get_my_communities(request):
             )
 
     return communities
-
-
-# Todo: Move this API endpoint to the communities app
-@router.get(
-    "/my-articles",
-    response={200: PaginatedArticlesResponse, 400: Message, 500: Message},
-    auth=JWTAuth(),
-)
-def get_my_articles(
-    request,
-    status_filter: Optional[StatusFilter] = Query(None),
-    page: int = Query(1, gt=0),
-    limit: int = Query(10, gt=0, le=100),
-):
-    articles = Article.objects.filter(submitter=request.auth).order_by("-created_at")
-
-    if status_filter == StatusFilter.PUBLISHED:
-        articles = articles.filter(published=True)
-    elif status_filter == StatusFilter.UNSUBMITTED:
-        articles = articles.filter(status="Pending", community=None)
-
-    paginator = Paginator(articles, limit)
-    paginated_articles = paginator.get_page(page)
-
-    return 200, PaginatedArticlesResponse(
-        items=[
-            ArticleOut.from_orm_with_custom_fields(article, request.auth)
-            for article in paginated_articles
-        ],
-        total=paginator.count,
-        page=page,
-        page_size=limit,
-        num_pages=paginator.num_pages,
-    )
 
 
 @router.get(

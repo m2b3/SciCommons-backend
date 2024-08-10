@@ -253,13 +253,11 @@ def request_reset(request: HttpRequest, email: str):
     return 200, {"message": "Password reset link has been sent to your email."}
 
 
-@router.post("/reset-password", response={200: Message, 400: Message})
-def reset_password(request: HttpRequest, payload: ResetPasswordSchema):
+@router.post("/reset-password/{token}", response={200: Message, 400: Message})
+def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchema):
     try:
         # Unsign to verify the token and extract the UID
-        original_uid = signer.unsign(
-            payload.token, max_age=3600
-        )  # Token expires after 1 hour
+        original_uid = signer.unsign(token, max_age=3600)  # Token expires after 1 hour
         uid = urlsafe_base64_decode(original_uid).decode()
         user = User.objects.get(pk=uid)
 

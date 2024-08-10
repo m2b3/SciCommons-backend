@@ -3,17 +3,11 @@ from enum import Enum
 from typing import List, Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
-from django.utils import timezone
 from ninja import ModelSchema, Schema
 
-from articles.schemas import ArticleBasicOut, ArticleOut
-from communities.models import (
-    ArticleSubmissionAssessment,
-    Community,
-    CommunityArticle,
-    JoinRequest,
-)
-from myapp.schemas import DateCount, FilterType, UserStats
+from articles.schemas import ArticleBasicOut
+from communities.models import Community, CommunityArticle, JoinRequest
+from myapp.schemas import DateCount, FilterType
 from users.models import HashtagRelation, User
 
 """
@@ -187,53 +181,9 @@ class Filters(Schema):
     submitted_before: Optional[datetime] = None
 
 
-class AssessorSchema(ModelSchema):
-    assessor: UserStats
-
-    class Config:
-        model = ArticleSubmissionAssessment
-        model_fields = [
-            "id",
-            "assessor",
-            "is_moderator",
-            "approved",
-            "comments",
-            "assessed_at",
-        ]
-
-    @staticmethod
-    def from_orm_with_custom_fields(assessment: ArticleSubmissionAssessment):
-        return AssessorSchema(
-            id=assessment.id,
-            assessor=UserStats.from_model(assessment.assessor, basic_details=True),
-            is_moderator=assessment.is_moderator,
-            approved=assessment.approved,
-            comments=assessment.comments,
-            assessed_at=assessment.assessed_at,
-        )
-
-
-class AssessmentSubmissionSchema(Schema):
-    approved: bool
-    comments: str
-
-
-class ArticleStatusSchema(Schema):
-    status: str
-    submitted_at: Optional[timezone.datetime]
-    published_at: Optional[timezone.datetime]
-    assessors: List[AssessorSchema]
-    article: ArticleOut
-
-
 """
 Assessors related schemas
 """
-
-
-class AssessorArticleSchema(Schema):
-    article: ArticleOut
-    assessor: AssessorSchema
 
 
 class CommunityPostOut(Schema):
@@ -422,3 +372,18 @@ class CommunityStatsResponse(Schema):
     member_growth: List[DateCount]
     article_submission_trends: List[DateCount]
     recently_published_articles: List[ArticleBasicOut]
+
+
+"""
+Community Article schemas for serialization and validation.
+"""
+
+
+class StatusFilter(str, Enum):
+    SUBMITTED = "submitted"
+    APPROVED_BY_ADMIN = "approved"
+    UNDER_REVIEW = "under_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    PUBLISHED = "published"
+    UNSUBMITTED = "unsubmitted"
