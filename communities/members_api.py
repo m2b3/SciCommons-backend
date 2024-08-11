@@ -32,9 +32,26 @@ def get_community_members(request, community_name: str):
     def get_user_data(user: User):
         membership = Membership.objects.filter(user=user, community=community).first()
 
-        articles_published = CommunityArticle.objects.filter(
-            article__submitter=user, community=community, status="published"
+        # Fetch submitted articles
+        articles_submitted = CommunityArticle.objects.filter(
+            article__submitter=user, community=community
         ).count()
+
+        # Fetch published articles
+        articles_published = CommunityArticle.objects.filter(
+            article__submitter=user,
+            community=community,
+            status=CommunityArticle.PUBLISHED,
+        ).count()
+
+        # Fetch reviewed articles
+        articles_reviewed = (
+            CommunityArticle.objects.filter(
+                assigned_reviewers=user, community=community
+            )
+            .exclude(status=CommunityArticle.SUBMITTED)
+            .count()
+        )
 
         return UserSchema(
             id=user.id,
@@ -42,7 +59,9 @@ def get_community_members(request, community_name: str):
             email=user.email,
             profile_pic_url=user.profile_pic_url,
             joined_at=membership.joined_at if membership else None,
+            articles_submitted=articles_submitted,
             articles_published=articles_published,
+            articles_reviewed=articles_reviewed,
         )
 
     # Get lists of distinct user groups

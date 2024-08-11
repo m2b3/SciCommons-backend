@@ -278,13 +278,13 @@ def respond_to_email_invitation(
 
 
 @router.get(
-    "/{community_id}/invitations",
+    "/{community_name}/invitations",
     auth=JWTAuth(),
     response={200: list[InvitationDetails], codes_4xx: Message, codes_5xx: Message},
 )
-def get_community_invitations(request, community_id: int):
+def get_community_invitations(request, community_name: str):
     # Ensure the community exists
-    community = Community.objects.get(pk=community_id)
+    community = Community.objects.get(name=community_name)
 
     # Verify if the authenticated user is an admin of this community
     if request.auth not in community.admins.all():

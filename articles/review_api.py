@@ -16,7 +16,7 @@ from articles.schemas import (
     ReviewOut,
     ReviewUpdateSchema,
 )
-from communities.models import Community
+from communities.models import Community, CommunityArticle
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
@@ -37,11 +37,9 @@ def create_review(
     article = Article.objects.get(id=article_id)
     user = request.auth
 
-    # Ensure the owner of the article can't review their own article
     if article.submitter == user:
         return 400, {"message": "You can't review your own article."}
 
-    # Check if the user has already reviewed the article in the same context
     existing_review = Review.objects.filter(article=article, user=user)
 
     if community_id:
@@ -49,26 +47,63 @@ def create_review(
         if not community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
 
+        community_article = CommunityArticle.objects.get(
+            article=article, community=community
+        )
+
+        if community_article.assigned_reviewers.filter(id=user.id).exists():
+            review_type = Review.REVIEWER
+        elif community_article.assigned_moderator == user:
+            review_type = Review.MODERATOR
+        else:
+            review_type = Review.PUBLIC
+
+        if review_type == Review.PUBLIC:
+            if community_article.status != CommunityArticle.ACCEPTED:
+                return 403, {"message": "This article is not currently accepted."}
+        elif review_type == Review.REVIEWER:
+            if community_article.status != CommunityArticle.UNDER_REVIEW:
+                return 403, {"message": "This article is not currently under review."}
+        elif review_type == Review.MODERATOR:
+            if community_article.status != CommunityArticle.UNDER_REVIEW:
+                return 403, {"message": "This article is not currently under review."}
+
+            assigned_reviewer_count = community_article.assigned_reviewers.count()
+            if assigned_reviewer_count > 0:
+                approved_review_count = Review.objects.filter(
+                    community_article=community_article,
+                    user__in=community_article.assigned_reviewers.all(),
+                    is_approved=True,
+                ).count()
+
+                if approved_review_count < assigned_reviewer_count:
+                    return 403, {
+                        "message": "You can only review this article "
+                        "after all assigned reviewers have approved it."
+                    }
+
         if existing_review.filter(community=community).exists():
             return 400, {
                 "message": "You have already reviewed this article in this community."
             }
+
     else:
         if existing_review.filter(community__isnull=True).exists():
-            return 400, {
-                "message": "You have already reviewed this article on\
-                      the official public page."
-            }
+            return 400, {"message": "You have already reviewed this article."}
+
+        review_type = Review.PUBLIC
 
     review = Review.objects.create(
         article=article,
         user=user,
         community=community if community_id else None,
+        community_article=community_article if community_id else None,
+        review_type=review_type,
         rating=review_data.rating,
         subject=review_data.subject,
         content=review_data.content,
     )
-    # Create an anonymous name for the user who created the review
+
     review.get_anonymous_name()
 
     return 201, ReviewOut.from_orm(review, user)
@@ -143,6 +178,7 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
     review.rating = review_data.rating or review.rating
     review.subject = review_data.subject or review.subject
     review.content = review_data.content or review.content
+
     review.save()
 
     return 201, ReviewOut.from_orm(review, user)

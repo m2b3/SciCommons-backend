@@ -50,7 +50,8 @@ class ArticleCommunityDetails(ModelSchema):
         model_fields = ["id", "name", "description", "profile_pic_url"]
 
 
-class CommunityArticleStatusSchema(Schema):
+class CommunityArticleOut(ModelSchema):
+    id: int
     community: ArticleCommunityDetails
     status: Literal[
         "submitted",
@@ -62,6 +63,36 @@ class CommunityArticleStatusSchema(Schema):
     ]
     submitted_at: datetime
     published_at: Optional[datetime]
+    reviewer_ids: List[int] = Field(default_factory=list)
+    moderator_id: Optional[int] = None
+
+    class Config:
+        model = CommunityArticle
+        model_fields = [
+            "id",
+            "community",
+            "status",
+            "submitted_at",
+            "published_at",
+        ]
+
+    @classmethod
+    def from_orm(cls, community_article: CommunityArticle):
+        return cls(
+            id=community_article.id,
+            community=ArticleCommunityDetails.from_orm(community_article.community),
+            status=community_article.status,
+            submitted_at=community_article.submitted_at,
+            published_at=community_article.published_at,
+            reviewer_ids=list(
+                community_article.assigned_reviewers.values_list("id", flat=True)
+            ),
+            moderator_id=(
+                community_article.assigned_moderator.id
+                if community_article.assigned_moderator
+                else None
+            ),
+        )
 
 
 class ArticleOut(ModelSchema):
@@ -71,7 +102,7 @@ class ArticleOut(ModelSchema):
     total_discussions: int
     total_reviews: int
     total_comments: int
-    community_article_status: Optional[CommunityArticleStatusSchema]
+    community_article: Optional[CommunityArticleOut]
     article_pdf_urls: List[str]
     user: UserStats
     is_submitter: bool
@@ -111,17 +142,11 @@ class ArticleOut(ModelSchema):
         total_comments = ReviewComment.objects.filter(review__article=article).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
-        community_article_status = None
+        community_article = None
 
         if CommunityArticle.objects.filter(article=article).exists():
             community_article = CommunityArticle.objects.get(article=article)
-            community = community_article.community
-            community_article_status = CommunityArticleStatusSchema(
-                community=ArticleCommunityDetails.from_orm(community),
-                status=community_article.status,
-                submitted_at=community_article.submitted_at,
-                published_at=community_article.published_at,
-            )
+            community_article = CommunityArticleOut.from_orm(community_article)
 
         return cls(
             id=article.id,
@@ -140,7 +165,7 @@ class ArticleOut(ModelSchema):
             total_reviews=total_reviews,
             total_discussions=total_discussions,
             total_comments=total_comments,
-            community_article_status=community_article_status,
+            community_article=community_article,
             user=user,
             is_submitter=(article.submitter == current_user) if current_user else False,
         )
@@ -254,18 +279,22 @@ class ReviewOut(ModelSchema):
     is_author: bool = Field(default=False)
     versions: List[ReviewVersionSchema] = Field(...)
     user: UserStats = Field(...)
+    community_article: Optional[CommunityArticleOut] = None
     article_id: int
     comments_count: int = Field(0)
     anonymous_name: str = Field(None)
+    is_approved: bool = Field(False)
 
     class Config:
         model = Review
         model_fields = [
             "id",
             "rating",
+            "review_type",
             "subject",
             "content",
             "version",
+            "is_approved",
             "created_at",
             "updated_at",
             "deleted_at",
@@ -282,11 +311,22 @@ class ReviewOut(ModelSchema):
         ).fake_name
         user = UserStats.from_model(review.user, basic_details=True)
 
+        community_article = None
+
+        if CommunityArticle.objects.filter(
+            article=review.article, community=review.community
+        ).exists():
+            community_article = CommunityArticle.objects.get(
+                article=review.article, community=review.community
+            )
+            community_article = CommunityArticleOut.from_orm(community_article)
+
         return cls(
             id=review.id,
             user=user,
             article_id=review.article.id,
             rating=review.rating,
+            review_type=review.review_type,
             subject=review.subject,
             content=review.content,
             version=review.version,
@@ -295,8 +335,10 @@ class ReviewOut(ModelSchema):
             deleted_at=review.deleted_at,
             comments_count=comments_count,
             is_author=review.user == current_user,
+            is_approved=review.is_approved,
             versions=versions,
             anonymous_name=anonymous_name,
+            community_article=community_article,
         )
 
 

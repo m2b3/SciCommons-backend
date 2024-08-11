@@ -8,9 +8,9 @@ from articles.api import router as articles_router
 from articles.discussion_api import router as articles_discussion_router
 from articles.review_api import router as articles_review_router
 from communities.api import router as communities_router
-from communities.api_articles import router as communities_posts_router
 from communities.api_invitation import router as communities_invitation_router
 from communities.api_join import router as communities_join_router
+from communities.articles_api import router as communities_posts_router
 from communities.members_api import router as communities_admin_router
 from posts.api import router as posts_router
 from users.api import router as users_general_router
@@ -28,7 +28,7 @@ Global Exception Handlers (Error Handlers)
 def custom_authentication_error_handler(request, exc):
     return api.create_response(
         request,
-        {"message": "You need to be authenticated to perform this action."},
+        {"message": "Please log in to access this resource."},
         status=401,
     )
 

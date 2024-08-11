@@ -39,7 +39,10 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
 
     if user:
         if not user.is_active:
-            return 400, {"message": "Email already registered but not activated."}
+            return 400, {
+                "message": "Email already registered but not activated. Please"
+                " check your email for the activation link."
+            }
         else:
             return 400, {"message": "Email is already in use."}
 
@@ -93,7 +96,7 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
     }
 
 
-@router.get("/activate/{token}", response={200: Message, 400: Message, 404: Message})
+@router.post("/activate/{token}", response={200: Message, 400: Message, 404: Message})
 def activate(request: HttpRequest, token: str):
     try:
         # Extract the user ID from the token and check expiration
@@ -133,7 +136,7 @@ def resend_activation(request: HttpRequest, email: str):
 
         # Generate a new and unique activation token
         token = signer.sign(user.pk)
-        link = f"{request.scheme}://{request.get_host()}/activate/{token}"
+        link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
 
         # Render the HTML template with context
         html_content = render_to_string(
@@ -229,7 +232,7 @@ def request_reset(request: HttpRequest, email: str):
     signed_uid = signer.sign(uid)
 
     # Generate the reset link
-    reset_link = f"{request.scheme}://{request.get_host()}/reset-password/{signed_uid}"
+    reset_link = f"{settings.FRONTEND_URL}/auth/resetpassword/{signed_uid}"
 
     # Render the HTML template with context
     html_content = render_to_string(
@@ -253,13 +256,11 @@ def request_reset(request: HttpRequest, email: str):
     return 200, {"message": "Password reset link has been sent to your email."}
 
 
-@router.post("/reset-password", response={200: Message, 400: Message})
-def reset_password(request: HttpRequest, payload: ResetPasswordSchema):
+@router.post("/reset-password/{token}", response={200: Message, 400: Message})
+def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchema):
     try:
         # Unsign to verify the token and extract the UID
-        original_uid = signer.unsign(
-            payload.token, max_age=3600
-        )  # Token expires after 1 hour
+        original_uid = signer.unsign(token, max_age=3600)  # Token expires after 1 hour
         uid = urlsafe_base64_decode(original_uid).decode()
         user = User.objects.get(pk=uid)
 
