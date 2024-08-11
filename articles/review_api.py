@@ -89,10 +89,7 @@ def create_review(
 
     else:
         if existing_review.filter(community__isnull=True).exists():
-            return 400, {
-                "message": "You have already reviewed this article"
-                " on the official public page."
-            }
+            return 400, {"message": "You have already reviewed this article."}
 
         review_type = Review.PUBLIC
 
@@ -181,6 +178,7 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
     review.rating = review_data.rating or review.rating
     review.subject = review_data.subject or review.subject
     review.content = review_data.content or review.content
+
     review.save()
 
     return 201, ReviewOut.from_orm(review, user)

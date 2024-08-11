@@ -293,7 +293,9 @@ class UserSchema(Schema):
     email: str
     profile_pic_url: str | None
     joined_at: datetime | None
+    articles_submitted: int
     articles_published: int
+    articles_reviewed: int
 
 
 class MembersResponse(Schema):
