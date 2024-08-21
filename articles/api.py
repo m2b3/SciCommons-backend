@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from ninja import File, Query, Router, UploadedFile
@@ -24,6 +25,7 @@ from articles.schemas import (
 )
 from communities.models import Community, CommunityArticle
 from myapp.schemas import FilterType
+from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation, Notification, User
 
@@ -41,52 +43,64 @@ def create_article(
     image_file: File[UploadedFile] = None,
     pdf_files: List[UploadedFile] = File(None),
 ):
-    # Check if the article link is unique
-    if details.payload.article_link:
-        if Article.objects.filter(article_link=details.payload.article_link).exists():
+    with transaction.atomic():
+        validate_tags(details.payload.keywords)
+
+        # If either title, abstract aren't unique, return an error
+        if Article.objects.filter(
+            title=details.payload.title, abstract=details.payload.abstract
+        ).exists():
             return 400, {"message": "This article has already been submitted."}
 
-    # Create the Article instance
-    article = Article.objects.create(
-        title=details.payload.title,
-        abstract=details.payload.abstract,
-        authors=[author.dict() for author in details.payload.authors],
-        article_image_url=image_file,
-        article_link=details.payload.article_link or None,
-        submission_type=details.payload.submission_type,
-        submitter=request.auth,
-    )
+        # Check if the article link is unique
+        if details.payload.article_link:
+            if Article.objects.filter(
+                article_link=details.payload.article_link
+            ).exists():
+                return 400, {"message": "This article has already been submitted."}
 
-    if pdf_files:  # Only process pdf_files if they are provided
-        for file in pdf_files:
-            ArticlePDF.objects.create(article=article, pdf_file_url=file)
-
-    # Todo: Create a common method to handle the creation of hashtags
-    content_type = ContentType.objects.get_for_model(Article)
-    for hashtag_name in details.payload.keywords:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=article.id
+        # Create the Article instance
+        article = Article.objects.create(
+            title=details.payload.title,
+            abstract=details.payload.abstract,
+            authors=[author.dict() for author in details.payload.authors],
+            article_image_url=image_file,
+            article_link=details.payload.article_link or None,
+            submission_type=details.payload.submission_type,
+            submitter=request.auth,
         )
 
-    if details.payload.community_name:
-        community = Community.objects.get(name=details.payload.community_name)
-        CommunityArticle.objects.create(article=article, community=community)
+        if pdf_files:  # Only process pdf_files if they are provided
+            for file in pdf_files:
+                ArticlePDF.objects.create(article=article, pdf_file_url=file)
 
-        # Send notification to the community admin
-        Notification.objects.create(
-            user=community.admins.first(),
-            community=community,
-            category="communities",
-            notification_type="article_submitted",
-            message=(
-                f"New article submitted in {community.name} by {request.auth.username}"
-            ),
-            link=f"/community/{community.name}/submissions",
-            content=article.title,
-        )
+        # Todo: Create a common method to handle the creation of hashtags
+        content_type = ContentType.objects.get_for_model(Article)
+        for hashtag_name in details.payload.keywords:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=article.id
+            )
 
-    return ArticleOut.from_orm_with_custom_fields(article, request.auth)
+        if details.payload.community_name:
+            community = Community.objects.get(name=details.payload.community_name)
+            CommunityArticle.objects.create(article=article, community=community)
+
+            # Send notification to the community admin
+            Notification.objects.create(
+                user=community.admins.first(),
+                community=community,
+                category="communities",
+                notification_type="article_submitted",
+                message=(
+                    f"New article submitted in {community.name}"
+                    f" by {request.auth.username}"
+                ),
+                link=f"/community/{community.name}/submissions",
+                content=article.title,
+            )
+
+        return ArticleOut.from_orm_with_custom_fields(article, request.auth)
 
 
 # Todo: Make this Endpoint partially protected
@@ -138,37 +152,40 @@ def update_article(
     details: ArticleUpdateSchema,
     image_file: File[UploadedFile] = None,
 ):
-    article = Article.objects.get(id=article_id)
+    with transaction.atomic():
+        article = Article.objects.get(id=article_id)
 
-    # Check if the user is the submitter
-    if article.submitter != request.auth:
-        return 403, {"message": "You don't have permission to update this article."}
+        # Check if the user is the submitter
+        if article.submitter != request.auth:
+            return 403, {"message": "You don't have permission to update this article."}
 
-    # Update the article fields only if they are provided
-    article.title = details.payload.title
-    article.abstract = details.payload.abstract
-    article.authors = [author.dict() for author in details.payload.authors]
-    article.faqs = [faq.dict() for faq in details.payload.faqs]
+        # Update the article fields only if they are provided
+        article.title = details.payload.title
+        article.abstract = details.payload.abstract
+        article.authors = [author.dict() for author in details.payload.authors]
+        article.faqs = [faq.dict() for faq in details.payload.faqs]
 
-    # Update Keywords
-    content_type = ContentType.objects.get_for_model(Article)
-    HashtagRelation.objects.filter(
-        content_type=content_type, object_id=article.id
-    ).delete()
-    for hashtag_name in details.payload.keywords:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=article.id
-        )
+        validate_tags(details.payload.keywords)
 
-    # Only update the image and pdf file if a new file is uploaded
-    if image_file:
-        article.article_image_url = image_file
+        # Update Keywords
+        content_type = ContentType.objects.get_for_model(Article)
+        HashtagRelation.objects.filter(
+            content_type=content_type, object_id=article.id
+        ).delete()
+        for hashtag_name in details.payload.keywords:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=article.id
+            )
 
-    article.submission_type = details.payload.submission_type
-    article.save()
+        # Only update the image and pdf file if a new file is uploaded
+        if image_file:
+            article.article_image_url = image_file
 
-    return ArticleOut.from_orm_with_custom_fields(article, request.auth)
+        article.submission_type = details.payload.submission_type
+        article.save()
+
+        return ArticleOut.from_orm_with_custom_fields(article, request.auth)
 
 
 @router.get(

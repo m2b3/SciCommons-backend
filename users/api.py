@@ -197,6 +197,7 @@ def get_my_posts(request):
 
         result.append(
             {
+                "id": post.id,
                 "title": post.title,
                 "created_at": post.created_at,
                 "likes_count": likes_count,
@@ -234,6 +235,7 @@ def get_my_favorites(request):
                     "type": "Article",
                     "details": f"Article by {article.submitter.username}",
                     "tag": "Article",
+                    "slug": article.slug,
                 }
             )
         elif item.content_type == community_type:
@@ -244,6 +246,7 @@ def get_my_favorites(request):
                     "type": "Community",
                     "details": f"{community.members.count()} members",
                     "tag": "Community",
+                    "slug": community.slug,
                 }
             )
         elif item.content_type == post_type:
@@ -257,6 +260,7 @@ def get_my_favorites(request):
                         f"{post.reactions.filter(vote=Reaction.LIKE).count()} likes"
                     ),
                     "tag": "Post",
+                    "slug": str(post.id),
                 }
             )
 
@@ -280,6 +284,7 @@ def get_my_bookmarks(request):
                     "title": obj.title,
                     "type": "Article",
                     "details": f"Article by {obj.author.get_full_name()}",
+                    "slug": obj.slug,
                 }
             )
         elif isinstance(obj, Community):
@@ -289,6 +294,7 @@ def get_my_bookmarks(request):
                     "title": obj.name,
                     "type": "Community",
                     "details": f"{obj.members.count()} members",
+                    "slug": obj.slug,
                 }
             )
         elif isinstance(obj, Post):
@@ -301,6 +307,7 @@ def get_my_bookmarks(request):
                         f"Post by {obj.author.username} · "
                         f"{obj.reactions.filter(vote=1).count()} likes"
                     ),
+                    "slug": str(obj.id),
                 }
             )
 

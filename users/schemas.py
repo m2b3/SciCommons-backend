@@ -181,6 +181,7 @@ class UserCommunitySchema(Schema):
 
 
 class UserPostSchema(Schema):
+    id: int
     title: str
     created_at: datetime
     likes_count: int
@@ -193,6 +194,7 @@ class FavoriteItemSchema(Schema):
     type: str
     details: str
     tag: str
+    slug: str
 
 
 """
@@ -286,6 +288,7 @@ class BookmarkSchema(Schema):
     title: str
     type: str
     details: str
+    slug: str
 
 
 class BookmarkToggleSchema(Schema):

@@ -120,7 +120,7 @@ class Notification(models.Model):
 
 
 class Hashtag(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=25, unique=True)
 
 
 # Genertic HashTag model

@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
 from ninja import Query, Router
@@ -31,18 +32,19 @@ Post related endpoints
 
 @router.post("/", response={201: PostOut, 400: Message, 500: Message}, auth=JWTAuth())
 def create_post(request: HttpRequest, data: PostCreateSchema):
-    user = request.auth
-    post = Post.objects.create(author=user, title=data.title, content=data.content)
+    with transaction.atomic():
+        user = request.auth
+        post = Post.objects.create(author=user, title=data.title, content=data.content)
 
-    # Create or retrieve hashtags and create relations
-    content_type = ContentType.objects.get_for_model(Post)
-    for hashtag_name in data.hashtags:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=post.id
-        )
+        # Create or retrieve hashtags and create relations
+        content_type = ContentType.objects.get_for_model(Post)
+        for hashtag_name in data.hashtags:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=post.id
+            )
 
-    return 201, PostOut.resolve_post(post, user)
+        return 201, PostOut.resolve_post(post, user)
 
 
 @router.get(
@@ -99,28 +101,26 @@ def get_post(request, post_id: int):
     "/{post_id}", response={200: PostOut, 400: Message, 404: Message}, auth=JWTAuth()
 )
 def update_post(request: HttpRequest, post_id: int, data: PostCreateSchema):
-    user = request.auth
-    try:
+    with transaction.atomic():
+        user = request.auth
         post = Post.objects.get(id=post_id, author=user)
-    except Post.DoesNotExist:
-        return 404, {"message": "Post not found"}
 
-    post.title = data.title
-    post.content = data.content
-    post.save()
+        post.title = data.title
+        post.content = data.content
+        post.save()
 
-    # Update hashtags
-    content_type = ContentType.objects.get_for_model(Post)
-    HashtagRelation.objects.filter(
-        content_type=content_type, object_id=post.id
-    ).delete()
-    for hashtag_name in data.hashtags:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=post.id
-        )
+        # Update hashtags
+        content_type = ContentType.objects.get_for_model(Post)
+        HashtagRelation.objects.filter(
+            content_type=content_type, object_id=post.id
+        ).delete()
+        for hashtag_name in data.hashtags:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=post.id
+            )
 
-    return 200, PostOut.resolve_post(post, user)
+        return 200, PostOut.resolve_post(post, user)
 
 
 @router.delete("/{post_id}/", response={204: None, 403: str, 404: str}, auth=JWTAuth())
