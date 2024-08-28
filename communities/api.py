@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from ninja import File, Query, Router, UploadedFile
@@ -21,6 +22,7 @@ from communities.schemas import (
     PaginatedCommunities,
 )
 from myapp.schemas import DateCount, Message
+from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation
 
@@ -45,30 +47,36 @@ def create_community(
     # Retrieve the authenticated user from the JWT token
     user = request.auth
 
-    if Community.objects.filter(admins=user).exists():
-        return 400, {"message": "You can only create one community."}
+    with transaction.atomic():
+        # Check if the user created communities are less than 5
+        if Community.objects.filter(admins=user).count() >= 3:
+            return 400, {"message": "You can only create 3 communities."}
 
-    # Validate the provided data and create a new Community
-    new_community = Community.objects.create(
-        name=payload.details.name,
-        description=payload.details.description,
-        type=payload.details.type,
-        profile_pic_url=profile_image_file,
-    )
+        # validate all tags at once
+        validate_tags(payload.details.tags)
 
-    # Create Tags
-    content_type = ContentType.objects.get_for_model(Community)
-
-    for hashtag_name in payload.details.tags:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=new_community.id
+        # Validate the provided data and create a new Community
+        new_community = Community(
+            name=payload.details.name,
+            description=payload.details.description,
+            type=payload.details.type,
+            profile_pic_url=profile_image_file,
         )
+        new_community.save()
 
-    new_community.admins.add(user)  # Add the creator as an admin
-    new_community.members.add(user)  # Add the creator as a member
+        # Create Tags
+        content_type = ContentType.objects.get_for_model(Community)
 
-    return 201, CommunityOut.from_orm_with_custom_fields(new_community, user)
+        for hashtag_name in payload.details.tags:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=new_community.id
+            )
+
+        new_community.admins.add(user)  # Add the creator as an admin
+        new_community.members.add(user)  # Add the creator as a member
+
+        return 201, CommunityOut.from_orm_with_custom_fields(new_community, user)
 
 
 @router.get(
@@ -155,37 +163,40 @@ def update_community(
     profile_pic_file: File[UploadedFile] = None,
     banner_pic_file: File[UploadedFile] = None,
 ):
-    community = Community.objects.get(id=community_id)
+    with transaction.atomic():
+        community = Community.objects.get(id=community_id)
 
-    # Check if the user is an admin of this community
-    if not community.admins.filter(id=request.auth.id).exists():
-        return 403, {"message": "You do not have permission to modify this community."}
+        # Check if the user is an admin of this community
+        if not community.admins.filter(id=request.auth.id).exists():
+            return 403, {
+                "message": "You do not have permission to modify this community."
+            }
 
-    # Update fields
-    community.description = payload.details.description
-    community.type = payload.details.type
-    community.rules = payload.details.rules
-    community.about = payload.details.about
+        # Update fields
+        community.description = payload.details.description
+        community.type = payload.details.type
+        community.rules = payload.details.rules
+        community.about = payload.details.about
 
-    # Update Tags
-    content_type = ContentType.objects.get_for_model(Community)
-    HashtagRelation.objects.filter(
-        content_type=content_type, object_id=community.id
-    ).delete()
-    for hashtag_name in payload.details.tags:
-        hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-        HashtagRelation.objects.create(
-            hashtag=hashtag, content_type=content_type, object_id=community.id
-        )
+        # Update Tags
+        content_type = ContentType.objects.get_for_model(Community)
+        HashtagRelation.objects.filter(
+            content_type=content_type, object_id=community.id
+        ).delete()
+        for hashtag_name in payload.details.tags:
+            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+            HashtagRelation.objects.create(
+                hashtag=hashtag, content_type=content_type, object_id=community.id
+            )
 
-    if banner_pic_file:
-        community.banner_pic_url = banner_pic_file
-    if profile_pic_file:
-        community.profile_pic_url = profile_pic_file
+        if banner_pic_file:
+            community.banner_pic_url = banner_pic_file
+        if profile_pic_file:
+            community.profile_pic_url = profile_pic_file
 
-    community.save()
+        community.save()
 
-    return 200, CommunityOut.from_orm_with_custom_fields(community, request.auth)
+        return 200, CommunityOut.from_orm_with_custom_fields(community, request.auth)
 
 
 @router.delete("/{community_id}/", response={204: None}, auth=JWTAuth())

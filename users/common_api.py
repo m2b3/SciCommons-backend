@@ -39,7 +39,11 @@ Check Permissions
 """
 
 
-@router.get("/check-permission", response=PermissionCheckOut, auth=JWTAuth())
+@router.get(
+    "/check-permission",
+    response={200: PermissionCheckOut, 400: Message},
+    auth=JWTAuth(),
+)
 def check_permission(
     request,
     dashboard_type: Optional[Literal["article", "community"]] = Query(None),
