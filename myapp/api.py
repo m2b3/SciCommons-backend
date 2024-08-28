@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django_ratelimit.exceptions import Ratelimited
 from ninja import NinjaAPI, Router
 from ninja.errors import AuthenticationError, HttpError, HttpRequest, ValidationError
 
@@ -29,6 +30,15 @@ def custom_authentication_error_handler(request, exc):
         request,
         {"message": "Please log in to access this resource."},
         status=401,
+    )
+
+
+@api.exception_handler(Ratelimited)
+def ratelimit_exceeded_handler(request, exc):
+    return api.create_response(
+        request,
+        {"message": "Too many requests. Please try again later."},
+        status=429,
     )
 
 
