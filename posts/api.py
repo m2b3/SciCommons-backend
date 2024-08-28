@@ -6,8 +6,8 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
-from ninja import Query, Router
 from django_ratelimit.decorators import ratelimit
+from ninja import Query, Router
 
 from articles.models import Reaction
 from posts.models import Comment, Post

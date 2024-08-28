@@ -1,8 +1,8 @@
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django_ratelimit.exceptions import Ratelimited
 from ninja import NinjaAPI, Router
 from ninja.errors import AuthenticationError, HttpError, HttpRequest, ValidationError
-from django_ratelimit.exceptions import Ratelimited
 
 from articles.api import router as articles_router
 from articles.discussion_api import router as articles_discussion_router
