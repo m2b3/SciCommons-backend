@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.core.validators import validate_email
 from ninja import Router
@@ -17,6 +16,8 @@ from communities.schemas import (
 )
 from users.auth import JWTAuth
 from users.models import Notification, User
+
+from myapp.services.send_emails import send_email_task
 
 router = Router(tags=["Community Invitations"])
 
@@ -197,12 +198,11 @@ def send_invitations_to_unregistered_users(
                 f"{settings.FRONTEND_URL}/community/{community_id}/"
                 f"invitations/unregistered/{invitation.id}/{signed_email}"
             )
-            send_mail(
+            send_email_task.delay(
                 subject=payload.subject,
                 message=message,
-                from_email="no-reply@example.com",
                 recipient_list=[email],
-                fail_silently=False,
+                is_html=False,
             )
         except Exception as e:
             return 500, {"message": str(e)}

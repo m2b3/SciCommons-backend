@@ -4,7 +4,6 @@ This file contains the API endpoints related to user management.
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login
-from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError
 from django.http import JsonResponse
@@ -25,6 +24,8 @@ from users.schemas import (
     ResetPasswordSchema,
     UserCreateSchema,
 )
+
+from myapp.services.send_emails import send_email_task
 
 router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
@@ -67,22 +68,16 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
         link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
 
         # Render the HTML template with context
-        html_content = render_to_string(
-            "activation_email.html",
-            {
-                "user": user,
+        html_content = {
+                "name": user.first_name,
                 "activation_link": link,
-            },
-        )
-        plain_message = strip_tags(html_content)
+            }
 
-        # Send email
-        send_mail(
-            subject="Activate your account",
-            message=plain_message,
-            from_email="from@example.com",
-            recipient_list=[payload.email],
-            html_message=html_content,
+        send_email_task.delay(
+            subject = "Activate your account",
+            html_template_name = "activation_email.html", 
+            context = html_content, 
+            recipient_list = [payload.email]
         )
 
     except IntegrityError:
@@ -139,22 +134,17 @@ def resend_activation(request: HttpRequest, email: str):
         link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
 
         # Render the HTML template with context
-        html_content = render_to_string(
-            "resend_activation_email.html",
-            {
-                "user": user,
+        html_content = {
+                "name": user.first_name,
                 "activation_link": link,
-            },
-        )
-        plain_message = strip_tags(html_content)
+            }
 
         # Send email
-        send_mail(
-            subject="Activate your account",
-            message=plain_message,
-            from_email="from@example.com",
-            recipient_list=[email],
-            html_message=html_content,
+        send_email_task.delay(
+            subject = "Activate your account",
+            html_template_name = "resend_activation_email.html", 
+            context = html_content, 
+            recipient_list = [email]
         )
 
     except User.DoesNotExist:
@@ -235,22 +225,16 @@ def request_reset(request: HttpRequest, email: str):
     reset_link = f"{settings.FRONTEND_URL}/auth/resetpassword/{signed_uid}"
 
     # Render the HTML template with context
-    html_content = render_to_string(
-        "password_reset_email.html",
-        {
-            "user": user,
+    html_content = {
+            "name": user.first_name,
             "reset_link": reset_link,
-        },
-    )
-    plain_message = strip_tags(html_content)
-
-    # Send email
-    send_mail(
-        subject="Password Reset Request",
-        message=plain_message,
-        from_email="from@example.com",
-        recipient_list=[user.email],
-        html_message=html_content,
+        }
+    
+    send_email_task.delay(
+        subject = "Password Reset Request",
+        html_template_name = "password_reset_email.html", 
+        context = html_content, 
+        recipient_list = [user.email]
     )
 
     return 200, {"message": "Password reset link has been sent to your email."}
