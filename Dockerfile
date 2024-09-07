@@ -1,3 +1,24 @@
+# # Use an official Python runtime as a parent image
+# FROM python:3.12
+
+# # Set the working directory to /app
+# WORKDIR /app
+
+# # Copy Poetry dependencies
+# COPY pyproject.toml poetry.lock /app/
+
+# # Install Poetry
+# RUN pip install poetry
+
+# # Install Python dependencies
+# RUN poetry config virtualenvs.create false && poetry install --no-dev
+
+# # Copy the entire project
+# COPY . /app/
+
+# # Run migrations and start the server using a shell to combine the commands
+# CMD ["sh", "-c", "poetry run python manage.py migrate && poetry run python manage.py runserver 0.0.0.0:8000"]
+
 # Use an official Python runtime as a parent image
 FROM python:3.12
 
@@ -13,8 +34,14 @@ RUN pip install poetry
 # Install Python dependencies
 RUN poetry config virtualenvs.create false && poetry install --no-dev
 
+# Install Redis (necessary for Celery)
+RUN apt-get update && apt-get install -y redis-server
+
 # Copy the entire project
 COPY . /app/
 
-# Run migrations and start the server using a shell to combine the commands
-CMD ["sh", "-c", "poetry run python manage.py migrate && poetry run python manage.py runserver 0.0.0.0:8000"]
+# Expose ports for Django and Redis
+EXPOSE 8000 6379
+
+# Start Redis, run migrations, and start Django and Celery
+CMD ["sh", "-c", "redis-server --daemonize yes && poetry run python manage.py migrate && poetry run python manage.py runserver 0.0.0.0:8000 & celery -A myapp worker --loglevel=info --concurrency=5"]
