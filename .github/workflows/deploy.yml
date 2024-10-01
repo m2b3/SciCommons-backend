@@ -1,0 +1,81 @@
+name: Deploy Frontend to Arbutus Cloud Instance
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main # Runs this workflow on every push to the 'main' branch.
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup SSH keys and known_hosts
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh/
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      # Step 3: Deploy to SERVER
+      - name: Deploy to SERVER
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+
+            cd SciCommons-backend/
+
+            # Pull the latest changes from the main branch
+            echo "Pulling the latest changes from the main branch..."
+            git pull origin main
+
+            # Create and write the .env file with environment variables
+            echo "Creating and writing the .env file with environment variables..."
+            cat <<EOT > .env
+            EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
+            EMAIL_HOST=${{ secrets.EMAIL_HOST }}
+            EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
+            EMAIL_PORT=${{ secrets.EMAIL_PORT }}
+            EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}
+            DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}
+
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}
+            AWS_S3_REGION_NAME=${{ secrets.AWS_S3_REGION_NAME }}
+
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PORT=${{ secrets.DB_PORT }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+
+            CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}
+            CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND }}
+
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            EOT
+
+            # Stop the current containers
+            echo "Stopping the current containers..."
+            docker-compose down || true
+
+            # Start the containers using Docker Compose
+            echo "Starting containers using Docker Compose..."
+            docker-compose up -d --build
+
+            echo "Deployment complete."
+          EOF
