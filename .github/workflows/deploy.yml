@@ -41,6 +41,7 @@ jobs:
 
             # Create and write the .env file with environment variables
             echo "Creating and writing the .env file with environment variables..."
+            
             cat <<EOT > .env
             EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
             EMAIL_HOST=${{ secrets.EMAIL_HOST }}
@@ -68,6 +69,9 @@ jobs:
 
             SECRET_KEY=${{ secrets.SECRET_KEY }}
             EOT
+
+            # Ensure the environment variables are written before proceeding
+            echo ".env file created with environment variables."
 
             # Stop the current containers
             echo "Stopping the current containers..."
