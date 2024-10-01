@@ -73,11 +73,11 @@ jobs:
 
             # Stop the current containers
             echo "Stopping the current containers..."
-            docker-compose down || true
+            docker compose down || true
 
             # Start the containers using Docker Compose
             echo "Starting containers using Docker Compose..."
-            docker-compose up -d --build
+            docker compose up -d --build
 
             echo "Deployment complete."
           EOF
