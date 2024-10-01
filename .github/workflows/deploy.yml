@@ -2,9 +2,6 @@ name: Deploy Backend to Arbutus Cloud Instance
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main # Runs this workflow on every push to the 'main' branch.
 
 jobs:
   build-and-deploy:
@@ -32,38 +29,44 @@ jobs:
       - name: Deploy to SERVER
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-
             cd SciCommons-backend/
 
             # Pull the latest changes from the main branch
             echo "Pulling the latest changes from the main branch..."
             git pull origin main
 
-            # Create and write the .env file with environment variables
+            # Create the .env file
             echo "Creating and writing the .env file with environment variables..."
 
-            cat <<EOT > .env
-            EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
-            EMAIL_HOST=${{ secrets.EMAIL_HOST }}
-            EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
-            EMAIL_PORT=${{ secrets.EMAIL_PORT }}
-            EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}
-            DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}
-            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}
-            AWS_S3_REGION_NAME=${{ secrets.AWS_S3_REGION_NAME }}
-            DB_NAME=${{ secrets.DB_NAME }}
-            DB_USER=${{ secrets.DB_USER }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_HOST=${{ secrets.DB_HOST }}
-            DB_PORT=${{ secrets.DB_PORT }}
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}
-            CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND }}
-            SECRET_KEY=${{ secrets.SECRET_KEY }}
-            EOT
+            # Create or clear the .env file
+            > .env
+
+            # Append environment variables one by one
+            echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> .env
+            echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
+            echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> .env
+            echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
+            echo "EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}" >> .env
+            echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> .env
+
+            echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> .env
+
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env
+            echo "AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}" >> .env
+            echo "AWS_S3_REGION_NAME=${{ secrets.AWS_S3_REGION_NAME }}" >> .env
+
+            echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
+            echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+            echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
+            echo "DB_PORT=${{ secrets.DB_PORT }}" >> .env
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+
+            echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env
+            echo "CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND }}" >> .env
+
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
 
             # Ensure the environment variables are written before proceeding
             echo ".env file created with environment variables."
