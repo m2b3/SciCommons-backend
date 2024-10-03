@@ -7,7 +7,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entryPoints.websecure.address=:443"
       - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=scicommons.updates@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.email=armanalam032001@gmail.com"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
@@ -29,7 +29,7 @@ services:
       - .:/app
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.guestbook.rule=Host(`scicommons.org`)"
+      - "traefik.http.routers.guestbook.rule=Host(`backend.scicommons.org`)"
       - "traefik.http.routers.guestbook.entrypoints=websecure"
       - "traefik.http.routers.guestbook.tls.certresolver=myresolver"
       - "traefik.http.services.web.loadbalancer.server.port=8000"
