@@ -77,7 +77,7 @@ jobs:
 
             # Start the containers using Docker Compose
             echo "Starting containers using Docker Compose..."
-            docker compose up -d --build
+            docker compose -f docker-compose.prod.yml up -d --build
 
             echo "Deployment complete."
           EOF

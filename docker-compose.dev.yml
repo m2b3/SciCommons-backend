@@ -1,0 +1,25 @@
+services:
+  web:
+    build: .
+    command: >
+      sh -c "redis-server --daemonize yes && 
+              poetry run python manage.py migrate && 
+              poetry run python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - celery
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  celery:
+    build: .
+    command: celery -A myapp worker --loglevel=info --concurrency=5
+    volumes:
+      - .:/app
+    depends_on:
+      - redis

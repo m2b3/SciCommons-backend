@@ -7,7 +7,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entryPoints.websecure.address=:443"
       - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=scicommons.updates@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.email=armanalam032001@gmail.com"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
@@ -18,6 +18,7 @@ services:
     volumes:
       - letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock
+
   web:
     build: .
     command: >
@@ -28,12 +29,10 @@ services:
       - .:/app
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.guestbook.rule=Host(`scicommons.org`)"
+      - "traefik.http.routers.guestbook.rule=Host(`backend.scicommons.org/`)"
       - "traefik.http.routers.guestbook.entrypoints=websecure"
       - "traefik.http.routers.guestbook.tls.certresolver=myresolver"
       - "traefik.http.services.web.loadbalancer.server.port=8000"
-    ports:
-      - "80:8000"
     depends_on:
       - redis
       - celery
@@ -52,5 +51,4 @@ services:
       - redis
 
 volumes:
-  db-data:
   letsencrypt:
