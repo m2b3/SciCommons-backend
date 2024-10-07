@@ -22,7 +22,7 @@ providers:
 certificatesResolvers:
   cloudflare:
     acme:
-      email: armanalam032001@gmail.com
+      email: example@email.com
       storage: acme.json
       dnsChallenge:
         provider: cloudflare

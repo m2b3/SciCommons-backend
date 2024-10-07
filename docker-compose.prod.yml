@@ -18,8 +18,8 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /home/ubuntu/SciCommons-backend/traefik/traefik.yml:/traefik.yml:ro
-      - /home/ubuntu/SciCommons-backend/traefik/acme.json:/acme.json
+      - /home/ubuntu/traefik/traefik.yml:/traefik.yml:ro # Path to your traefik.yml file
+      - /home/ubuntu/traefik/acme.json:/acme.json # Path to your acme.json file
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik.entrypoints=http"
@@ -75,4 +75,4 @@ services:
 
 networks:
   proxy:
-    external: true
+    driver: bridge
