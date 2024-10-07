@@ -1,0 +1,78 @@
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+      # If you choose to use an API Key instead of a Token, specify your email as well
+      # - CF_API_EMAIL=user@example.com
+      # - CF_API_KEY=YOUR_API_KEY
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/ubuntu/SciCommons-backend/traefik/traefik.yml:/traefik.yml:ro
+      - /home/ubuntu/SciCommons-backend/traefik/acme.json:/acme.json
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=http"
+      - "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.traefik.middlewares=traefik-https-redirect"
+      - "traefik.http.routers.traefik-secure.entrypoints=https"
+      - "traefik.http.routers.traefik-secure.tls=true"
+      - "traefik.http.routers.traefik-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.traefik-secure.tls.domains[0].main=backend.scicommons.org"
+      - "traefik.http.routers.traefik-secure.service=api@internal"
+
+  web:
+    build: .
+    command: >
+      sh -c "redis-server --daemonize yes && 
+              poetry run python manage.py migrate && 
+              poetry run python manage.py runserver 0.0.0.0:8000"
+    networks:
+      - proxy
+    volumes:
+      - .:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.entrypoints=http"
+      - "traefik.http.routers.web.rule=Host(`backend.scicommons.org`)"
+      - "traefik.http.middlewares.web-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.web.middlewares=web-https-redirect"
+      - "traefik.http.routers.web-secure.entrypoints=https"
+      - "traefik.http.routers.web-secure.rule=Host(`backend.scicommons.org`)"
+      - "traefik.http.routers.web-secure.tls=true"
+      - "traefik.http.routers.web-secure.service=web"
+      - "traefik.http.services.web.loadbalancer.server.port=8000"
+      - "traefik.docker.network=proxy"
+    depends_on:
+      - redis
+      - celery
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  celery:
+    build: .
+    command: celery -A myapp worker --loglevel=info --concurrency=5
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+
+networks:
+  proxy:
+    external: true
