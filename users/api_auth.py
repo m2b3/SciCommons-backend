@@ -2,21 +2,23 @@
 This file contains the API endpoints related to user management.
 """
 
+from datetime import datetime
+
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError
 from django.http import JsonResponse
-from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
-from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from ninja import Router
 from ninja.errors import HttpError, HttpRequest
 from ninja.responses import codes_4xx
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
+from myapp.services.send_emails import send_email_task
 from users.models import Reputation, User
 from users.schemas import (
     LogInSchemaIn,
@@ -25,11 +27,20 @@ from users.schemas import (
     UserCreateSchema,
 )
 
-from myapp.services.send_emails import send_email_task
-
 router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
 
+refresh_expiry = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()
+debug = settings.DEBUG
+
+cookieSettings = {
+    "httponly": True,
+    "secure": not debug,
+    "samesite": 'lax',
+    "domain": settings.COOKIE_DOMAIN,
+    "path": '/',
+    "max_age": refresh_expiry,
+}
 
 @router.post("/signup", response={201: Message, 400: Message})
 def signup(request: HttpRequest, payload: UserCreateSchema):
@@ -41,8 +52,7 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
     if user:
         if not user.is_active:
             return 400, {
-                "message": "Email already registered but not activated. Please"
-                " check your email for the activation link."
+                "message": "Email already registered but not activated. Please check your email for the activation link."
             }
         else:
             return 400, {"message": "Email is already in use."}
@@ -69,15 +79,15 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
 
         # Render the HTML template with context
         html_content = {
-                "name": user.first_name,
-                "activation_link": link,
-            }
+            "name": user.first_name,
+            "activation_link": link,
+        }
 
         send_email_task.delay(
-            subject = "Activate your account",
-            html_template_name = "activation_email.html", 
-            context = html_content, 
-            recipient_list = [payload.email]
+            subject="Activate your account",
+            html_template_name="activation_email.html",
+            context=html_content,
+            recipient_list=[payload.email]
         )
 
     except IntegrityError:
@@ -85,11 +95,9 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
 
     return 201, {
         "message": (
-            "Account created successfully. Please check your "
-            "email to activate your account."
+            "Account created successfully. Please check your email to activate your account."
         )
     }
-
 
 @router.post("/activate/{token}", response={200: Message, 400: Message, 404: Message})
 def activate(request: HttpRequest, token: str):
@@ -105,7 +113,6 @@ def activate(request: HttpRequest, token: str):
         Reputation.objects.get_or_create(user=user)
 
         user.is_active = True
-
         user.save()
 
         return 200, {"message": "Account activated successfully."}
@@ -116,42 +123,34 @@ def activate(request: HttpRequest, token: str):
     except BadSignature:
         return 400, {"message": "Invalid activation link."}
 
-
-@router.post(
-    "/resend-activation/{email}", response={200: Message, 400: Message, 404: Message}
-)
+@router.post("/resend-activation/{email}", response={200: Message, 400: Message, 404: Message})
 def resend_activation(request: HttpRequest, email: str):
     try:
         user = User.objects.get(email=email)
 
         if user.is_active:
-            return 400, {
-                "message": "This account is already active. Consider logging in."
-            }
+            return 400, {"message": "This account is already active. Consider logging in."}
 
         # Generate a new and unique activation token
         token = signer.sign(user.pk)
         link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
 
-        # Render the HTML template with context
         html_content = {
-                "name": user.first_name,
-                "activation_link": link,
-            }
+            "name": user.first_name,
+            "activation_link": link,
+        }
 
-        # Send email
         send_email_task.delay(
-            subject = "Activate your account",
-            html_template_name = "resend_activation_email.html", 
-            context = html_content, 
-            recipient_list = [email]
+            subject="Activate your account",
+            html_template_name="resend_activation_email.html",
+            context=html_content,
+            recipient_list=[email]
         )
 
     except User.DoesNotExist:
         return 404, {"message": "No account associated with this email was found."}
 
     return 200, {"message": "Activation link sent. Please check your email."}
-
 
 @router.post("/login", response={200: LogInSchemaOut, codes_4xx: Message})
 def login_user(request, payload: LogInSchemaIn):
@@ -163,11 +162,8 @@ def login_user(request, payload: LogInSchemaIn):
     if not user:
         return 404, {"message": "No account found with the provided username/email."}
 
-    # Check if the user's account is active
     if not user.is_active:
-        return 403, {
-            "message": "This account is inactive. Please activate your account."
-        }
+        return 403, {"message": "This account is inactive. Please activate your account."}
 
     # Authenticate the user
     user = authenticate(username=user.username, password=payload.password)
@@ -178,37 +174,76 @@ def login_user(request, payload: LogInSchemaIn):
 
     # Generate JWT tokens
     refresh = RefreshToken.for_user(user)
-
     access_token = str(refresh.access_token)
     refresh_token = str(refresh)
+    access_expiry = int((datetime.now() + settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]).timestamp() * 1000)
+
 
     response = JsonResponse(
         {
             "status": "success",
             "message": "Login successful.",
             "token": access_token,
+            "expiresAt": access_expiry,
+            "cookie": cookieSettings
         }
     )
 
     response.set_cookie(
-        key="accessToken",
-        value=access_token,
-        httponly=True,
-        secure=False,  # Ensure secure is False for localhost testing
-        samesite="None",  # Adjust for cross-site requests
-        max_age=120 * 60,  # 2 hours
-    )
-    response.set_cookie(
         key="refreshToken",
         value=refresh_token,
-        httponly=True,
-        secure=False,  # Ensure secure is False for localhost testing
-        samesite="None",  # Adjust for cross-site requests
-        max_age=7 * 24 * 60 * 60,  # 7 days
+        **cookieSettings
     )
 
     return response
 
+@router.post("/refresh", response={200: Message, 401: Message})
+def refresh_token(request: HttpRequest):
+    try:
+        refresh_token = request.COOKIES.get("refreshToken")
+        if not refresh_token:
+            return 401, {"message": "Refresh token is missing."}
+        
+        refresh = RefreshToken(refresh_token)
+        access_token = str(refresh.access_token)
+        new_refresh_token = str(refresh)
+        access_expiry = int((datetime.now() + settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]).timestamp() * 1000)
+
+
+        # Invalidate the old token if BLACKLIST_AFTER_ROTATION is True
+        # if settings.SIMPLE_JWT["BLACKLIST_AFTER_ROTATION"]:
+        #     try:
+        #         refresh.blacklist()
+        #     except Exception as e:
+        #         print(f"Error blacklisting refresh token: {str(e)}")
+
+        response = JsonResponse(
+            {
+                "status": "success",
+                "message": "Token refreshed successfully.",
+                "token": access_token,
+                "expiresAt": access_expiry,
+                "cookie": cookieSettings
+            }
+        )
+
+        response.set_cookie( 
+            key="refreshToken",
+            value=new_refresh_token,
+            **cookieSettings
+        )
+        
+        return response
+
+    except TokenError as e:
+        print('TokenError', e)
+        return 401, {"message": f"Token error: {str(e)}"}
+    except InvalidToken:
+        print('TokenError', InvalidToken)
+        return 401, {"message": "Invalid refresh token."}
+    except Exception as e:
+        print('TokenError', e)
+        return 401, {"message": "Invalid refresh token."}
 
 @router.post("/forgot-password/{email}", response={200: Message, 404: Message})
 def request_reset(request: HttpRequest, email: str):
@@ -221,24 +256,22 @@ def request_reset(request: HttpRequest, email: str):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     signed_uid = signer.sign(uid)
 
-    # Generate the reset link
+    # Generate a reset link
     reset_link = f"{settings.FRONTEND_URL}/auth/resetpassword/{signed_uid}"
 
-    # Render the HTML template with context
     html_content = {
-            "name": user.first_name,
-            "reset_link": reset_link,
-        }
-    
+        "name": user.first_name,
+        "reset_link": reset_link,
+    }
+
     send_email_task.delay(
-        subject = "Password Reset Request",
-        html_template_name = "password_reset_email.html", 
-        context = html_content, 
-        recipient_list = [user.email]
+        subject="Password Reset Request",
+        html_template_name="password_reset_email.html",
+        context=html_content,
+        recipient_list=[user.email]
     )
 
     return 200, {"message": "Password reset link has been sent to your email."}
-
 
 @router.post("/reset-password/{token}", response={200: Message, 400: Message})
 def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchema):
@@ -263,3 +296,23 @@ def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchem
 
     except BadSignature:
         return 400, {"message": "Invalid password reset link."}
+    
+@router.get("/logout", response={200: Message})
+def logout(request: HttpRequest):
+    refresh_token = request.COOKIES.get("refreshToken")
+    if refresh_token:
+        if settings.SIMPLE_JWT["BLACKLIST_AFTER_ROTATION"]:
+            try:
+                refresh = RefreshToken(refresh_token)
+                refresh.blacklist()
+            except Exception as e:
+                print(f"Error blacklisting refresh token: {str(e)}")
+
+    response = JsonResponse(
+        {
+            "status": "success",
+            "message": "Logout successful."
+        }
+    )
+    
+    return response
