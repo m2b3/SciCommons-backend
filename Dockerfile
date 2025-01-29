@@ -11,8 +11,7 @@ COPY pyproject.toml /app/
 RUN pip install poetry
 
 # Install Python dependencies
-# RUN poetry config virtualenvs.create false && poetry install --no-dev
-RUN poetry install --no-dev
+RUN poetry config virtualenvs.create false && poetry install --without dev
 
 # Install Redis (necessary for Celery)
 RUN apt-get update && apt-get install -y redis-server
