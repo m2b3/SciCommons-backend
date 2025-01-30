@@ -24,7 +24,7 @@ services:
       - "traefik.docker.network=proxy"
     depends_on:
       - redis-test
-      - celery
+      - celery-test
 
   redis-test:
     image: redis:alpine
