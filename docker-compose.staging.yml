@@ -25,6 +25,8 @@ services:
     depends_on:
       - redis-test
       - celery-test
+    env_file:
+      - .env.test
 
   redis-test:
     image: redis:alpine
@@ -42,6 +44,8 @@ services:
       - redis-test
     networks:
       - proxy
+    env_file:
+      - .env.test
 
 networks:
   proxy:

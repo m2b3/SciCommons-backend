@@ -59,6 +59,8 @@ services:
     depends_on:
       - redis
       - celery
+    env_file:
+      - .env.prod
 
   redis:
     image: redis:alpine
@@ -76,6 +78,8 @@ services:
       - redis
     networks:
       - proxy
+    env_file:
+      - .env.prod
 
 networks:
   proxy:
