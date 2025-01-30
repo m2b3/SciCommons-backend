@@ -1,0 +1,48 @@
+services:
+  web-test:
+    build: .
+    command: >
+      sh -c "redis-server --daemonize yes && 
+              poetry run python manage.py migrate && 
+              poetry run python manage.py runserver 0.0.0.0:8000"
+    networks:
+      - proxy
+    volumes:
+      - .:/app
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web-test.entrypoints=http"
+      - "traefik.http.routers.web-test.rule=Host(`backendtest.scicommons.org`)"
+      - "traefik.http.middlewares.web-test-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.web-test.middlewares=web-test-https-redirect"
+      - "traefik.http.routers.web-test-secure.entrypoints=https"
+      - "traefik.http.routers.web-test-secure.rule=Host(`backendtest.scicommons.org`)"
+      - "traefik.http.routers.web-test-secure.tls=true"
+      - "traefik.http.routers.web-test-secure.service=web-test"
+      - "traefik.http.services.web-test.loadbalancer.server.port=8000"
+      - "traefik.docker.network=proxy"
+    depends_on:
+      - redis-test
+      - celery
+
+  redis-test:
+    image: redis:alpine
+    ports:
+      - "6300:6379"
+    networks:
+      - proxy
+
+  celery-test:
+    build: .
+    command: celery -A myapp worker --loglevel=info --concurrency=5
+    volumes:
+      - .:/app
+    depends_on:
+      - redis-test
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    driver: bridge
