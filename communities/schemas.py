@@ -7,6 +7,7 @@ from ninja import ModelSchema, Schema
 
 from articles.schemas import ArticleBasicOut
 from communities.models import Community, CommunityArticle, JoinRequest
+from myapp.constants import COMMUNITY_SETTINGS
 from myapp.schemas import DateCount, FilterType
 from users.models import HashtagRelation, User
 
@@ -16,43 +17,104 @@ Community management schemas for serialization and validation.
 
 
 class CommunityType(str, Enum):
-    PUBLIC = "public"
-    HIDDEN = "hidden"
-    LOCKED = "locked"
+    PUBLIC = Community.PUBLIC
+    PRIVATE = Community.PRIVATE
+    HIDDEN = Community.HIDDEN
 
 
 class CreateCommunityDetails(Schema):
     name: str
     description: str
-    tags: List[str]
+    # tags: Optional[List[str]] = []
     type: CommunityType
+    community_settings: Optional[str] = None
 
 
 class CommunityCreateSchema(Schema):
     details: CreateCommunityDetails
 
 
+class CommunityListOut(ModelSchema):
+    id: int
+    name: str
+    description: str
+    type: CommunityType
+    slug: str
+    created_at: Optional[datetime] = None
+    num_members: int
+    num_published_articles: int
+    is_admin: bool = False
+    is_member: bool = False
+    is_request_sent: bool = False
+    requested_at: Optional[datetime] = None
+
+    class Config:
+        model = Community
+        model_fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "slug",
+            "created_at",
+        ]
+
+    @staticmethod
+    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+        num_published_articles = CommunityArticle.objects.filter(
+            community=community, status="published"
+        ).count()
+        num_members = community.members.count()
+        response_data = {
+            "id": community.id,
+            "name": community.name,
+            "description": community.description,
+            "type": community.type,
+            "slug": community.slug,
+            "created_at": community.created_at,
+            "num_members": num_members,
+            "num_published_articles": num_published_articles,
+        }
+
+        if user and not isinstance(user, bool):
+            if community.is_member(user):
+                response_data["is_member"] = True
+            elif community.is_admin(user):
+                response_data["is_admin"] = True
+            else:
+                # Check if the user has a latest join request
+                join_request = JoinRequest.objects.filter(
+                    community=community, user=user
+                ).order_by("-id")
+
+                if join_request.exists():
+                    response_data["is_request_sent"] = True
+                    response_data["requested_at"] = join_request.first().requested_at
+
+        return CommunityListOut(**response_data)
+
+
 class CommunityOut(ModelSchema):
     id: int
     name: str
     description: str
-    tags: List[str]
-    type: CommunityType
-    profile_pic_url: Optional[str] = None
-    banner_pic_url: Optional[str] = None
+    type: str
     slug: str
-    created_at: Optional[datetime] = None
-    rules: List[str]
     about: dict
     num_moderators: int
     num_reviewers: int
     num_members: int
     num_published_articles: int
     num_articles: int
-    is_member: bool = False
-    is_moderator: bool = False
-    is_reviewer: bool = False
-    is_admin: bool = False
+    created_at: Optional[datetime] = None
+    profile_pic_url: Optional[str] = None
+    banner_pic_url: Optional[str] = None
+    tags: Optional[list[str]] = None
+    rules: Optional[list[str]] = None
+    is_member: Optional[bool] = None
+    is_moderator: Optional[bool] = None
+    is_reviewer: Optional[bool] = None
+    is_admin: Optional[bool] = None
     join_request_status: Optional[str] = None
 
     class Config:
@@ -72,61 +134,67 @@ class CommunityOut(ModelSchema):
 
     @staticmethod
     def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
-        tags = [
-            relation.hashtag.name
-            for relation in HashtagRelation.objects.filter(
-                content_type=ContentType.objects.get_for_model(Community),
-                object_id=community.id,
-            )
-        ]
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
         num_articles = CommunityArticle.objects.filter(community=community).count()
-        response_data = CommunityOut(
-            id=community.id,
-            name=community.name,
-            description=community.description,
-            tags=tags,
-            type=community.type,
-            profile_pic_url=(
-                community.profile_pic_url.url if community.profile_pic_url else None
-            ),
-            banner_pic_url=(
-                community.banner_pic_url.url if community.banner_pic_url else None
-            ),
-            slug=community.slug,
-            created_at=community.created_at,
-            rules=community.rules,
-            about=community.about,
-            num_moderators=community.moderators.count(),
-            num_reviewers=community.reviewers.count(),
-            num_members=community.members.count(),
-            num_published_articles=num_published_articles,
-            num_articles=num_articles,
-        )
+        response_data = {
+            "id": community.id,
+            "name": community.name,
+            "description": community.description,
+            "type": community.type,
+            "slug": community.slug,
+            "about": community.about,
+            "num_moderators": community.moderators.count(),
+            "num_reviewers": community.reviewers.count(),
+            "num_members": community.members.count(),
+            "num_published_articles": num_published_articles,
+            "num_articles": num_articles,
+        }
+
+        if community.created_at:
+            response_data["created_at"] = community.created_at
+
+        if community.profile_pic_url:
+            response_data["profile_pic_url"] = community.profile_pic_url.url
+
+        if community.banner_pic_url:
+            response_data["banner_pic_url"] = community.banner_pic_url.url
+
+        # if tags
+        # tags = [
+        #     relation.hashtag.name
+        #     for relation in HashtagRelation.objects.filter(
+        #         content_type=ContentType.objects.get_for_model(Community),
+        #         object_id=community.id,
+        #     )
+        # ]
+        # tags = []
 
         if user and not isinstance(user, bool):
-            response_data.is_member = community.members.filter(id=user.id).exists()
-            response_data.is_moderator = community.moderators.filter(
-                id=user.id
-            ).exists()
-            response_data.is_reviewer = community.reviewers.filter(id=user.id).exists()
-            response_data.is_admin = community.admins.filter(id=user.id).exists()
+            if community.is_member(user):
+                response_data.update({
+                    "is_member": True,
+                    "is_moderator": community.moderators.filter(id=user.id).exists(),
+                    "is_reviewer": community.reviewers.filter(id=user.id).exists(),
+                    "is_admin": community.is_admin(user),
+                    "rules": community.rules if community.rules else None,
+                })
 
-            # Check if the user has a latest join request
-            join_request = JoinRequest.objects.filter(
-                community=community, user=user
-            ).order_by("-id")
+            else:
+                # Checking if the user has a latest join request
+                join_request = JoinRequest.objects.filter(
+                    community=community, user=user
+                ).order_by("-id")
 
-            if join_request.exists():
-                response_data.join_request_status = join_request.first().status
-
-        return response_data
+                if join_request.exists():
+                    response_data["join_request_status"] = join_request.first().status
+            
+        return CommunityOut(**response_data)
 
 
 class PaginatedCommunities(Schema):
-    items: List[CommunityOut]
+    items: List[CommunityListOut]
     total: int
     page: int
     per_page: int

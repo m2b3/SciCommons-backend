@@ -50,33 +50,27 @@ def join_community(request, community_id: int):
     if community.members.filter(id=user.id).exists():
         return 400, {"message": "You are already a member of this community."}
 
-    if community.type == Community.PUBLIC:
-        # Directly add the user to the community if it is public
+    # Check if there's already a pending join request
+    if JoinRequest.objects.filter(user=user, community=community, status=JoinRequest.PENDING).exists():
+        return 400, {"message": "You have already requested to join this community."}
+
+    if community.type == Community.PUBLIC and not community.requires_admin_approval:
         community.members.add(user)
         return {"message": "You have successfully joined the community."}
 
-    elif community.type == Community.LOCKED:
-        # Check if there's already a pending join request
-        if JoinRequest.objects.filter(
-            user=user, community=community, status=JoinRequest.PENDING
-        ).exists():
-            return 400, {
-                "message": "You have already requested to join this community."
-            }
+    # Create a join request
+    JoinRequest.objects.create(user=user, community=community)
 
-        # Create a join request if the community is locked
-        JoinRequest.objects.create(user=user, community=community)
+    # Send a notification to the first admin
+    Notification.objects.create(
+        user=community.admins.first(),
+        community=community,
+        notification_type="join_request_received",
+        message=f"New join request from {user.username}",
+        link=f"/community/{community.name}/requests",
+    )
 
-        # Send a notification to the admins
-        Notification.objects.create(
-            user=community.admins.first(),
-            community=community,
-            notification_type="join_request_received",
-            message=f"New join request from {user.username}",
-            link=f"/community/{community.name}/requests",
-        )
-
-        return {"message": "Your request to join the community has been sent."}
+    return {"message": "Your request to join the community has been sent."}
 
 
 @router.post(

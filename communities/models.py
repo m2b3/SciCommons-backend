@@ -6,10 +6,13 @@ from users.models import HashtagRelation, User
 
 
 class Community(models.Model):
+    # PUBLIC = "public"
+    # HIDDEN = "hidden"
+    # LOCKED = "locked"
     PUBLIC = "public"
+    PRIVATE = "private"
     HIDDEN = "hidden"
-    LOCKED = "locked"
-    COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (LOCKED, "Locked")]
+    COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (PRIVATE, "Private")]
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -20,6 +23,8 @@ class Community(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     rules = models.JSONField(default=list)
     about = models.JSONField(default=dict)
+    requires_admin_approval = models.BooleanField(default=False)
+    is_pseudonymous = models.BooleanField(default=False)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")
