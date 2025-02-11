@@ -16,11 +16,14 @@ from communities.schemas import (
     CommunityBasicOut,
     CommunityCreateSchema,
     CommunityFilters,
+    CommunityListOut,
     CommunityOut,
     CommunityStatsResponse,
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
+from myapp.constants import COMMUNITY_SETTINGS, COMMUNITY_TYPES, COMMUNITY_TYPES_LIST
+from myapp.feature_flags import MAX_COMMUNITIES_PER_USER
 from myapp.schemas import DateCount, Message
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
@@ -49,29 +52,38 @@ def create_community(
 
     with transaction.atomic():
         # Check if the user created communities are less than 5
-        if Community.objects.filter(admins=user).count() >= 3:
-            return 400, {"message": "You can only create 3 communities."}
+        if Community.objects.filter(admins=user).count() >= MAX_COMMUNITIES_PER_USER:
+            return 400, {"message": f"You can only create {MAX_COMMUNITIES_PER_USER} communities."}
 
         # validate all tags at once
-        validate_tags(payload.details.tags)
+        # validate_tags(payload.details.tags)
+
+        if payload.details.type not in COMMUNITY_TYPES_LIST:
+            return 400, {"message": "Invalid community type."}
+        
+        if payload.details.type == Community.PUBLIC and payload.details.community_settings not in [COMMUNITY_SETTINGS.ANYONE_CAN_JOIN.value, COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value] or \
+        payload.details.type == Community.PRIVATE and payload.details.community_settings not in [None, COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value]:
+            return 400, {"message": "Invalid community settings."}
 
         # Validate the provided data and create a new Community
         new_community = Community(
             name=payload.details.name,
             description=payload.details.description,
             type=payload.details.type,
-            profile_pic_url=profile_image_file,
+            requires_admin_approval=payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE,
+            is_pseudonymous=payload.details.community_settings == COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value,
+            # profile_pic_url=profile_image_file,
         )
         new_community.save()
 
         # Create Tags
-        content_type = ContentType.objects.get_for_model(Community)
+        # content_type = ContentType.objects.get_for_model(Community)
 
-        for hashtag_name in payload.details.tags:
-            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-            HashtagRelation.objects.create(
-                hashtag=hashtag, content_type=content_type, object_id=new_community.id
-            )
+        # for hashtag_name in payload.details.tags:
+        #     hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        #     HashtagRelation.objects.create(
+        #         hashtag=hashtag, content_type=content_type, object_id=new_community.id
+        #     )
 
         new_community.admins.add(user)  # Add the creator as an admin
         new_community.members.add(user)  # Add the creator as a member
@@ -87,6 +99,7 @@ def create_community(
         500: Message,
     },
     summary="Get Communities",
+    auth=OptionalJWTAuth,
 )
 def list_communities(
     request: HttpRequest,
@@ -95,17 +108,21 @@ def list_communities(
     page: int = 1,
     per_page: int = 10,
 ):
+    user = request.auth
     # Start with all non-hidden communities
-    communities = Community.objects.filter(~Q(type="hidden"))
+    communities = Community.objects.filter(~Q(type=Community.HIDDEN))
 
     # Apply search if provided
     if search:
-        communities = communities.filter(
-            Q(name__icontains=search) | Q(description__icontains=search)
-        )
+        search = search.strip()
+        if len(search) > 0:
+            communities = communities.filter(
+                Q(name__icontains=search) | Q(description__icontains=search)
+            )
 
     # Apply sorting
     if sort:
+        sort = sort.strip()
         if sort == "latest":
             communities = communities.order_by("-created_at")
         elif sort == "oldest":
@@ -123,7 +140,7 @@ def list_communities(
     paginated_communities = paginator.get_page(page)
 
     results = [
-        CommunityOut.from_orm_with_custom_fields(community)
+        CommunityListOut.from_orm_with_custom_fields(community, user=user)
         for community in paginated_communities.object_list
     ]
 
@@ -138,14 +155,14 @@ def list_communities(
 
 @router.get(
     "/community/{community_name}/",
-    response={200: CommunityOut, 400: Message, 500: Message},
+    response={200: CommunityOut, 400: Message, 403: Message, 500: Message},
     auth=JWTAuth(),
 )
 def get_community(request, community_name: str):
     community = Community.objects.get(name=community_name)
     user = request.auth
 
-    if community.type == "hidden" and not community.is_member(user):
+    if community.type == Community.HIDDEN and not community.is_member(user):
         return 403, {"message": "You do not have permission to view this community."}
 
     return 200, CommunityOut.from_orm_with_custom_fields(community, user)
@@ -153,7 +170,7 @@ def get_community(request, community_name: str):
 
 @router.put(
     "/{community_id}/",
-    response={200: CommunityOut, 400: Message, 500: Message},
+    response={200: CommunityOut, 400: Message, 403: Message,  500: Message},
     auth=JWTAuth(),
 )
 def update_community(
