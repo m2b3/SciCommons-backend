@@ -44,11 +44,12 @@ def create_article(
     pdf_files: List[UploadedFile] = File(None),
 ):
     with transaction.atomic():
-        validate_tags(details.payload.keywords)
-
+        # validate_tags(details.payload.keywords)
+        article_title = details.payload.title.strip()
+        article_abstract = details.payload.abstract.strip()
         # If either title, abstract aren't unique, return an error
         if Article.objects.filter(
-            title=details.payload.title, abstract=details.payload.abstract
+            title=article_title, abstract=article_abstract
         ).exists():
             return 400, {"message": "This article has already been submitted."}
 
@@ -61,8 +62,8 @@ def create_article(
 
         # Create the Article instance
         article = Article.objects.create(
-            title=details.payload.title,
-            abstract=details.payload.abstract,
+            title=article_title,
+            abstract=article_abstract,
             authors=[author.dict() for author in details.payload.authors],
             article_image_url=image_file,
             article_link=details.payload.article_link or None,
@@ -75,12 +76,12 @@ def create_article(
                 ArticlePDF.objects.create(article=article, pdf_file_url=file)
 
         # Todo: Create a common method to handle the creation of hashtags
-        content_type = ContentType.objects.get_for_model(Article)
-        for hashtag_name in details.payload.keywords:
-            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-            HashtagRelation.objects.create(
-                hashtag=hashtag, content_type=content_type, object_id=article.id
-            )
+        # content_type = ContentType.objects.get_for_model(Article)
+        # for hashtag_name in details.payload.keywords:
+        #     hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        #     HashtagRelation.objects.create(
+        #         hashtag=hashtag, content_type=content_type, object_id=article.id
+        #     )
 
         if details.payload.community_name:
             community = Community.objects.get(name=details.payload.community_name)
@@ -165,18 +166,18 @@ def update_article(
         article.authors = [author.dict() for author in details.payload.authors]
         article.faqs = [faq.dict() for faq in details.payload.faqs]
 
-        validate_tags(details.payload.keywords)
+        # validate_tags(details.payload.keywords)
 
         # Update Keywords
-        content_type = ContentType.objects.get_for_model(Article)
-        HashtagRelation.objects.filter(
-            content_type=content_type, object_id=article.id
-        ).delete()
-        for hashtag_name in details.payload.keywords:
-            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-            HashtagRelation.objects.create(
-                hashtag=hashtag, content_type=content_type, object_id=article.id
-            )
+        # content_type = ContentType.objects.get_for_model(Article)
+        # HashtagRelation.objects.filter(
+        #     content_type=content_type, object_id=article.id
+        # ).delete()
+        # for hashtag_name in details.payload.keywords:
+        #     hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        #     HashtagRelation.objects.create(
+        #         hashtag=hashtag, content_type=content_type, object_id=article.id
+        #     )
 
         # Only update the image and pdf file if a new file is uploaded
         if image_file:

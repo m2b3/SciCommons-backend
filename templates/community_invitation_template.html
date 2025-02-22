@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html style="padding: 20px;">
+
+<head>
+    <style>
+        body.body {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .container {
+            max-width: 720px;
+            margin-top: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            box-shadow: 0 0px 30px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .content {
+            padding: 20px 20px 20px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .heading {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+            width: 100%;
+        }
+
+        .greeting {
+            font-size: 1.1em;
+        }
+
+        .name {
+            font-size: 1em;
+            font-weight: bold;
+        }
+
+        .footer {
+            font-size: 0.9em;
+            color: rgb(88, 88, 88);
+        }
+    </style>
+</head>
+
+<body class="body">
+    <span>{{ body }}</span>
+    <div class="container">
+        <div class="content">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span class="name">{{ community_name }}</span>
+            <span style="font-size: 12px; color: gray">{{ community_members }} members</span>
+            </div>
+            <a href="{{ referral_link }}" class="og-button"
+                style="background-color: rgb(64, 183, 94); color: white; text-decoration: none; border-radius: 8px; padding: 10px 16px; font-size: 1em; cursor: pointer; width: fit-content">Accept</a>
+            <div class="footer">
+                <span>If this button doesn't work, click on this link: </span>
+                <a href="{{ referral_link }}">{{ referral_link }}</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -14,10 +14,9 @@ from communities.schemas import (
     Message,
     SendInvitationsPayload,
 )
+from myapp.services.send_emails import send_email_task
 from users.auth import JWTAuth
 from users.models import Notification, User
-
-from myapp.services.send_emails import send_email_task
 
 router = Router(tags=["Community Invitations"])
 
@@ -162,14 +161,14 @@ def send_invitations_to_unregistered_users(
         return 400, {"message": f"Invalid email(s): {', '.join(invalid_emails)}."}
 
     # Check for existing users
-    existing_users = User.objects.filter(email__in=payload.emails)
+    # existing_users = User.objects.filter(email__in=payload.emails)
 
-    if existing_users.exists():
-        existing_emails = [user.email for user in existing_users]
-        return 400, {
-            "message": f"User(s) with email(s) "
-            f"{', '.join(existing_emails)} already exist."
-        }
+    # if existing_users.exists():
+    #     existing_emails = [user.email for user in existing_users]
+    #     return 400, {
+    #         "message": f"User(s) with email(s) "
+    #         f"{', '.join(existing_emails)} already exist."
+    #     }
 
     # Check for existing invitations
     existing_invitations = Invitation.objects.filter(
@@ -187,23 +186,34 @@ def send_invitations_to_unregistered_users(
 
     # Send invitations
     signer = TimestampSigner()
+    template_context = {
+        "community_name": community.name,
+        "community_members": community.members.count(),
+    }
     for email in valid_emails:
         try:
             signed_email = signer.sign(email)
             invitation = Invitation.objects.create(
                 community=community, email=email, status=Invitation.PENDING
             )
-            message = (
-                f"{payload.body} \n Your referral link: "
-                f"{settings.FRONTEND_URL}/community/{community_id}/"
-                f"invitations/unregistered/{invitation.id}/{signed_email}"
-            )
+            template_context["referral_link"] = f"{settings.FRONTEND_URL}/community/{community_id}/invitations/unregistered/{invitation.id}/{signed_email}"
+            # message = (
+            #     f"{payload.body} \n Your referral link: "
+            #     f"{settings.FRONTEND_URL}/community/{community_id}/"
+            #     f"invitations/unregistered/{invitation.id}/{signed_email}"
+            # ) 
+            # send_email_task.delay(
+            #     subject=payload.subject,
+            #     message=message,
+            #     recipient_list=[email],
+            #     is_html=False,
+            # )
             send_email_task.delay(
-                subject=payload.subject,
-                message=message,
-                recipient_list=[email],
-                is_html=False,
-            )
+            subject = payload.subject,
+            html_template_name = "community_invitation_template.html", 
+            context = template_context, 
+            recipient_list = [email]
+        )
         except Exception as e:
             return 500, {"message": str(e)}
 
@@ -325,7 +335,7 @@ def get_community_invitation_details(request, community_id: int, invitation_id: 
         return {
             "name": community.name,
             "description": community.description,
-            "profile_pic_url": community.profile_pic_url,
+            # "profile_pic_url": community.profile_pic_url,
             "num_members": community.members.count(),
         }
     except Community.DoesNotExist:

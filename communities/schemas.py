@@ -116,6 +116,7 @@ class CommunityOut(ModelSchema):
     is_reviewer: Optional[bool] = None
     is_admin: Optional[bool] = None
     join_request_status: Optional[str] = None
+    community_settings: Optional[str] = None
 
     class Config:
         model = Community
@@ -150,6 +151,7 @@ class CommunityOut(ModelSchema):
             "num_members": community.members.count(),
             "num_published_articles": num_published_articles,
             "num_articles": num_articles,
+            "community_settings": community.community_settings
         }
 
         if community.created_at:
@@ -204,9 +206,10 @@ class PaginatedCommunities(Schema):
 class UpdateCommunityDetails(Schema):
     description: str
     type: CommunityType
-    tags: List[str]
-    rules: List[str]
-    about: dict
+    rules: Optional[List[str]] = [""]
+    community_settings: Optional[str] = None
+    # tags: List[str]
+    # about: dict
 
 
 class CommunityUpdateSchema(Schema):
@@ -326,7 +329,7 @@ class InvitationDetails(Schema):
 class CommunityInvitationDetails(Schema):
     name: str
     description: str
-    profile_pic_url: str
+    # profile_pic_url: str
     num_members: int
 
 

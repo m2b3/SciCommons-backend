@@ -97,7 +97,7 @@ class CommunityArticleOut(ModelSchema):
 
 class ArticleOut(ModelSchema):
     authors: List[Tag]
-    keywords: List[str]
+    # keywords: List[str]
     faqs: List[FAQSchema]
     total_discussions: int
     total_reviews: int
@@ -125,13 +125,13 @@ class ArticleOut(ModelSchema):
     def from_orm_with_custom_fields(
         cls, article: Article, current_user: Optional[User]
     ):
-        keywords = [
-            relation.hashtag.name
-            for relation in HashtagRelation.objects.filter(
-                content_type=ContentType.objects.get_for_model(Article),
-                object_id=article.id,
-            )
-        ]
+        # keywords = [
+        #     relation.hashtag.name
+        #     for relation in HashtagRelation.objects.filter(
+        #         content_type=ContentType.objects.get_for_model(Article),
+        #         object_id=article.id,
+        #     )
+        # ]
 
         article_pdf_urls = [
             pdf.pdf_file_url.url for pdf in ArticlePDF.objects.filter(article=article)
@@ -160,7 +160,7 @@ class ArticleOut(ModelSchema):
             updated_at=article.updated_at,
             submission_type=article.submission_type,
             authors=article.authors,
-            keywords=keywords,
+            # keywords=keywords,
             faqs=article.faqs,
             total_reviews=total_reviews,
             total_discussions=total_discussions,
@@ -220,7 +220,7 @@ class PaginatedArticlesResponse(Schema):
 class ArticleCreateDetails(Schema):
     title: str
     abstract: str
-    keywords: List[str]
+    # keywords: List[str]
     authors: List[Tag]
     article_link: Optional[str] = Field(default=None)
     submission_type: Literal["Public", "Private"]
@@ -234,7 +234,7 @@ class ArticleCreateSchema(Schema):
 class UpdateArticleDetails(Schema):
     title: str | None
     abstract: str | None
-    keywords: List[str] | None
+    # keywords: List[str] | None
     authors: List[Tag] | None
     submission_type: Literal["Public", "Private"] | None
     faqs: List[FAQSchema] = []
