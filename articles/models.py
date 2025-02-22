@@ -12,7 +12,7 @@ from users.models import HashtagRelation, User
 
 
 class Article(models.Model):
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=500)
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)

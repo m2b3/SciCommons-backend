@@ -72,6 +72,7 @@ def create_community(
             type=payload.details.type,
             requires_admin_approval=payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE,
             is_pseudonymous=payload.details.community_settings == COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value,
+            community_settings=payload.details.community_settings,
             # profile_pic_url=profile_image_file,
         )
         new_community.save()
@@ -193,18 +194,21 @@ def update_community(
         community.description = payload.details.description
         community.type = payload.details.type
         community.rules = payload.details.rules
-        community.about = payload.details.about
+        community.community_settings = payload.details.community_settings
+        community.requires_admin_approval = payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE
+        community.is_pseudonymous = payload.details.community_settings == COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value
+        # community.about = payload.details.about
 
-        # Update Tags
-        content_type = ContentType.objects.get_for_model(Community)
-        HashtagRelation.objects.filter(
-            content_type=content_type, object_id=community.id
-        ).delete()
-        for hashtag_name in payload.details.tags:
-            hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
-            HashtagRelation.objects.create(
-                hashtag=hashtag, content_type=content_type, object_id=community.id
-            )
+        # # Update Tags
+        # content_type = ContentType.objects.get_for_model(Community)
+        # HashtagRelation.objects.filter(
+        #     content_type=content_type, object_id=community.id
+        # ).delete()
+        # for hashtag_name in payload.details.tags:
+        #     hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+        #     HashtagRelation.objects.create(
+        #         hashtag=hashtag, content_type=content_type, object_id=community.id
+        #     )
 
         if banner_pic_file:
             community.banner_pic_url = banner_pic_file

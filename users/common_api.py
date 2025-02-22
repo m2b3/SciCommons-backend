@@ -3,6 +3,7 @@ A common API for HashTags, Reactions, and Bookmarks
 """
 
 from typing import Literal, Optional
+from urllib.parse import unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -52,6 +53,9 @@ def check_permission(
     user = request.auth
     if not user:
         return {"has_permission": False}
+    
+    if resource_id:
+        resource_id = unquote(resource_id)
 
     if dashboard_type == "article":
         article = Article.objects.get(slug=resource_id)

@@ -25,6 +25,7 @@ class Community(models.Model):
     about = models.JSONField(default=dict)
     requires_admin_approval = models.BooleanField(default=False)
     is_pseudonymous = models.BooleanField(default=False)
+    community_settings = models.CharField(max_length=100, null=True, blank=True)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")

@@ -161,4 +161,5 @@ def manage_community_member(
     except Community.DoesNotExist:
         return 404, {"message": "Community not found."}
     except Exception as e:
-        return 500, {"message": str(e)}
+        print(e)
+        return 500, {"message": "Internal server error."}
