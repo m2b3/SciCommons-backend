@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import List, Optional
+from urllib.parse import unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -44,6 +45,7 @@ def create_article(
     pdf_files: List[UploadedFile] = File(None),
 ):
     with transaction.atomic():
+        user = request.auth
         # validate_tags(details.payload.keywords)
         article_title = details.payload.title.strip()
         article_abstract = details.payload.abstract.strip()
@@ -84,8 +86,14 @@ def create_article(
         #     )
 
         if details.payload.community_name:
-            community = Community.objects.get(name=details.payload.community_name)
-            CommunityArticle.objects.create(article=article, community=community)
+            community_name = unquote(details.payload.community_name)
+            community = Community.objects.get(name=community_name)
+            community_article_status = (
+                CommunityArticle.PUBLISHED
+                if community.type in {"private", "hidden"} or community.admins.filter(id=user.id).exists()
+                else CommunityArticle.SUBMITTED
+            )
+            CommunityArticle.objects.create(article=article, community=community, status=community_article_status)
 
             # Send notification to the community admin
             Notification.objects.create(
@@ -205,12 +213,21 @@ def get_articles(
     per_page: int = 10,
 ):
     # Start with all public articles
-    articles = Article.objects.filter(submission_type="Public").order_by("-created_at")
+    articles = Article.objects.filter(submission_type="Public").order_by("-created_at") if not community_id else Article.objects.order_by("-created_at")
 
     current_user: Optional[User] = None if not request.auth else request.auth
 
     if community_id:
         community = Community.objects.get(id=community_id)
+
+        # If the community is hidden and the user is not a member,
+        # return an empty queryset
+        if community.type == "hidden" and (
+            not current_user or not community.is_member(current_user)
+        ):
+            return 400, {"message": "You don't have access to this community."}
+
+        # articles = Article.objects.order_by("-created_at")
         # Only display articles that are published or accepted in the community
         articles = articles.filter(
             Q(
@@ -223,12 +240,6 @@ def get_articles(
             )
         ).distinct()
 
-        # If the community is hidden and the user is not a member,
-        # return an empty queryset
-        if community.type == "hidden" and (
-            not current_user or not community.is_member(current_user)
-        ):
-            return 400, {"message": "You don't have access to this community."}
     else:
         # Just do not display articles that belong to hidden communities
         articles = articles.exclude(
