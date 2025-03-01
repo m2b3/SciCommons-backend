@@ -24,6 +24,7 @@ router = Router(tags=["Community Articles"])
 )
 def submit_article(request, community_name: str, article_slug: str):
     community = Community.objects.get(name=community_name)
+    user = request.auth
 
     # if the community isn't public and the user isn't a member, return an error
     if community.type != "public" and request.auth not in community.members.all():
@@ -36,9 +37,15 @@ def submit_article(request, community_name: str, article_slug: str):
     # Check if the article is already submitted to the community
     if CommunityArticle.objects.filter(article=article, community=community).exists():
         return 400, {"message": "This article is already submitted to this community."}
+    
+    community_article_status = (
+        CommunityArticle.PUBLISHED
+        if community.type in {"private", "hidden"} or community.admins.filter(id=user.id).exists()
+        else CommunityArticle.SUBMITTED
+    )
 
     CommunityArticle.objects.create(
-        article=article, community=community, status=CommunityArticle.SUBMITTED
+        article=article, community=community, status=community_article_status
     )
 
     # Send a notification to the community admins
