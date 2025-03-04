@@ -48,11 +48,18 @@ class Article(models.Model):
 
 class ArticlePDF(models.Model):
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to="article_pdfs/")
+    pdf_file_url = models.FileField(upload_to="article_pdfs/", null=True, blank=True)
+    external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.article.title} - PDF {self.id}"
+    
+    def get_url(self):
+        """Return either the local file URL or external URL"""
+        if self.pdf_file_url:
+            return self.pdf_file_url.url
+        return self.external_url
 
 
 class AnonymousIdentity(models.Model):

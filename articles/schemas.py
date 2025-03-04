@@ -134,7 +134,7 @@ class ArticleOut(ModelSchema):
         # ]
 
         article_pdf_urls = [
-            pdf.pdf_file_url.url for pdf in ArticlePDF.objects.filter(article=article)
+            pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
         ]
 
         total_reviews = Review.objects.filter(article=article).count()
@@ -225,6 +225,7 @@ class ArticleCreateDetails(Schema):
     article_link: Optional[str] = Field(default=None)
     submission_type: Literal["Public", "Private"]
     community_name: Optional[str] = Field(default=None)
+    pdf_link: Optional[str] = Field(default=None)
 
 
 class ArticleCreateSchema(Schema):

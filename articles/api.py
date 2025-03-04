@@ -54,6 +54,9 @@ def create_article(
             title=article_title, abstract=article_abstract
         ).exists():
             return 400, {"message": "This article has already been submitted."}
+    
+        if pdf_files and len(pdf_files) > 1:
+            return 400, {"message": "Only one PDF file is allowed."}
 
         # Check if the article link is unique
         if details.payload.article_link:
@@ -72,10 +75,6 @@ def create_article(
             submission_type=details.payload.submission_type,
             submitter=request.auth,
         )
-
-        if pdf_files:  # Only process pdf_files if they are provided
-            for file in pdf_files:
-                ArticlePDF.objects.create(article=article, pdf_file_url=file)
 
         # Todo: Create a common method to handle the creation of hashtags
         # content_type = ContentType.objects.get_for_model(Article)
@@ -107,6 +106,18 @@ def create_article(
                 ),
                 link=f"/community/{community.name}/submissions",
                 content=article.title,
+            )
+        
+        if pdf_files:
+            for file in pdf_files:
+                ArticlePDF.objects.create(article=article, pdf_file_url=file)
+
+        pdf_link = details.payload.pdf_link
+        if pdf_link:
+            ArticlePDF.objects.create(
+                article=article, 
+                pdf_file_url=None,
+                external_url=pdf_link
             )
 
         return ArticleOut.from_orm_with_custom_fields(article, request.auth)
