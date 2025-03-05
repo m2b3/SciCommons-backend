@@ -40,13 +40,55 @@ poetry run python manage.py migrate
 poetry run python manage.py runserver
 ```
 
-### 6. Run Docker locally
+### 7. Install Redis
+
+#### Windows:
+Useful Links: 
+  - [https://naveenrenji.medium.com/install-redis-on-windows-b80880dc2a36](https://naveenrenji.medium.com/install-redis-on-windows-b80880dc2a36)
+  - [https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/)
+  - [https://github.com/tporadowski/redis](https://github.com/tporadowski/redis)
+
+#### Mac:
+```bash
+brew install redis
+```
+
+#### Linux (Ubuntu):
+```bash
+sudo apt update
+sudo apt install redis-server
+```
+
+### 8. Run Celery Worker
+
+(Before running Celery, make sure Redis is properly set up on your machine.)
+
+#### Windows:
 
 ```bash
-docker compose -f docker-compose.dev.yml up
+celery -A myapp worker --loglevel=info --concurrency=5 --pool=solo
+```
 
-# To run in detacked mode:
+#### Mac/Linux (Ubuntu):
+
+```bash
+celery -A myapp worker --loglevel=info --concurrency=5
+```
+
+*Note:* The `--pool=solo` flag is required on Windows but not necessary on Mac/Linux.
+
+After installation, start Redis using:
+```bash
+redis-server
+```
+
+### 9. Run Docker locally
+
+```bash
+docker compose -f docker-composse.dev.yml up
+
+# To run in detached mode:
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-You can now access the server at http://localhost:8000/ and API documentation at http://localhost:8000/api/docs/
+You can now access the server at [http://localhost:8000/](http://localhost:8000/) and API documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/).
