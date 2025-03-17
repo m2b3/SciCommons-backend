@@ -135,24 +135,34 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
     # Check submission type and user's access
     if article.submission_type == "Private" and article.submitter != request.auth:
         return 403, {"message": "You don't have access to this article."}
+    
+    community = None
+    community_article = None 
 
-    community = Community.objects.get(name=community_name) if community_name else None
+    if community_name:
+        community_name = unquote(community_name)
+        try:
+            community = Community.objects.get(name=community_name)
+        except Community.DoesNotExist:
+            return 404, {"message": "Community not found."}
 
     if community:
-        community_article = CommunityArticle.objects.get(
-            article=article, community=community
-        )
-        if community_article.status == "rejected":
-            return 403, {"message": "This article is not available in this community."}
+        try:
+            community_article = CommunityArticle.objects.get(article=article, community=community)
+        except CommunityArticle.DoesNotExist:
+            return 404, {"message": "Community article not found."}
 
-        if community.type == "hidden":
+        if community.type in ["hidden", "private"]:
             if request.auth not in community.members.all():
                 return 403, {
                     "message": (
                         "You don't have access to this article in this community."
-                        "Please request access from the community admin."
+                        " Please request access from the community admin."
                     )
                 }
+
+    if community_article and community_article.status == "rejected":
+        return 403, {"message": "This article is not available in this community."}
 
     # Use the custom method to create the ArticleOut instance
     article_data = ArticleOut.from_orm_with_custom_fields(article, request.auth)

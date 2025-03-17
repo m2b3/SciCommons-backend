@@ -8,6 +8,7 @@ from django.db import models
 from django.utils.text import slugify
 from faker import Faker
 
+from myapp.utils import generate_identicon
 from users.models import HashtagRelation, User
 
 
@@ -65,38 +66,48 @@ class ArticlePDF(models.Model):
 class AnonymousIdentity(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     article = models.ForeignKey("Article", on_delete=models.CASCADE)
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
     fake_name = models.CharField(max_length=100)
+    identicon = models.TextField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("user", "article")
+        unique_together = ("user", "article", "community")
 
     @staticmethod
     def generate_reddit_style_username():
         fake = Faker()
 
         def cap_word():
-            return fake.word(ext_word_list=None).capitalize()
+            return fake.word().capitalize()
 
         def low_word():
-            return fake.word(ext_word_list=None).lower()
+            return fake.word().lower()
 
         patterns = [
-            lambda: f"{cap_word()}{cap_word()}{random.randint(0, 9999)}",
+            lambda: f"{cap_word()}{cap_word()}{random.randint(1000, 9999)}",
             lambda: f"{cap_word()}_{cap_word()}",
-            lambda: f"{low_word()}_{random.randint(0, 999)}",
+            lambda: f"{low_word()}_{random.randint(100, 9999)}",
             lambda: (
                 f"{fake.first_name()}{random.choice(['_', ''])}"
-                f"{''.join(random.choices('aeiou', k=2))}{random.randint(0, 99)}"
+                f"{''.join(random.choices('aeiou', k=2))}{random.randint(10, 99)}"
             ),
+            lambda: f"{cap_word()}{uuid.uuid4().hex[:6]}",
         ]
-        return random.choice(patterns)()
+        fake_name = random.choice(patterns)()
+        return fake_name
 
     @classmethod
-    def get_or_create_fake_name(cls, user, article):
+    def get_or_create_fake_name(cls, user, article, community=None):
         identity, created = cls.objects.get_or_create(
             user=user,
             article=article,
-            defaults={"fake_name": cls.generate_reddit_style_username()},
+            community=community,
+            defaults={
+                "fake_name": (fake_name := cls.generate_reddit_style_username()),
+                "identicon": generate_identicon(fake_name),
+            },
         )
         return identity.fake_name
 
@@ -156,7 +167,7 @@ class Review(models.Model):
         super().save(*args, **kwargs)
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article)
+        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article, self.community)
 
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
@@ -214,7 +225,7 @@ class ReviewComment(models.Model):
     reactions = GenericRelation("Reaction", related_query_name="review_comments")
 
     def __str__(self):
-        return f"ReviewComment by {self.user.username}"
+        return f"ReviewComment by {self.author.username}"
 
     def save(self, *args, **kwargs):
         if self.parent and self.parent.parent and self.parent.parent.parent:
@@ -223,11 +234,24 @@ class ReviewComment(models.Model):
 
     def get_anonymous_name(self):
         return AnonymousIdentity.get_or_create_fake_name(
-            self.author, self.review.article
+            self.author, self.review.article, self.review.community
         )
 
     class Meta:
         ordering = ["created_at"]
+
+class ReviewCommentRating(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    review = models.ForeignKey(Review, on_delete=models.CASCADE)
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+
+    class Meta:
+        unique_together = ("user", "review", "community")
 
 
 class Reaction(models.Model):
