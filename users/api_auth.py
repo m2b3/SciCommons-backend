@@ -17,6 +17,7 @@ from ninja.responses import codes_4xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
+from myapp.services.send_emails import send_email_task
 from users.models import Reputation, User
 from users.schemas import (
     LogInSchemaIn,
@@ -24,8 +25,6 @@ from users.schemas import (
     ResetPasswordSchema,
     UserCreateSchema,
 )
-
-from myapp.services.send_emails import send_email_task
 
 router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
@@ -187,6 +186,13 @@ def login_user(request, payload: LogInSchemaIn):
             "status": "success",
             "message": "Login successful.",
             "token": access_token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
         }
     )
 

@@ -1,22 +1,31 @@
 from typing import List, Optional
 
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.utils import timezone
 from ninja import Router
 from ninja.responses import codes_4xx
 
-from articles.models import Article, Reaction, Review, ReviewComment
+from articles.models import (
+    Article,
+    Reaction,
+    Review,
+    ReviewComment,
+    ReviewCommentRating,
+)
 from articles.schemas import (
     CreateReviewSchema,
     Message,
     PaginatedReviewSchema,
     ReviewCommentCreateSchema,
     ReviewCommentOut,
+    ReviewCommentRatingByUserOut,
     ReviewCommentUpdateSchema,
     ReviewOut,
     ReviewUpdateSchema,
 )
 from communities.models import Community, CommunityArticle
+from myapp.feature_flags import MAX_NESTING_LEVEL
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
@@ -51,36 +60,37 @@ def create_review(
             article=article, community=community
         )
 
-        if community_article.assigned_reviewers.filter(id=user.id).exists():
-            review_type = Review.REVIEWER
-        elif community_article.assigned_moderator == user:
-            review_type = Review.MODERATOR
-        else:
-            review_type = Review.PUBLIC
+        # if community_article.assigned_reviewers.filter(id=user.id).exists():
+        #     review_type = Review.REVIEWER
+        # elif community_article.assigned_moderator == user:
+        #     review_type = Review.MODERATOR
+        # else:
+        #     review_type = Review.PUBLIC
 
-        if review_type == Review.PUBLIC:
-            if community_article.status != CommunityArticle.ACCEPTED:
-                return 403, {"message": "This article is not currently accepted."}
-        elif review_type == Review.REVIEWER:
-            if community_article.status != CommunityArticle.UNDER_REVIEW:
-                return 403, {"message": "This article is not currently under review."}
-        elif review_type == Review.MODERATOR:
-            if community_article.status != CommunityArticle.UNDER_REVIEW:
-                return 403, {"message": "This article is not currently under review."}
+        # if review_type == Review.PUBLIC:
+        #     if community_article.status != CommunityArticle.ACCEPTED:
+        #         return 403, {"message": "This article is not currently accepted."}
+        # elif review_type == Review.REVIEWER:
+        #     if community_article.status != CommunityArticle.UNDER_REVIEW:
+        #         return 403, {"message": "This article is not currently under review."}
+        # elif review_type == Review.MODERATOR:
+        #     if community_article.status != CommunityArticle.UNDER_REVIEW:
+        #         return 403, {"message": "This article is not currently under review."}
 
-            assigned_reviewer_count = community_article.assigned_reviewers.count()
-            if assigned_reviewer_count > 0:
-                approved_review_count = Review.objects.filter(
-                    community_article=community_article,
-                    user__in=community_article.assigned_reviewers.all(),
-                    is_approved=True,
-                ).count()
+        #     assigned_reviewer_count = community_article.assigned_reviewers.count()
+        #     if assigned_reviewer_count > 0:
+        #         approved_review_count = Review.objects.filter(
+        #             community_article=community_article,
+        #             user__in=community_article.assigned_reviewers.all(),
+        #             is_approved=True,
+        #         ).count()
 
-                if approved_review_count < assigned_reviewer_count:
-                    return 403, {
-                        "message": "You can only review this article "
-                        "after all assigned reviewers have approved it."
-                    }
+        #         if approved_review_count < assigned_reviewer_count:
+        #             return 403, {
+        #                 "message": "You can only review this article "
+        #                 "after all assigned reviewers have approved it."
+        #             }
+        review_type = Review.PUBLIC
 
         if existing_review.filter(community=community).exists():
             return 400, {
@@ -226,9 +236,27 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
 
     if payload.parent_id:
         parent_comment = ReviewComment.objects.get(id=payload.parent_id)
+        if parent_comment.is_deleted:
+            return 400, {"message": "You can't reply to a deleted comment."}
 
-        if parent_comment.parent and parent_comment.parent.parent:
-            return 400, {"message": "Exceeded maximum comment nesting level of 3"}
+        nesting_level = 1
+        current_parent = parent_comment
+
+        while current_parent.parent:
+            nesting_level += 1
+            current_parent = current_parent.parent
+            if nesting_level >= MAX_NESTING_LEVEL:
+                return 400, {"message": f"Exceeded maximum comment nesting level of {MAX_NESTING_LEVEL}"}
+            
+    # if payload.rating == 0:
+    #     previous_comment = ReviewComment.objects.filter(review=review, author=user, rating__isnull=False).first()
+    #     rating_to_store = None if previous_comment else 0
+    # else:
+    if payload.rating > 0:
+        ratingCommunity = review.community
+        ReviewCommentRating.objects.update_or_create(
+            review=review, user=user, community=ratingCommunity, defaults={"rating": payload.rating}
+        )
 
     comment = ReviewComment.objects.create(
         review=review,
@@ -283,6 +311,7 @@ def list_review_comments(request, review_id: int):
 
     comments = (
         ReviewComment.objects.filter(review=review, parent=None)
+        .filter(Q(is_deleted=False) | Q(review_replies__isnull=False))
         .select_related("author")
         .order_by("-created_at")
     )
@@ -306,6 +335,18 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
 
     if comment.community and not comment.community.is_member(request.auth):
         return 403, {"message": "You are not a member of this community."}
+    
+    if comment.is_deleted:
+        return 403, {"message": "You can't update a deleted comment."}
+    
+    review = comment.review
+    user = request.auth
+
+    if payload.rating > 0:
+        ratingCommunity = review.community
+        ReviewCommentRating.objects.update_or_create(
+            review=review, user=user, community=ratingCommunity, defaults={"rating": payload.rating}
+        )
 
     comment.content = payload.content or comment.content
     comment.rating = payload.rating or comment.rating
@@ -331,9 +372,50 @@ def delete_comment(request, comment_id: int):
         content_type__model="reviewcomment", object_id=comment.id
     ).delete()
 
+    comment_rating = ReviewCommentRating.objects.filter(review=comment.review, user=user, community=comment.community).first()
+    if comment_rating and comment_rating.rating == comment.rating:
+        last_comment = ReviewComment.objects.filter(
+                review=comment.review, 
+                author=comment.author,
+                is_deleted=False
+            ).exclude(
+                id=comment.id
+            ).exclude(
+                rating=0
+            ).order_by('-created_at').only('id', 'rating').first()
+        if last_comment and last_comment.rating > 0:
+            comment_rating.rating = last_comment.rating
+            comment_rating.save()
+        else:
+            comment_rating.delete()
+    
     # Logically delete the comment by clearing its content and marking it as deleted
     comment.content = "[deleted]"
     comment.is_deleted = True
+    comment.rating = None
     comment.save()
 
     return 204, None
+
+# Get Rating for a review by user
+@router.get(
+    "reviews/{review_id}/rating/", response={200: ReviewCommentRatingByUserOut, 404: Message}, auth=JWTAuth()
+)
+def get_rating(request, review_id: int):
+    user = request.auth
+    review = Review.objects.get(id=review_id)
+
+    if review.community and not review.community.is_member(user):
+        return 403, {"message": "You are not a member of this community."}
+
+    comment = ReviewComment.objects.filter(
+                    review=review, 
+                    author=user,
+                    is_deleted=False
+                ).exclude(
+                    rating=0
+                ).order_by('-created_at').only('id', 'rating').first()
+    if not comment:
+        return 200, {'rating': 0}
+
+    return 200, {'rating': comment.rating}

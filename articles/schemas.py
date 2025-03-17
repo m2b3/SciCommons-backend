@@ -3,6 +3,7 @@ from enum import Enum
 from typing import List, Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Sum
 from ninja import Field, ModelSchema, Schema
 
 from articles.models import (
@@ -13,6 +14,7 @@ from articles.models import (
     DiscussionComment,
     Review,
     ReviewComment,
+    ReviewCommentRating,
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
@@ -101,6 +103,7 @@ class ArticleOut(ModelSchema):
     faqs: List[FAQSchema]
     total_discussions: int
     total_reviews: int
+    total_ratings: float
     total_comments: int
     community_article: Optional[CommunityArticleOut]
     article_pdf_urls: List[str]
@@ -138,8 +141,10 @@ class ArticleOut(ModelSchema):
         ]
 
         total_reviews = Review.objects.filter(article=article).count()
+        total_ratings = Review.objects.filter(article=article).aggregate(rating=Sum("rating"))["rating"] or 0
         total_discussions = Discussion.objects.filter(article=article).count()
-        total_comments = ReviewComment.objects.filter(review__article=article).count()
+        total_comments = ReviewComment.objects.filter(review__article=article, is_deleted=False).count()
+        # comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
         community_article = None
@@ -168,6 +173,7 @@ class ArticleOut(ModelSchema):
             community_article=community_article,
             user=user,
             is_submitter=(article.submitter == current_user) if current_user else False,
+            total_ratings=total_ratings if total_ratings else 0,
         )
 
 
@@ -283,7 +289,9 @@ class ReviewOut(ModelSchema):
     community_article: Optional[CommunityArticleOut] = None
     article_id: int
     comments_count: int = Field(0)
+    comments_ratings: float = Field(0)
     anonymous_name: str = Field(None)
+    avatar: str = Field(None)
     is_approved: bool = Field(False)
 
     class Config:
@@ -303,13 +311,15 @@ class ReviewOut(ModelSchema):
 
     @classmethod
     def from_orm(cls, review: Review, current_user: Optional[User]):
-        comments_count = ReviewComment.objects.filter(review=review).count()
+        comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
         versions = [
             ReviewVersionSchema.from_orm(version) for version in review.versions.all()
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=review.article, user=review.user
-        ).fake_name
+        pseudonym = AnonymousIdentity.objects.get(
+            article=review.article, user=review.user, community=review.community
+        )
+        anonymous_name = pseudonym.fake_name
+        avatar = pseudonym.identicon
         user = UserStats.from_model(review.user, basic_details=True)
 
         community_article = None
@@ -321,6 +331,10 @@ class ReviewOut(ModelSchema):
                 article=review.article, community=review.community
             )
             community_article = CommunityArticleOut.from_orm(community_article)
+
+        comments_ratings = ReviewCommentRating.objects.filter(review=review, community=review.community).aggregate(
+            rating=Sum("rating")
+        )["rating"]
 
         return cls(
             id=review.id,
@@ -339,7 +353,9 @@ class ReviewOut(ModelSchema):
             is_approved=review.is_approved,
             versions=versions,
             anonymous_name=anonymous_name,
+            avatar=avatar if avatar else None,
             community_article=community_article,
+            comments_ratings=comments_ratings if comments_ratings else 0,
         )
 
 
@@ -366,7 +382,9 @@ class ReviewCommentOut(ModelSchema):
     replies: list["ReviewCommentOut"] = Field(...)
     upvotes: int
     is_author: bool = Field(False)
+    is_deleted: bool = Field(False)
     anonymous_name: str = Field(None)
+    avatar: str = Field(None)
 
     class Config:
         model = ReviewComment
@@ -379,9 +397,11 @@ class ReviewCommentOut(ModelSchema):
             ReviewCommentOut.from_orm_with_replies(reply, current_user)
             for reply in comment.review_replies.all()
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=comment.review.article, user=comment.author
-        ).fake_name
+        pseudonym = AnonymousIdentity.objects.get(
+            article=comment.review.article, user=comment.review.user, community=comment.review.community
+        )
+        anonymous_name = pseudonym.fake_name
+        avatar = pseudonym.identicon
 
         return ReviewCommentOut(
             id=comment.id,
@@ -392,7 +412,9 @@ class ReviewCommentOut(ModelSchema):
             upvotes=comment.reactions.filter(vote=1).count(),
             replies=replies,
             anonymous_name=anonymous_name,
+            avatar=avatar if avatar else None,
             is_author=(comment.author == current_user) if current_user else False,
+            is_deleted=comment.is_deleted,
         )
 
 
@@ -409,6 +431,11 @@ class ReviewCommentUpdateSchema(Schema):
     rating: int | None
 
 
+
+class ReviewCommentRatingByUserOut(Schema):
+    rating: int | None
+
+
 """
 Discussion Related Schemas for serialization and deserialization
 """
@@ -420,6 +447,7 @@ class DiscussionOut(ModelSchema):
     article_id: int
     comments_count: int = Field(0)
     anonymous_name: str = Field(None)
+    avatar: str = Field(None)
 
     class Config:
         model = Discussion
@@ -435,9 +463,11 @@ class DiscussionOut(ModelSchema):
     @classmethod
     def from_orm(cls, discussion: Discussion, current_user: Optional[User]):
         comments_count = DiscussionComment.objects.filter(discussion=discussion).count()
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=discussion.article, user=discussion.author
-        ).fake_name
+        pseudonym = AnonymousIdentity.objects.get(
+            article=discussion.article, user=discussion.author, community=discussion.community
+        )
+        anonymous_name = pseudonym.fake_name
+        avatar = pseudonym.identicon
         user = UserStats.from_model(discussion.author, basic_details=True)
 
         return cls(
@@ -452,6 +482,7 @@ class DiscussionOut(ModelSchema):
             comments_count=comments_count,
             is_author=discussion.author == current_user,
             anonymous_name=anonymous_name,
+            avatar=avatar if avatar else None,
         )
 
 
@@ -478,6 +509,7 @@ class DiscussionCommentOut(ModelSchema):
     upvotes: int
     is_author: bool = Field(False)
     anonymous_name: str = Field(None)
+    avatar: str = Field(None)
 
     class Config:
         model = DiscussionComment
@@ -490,9 +522,11 @@ class DiscussionCommentOut(ModelSchema):
             DiscussionCommentOut.from_orm_with_replies(reply, current_user)
             for reply in DiscussionComment.objects.filter(parent=comment)
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=comment.discussion.article, user=comment.author
-        ).fake_name
+        pseudonym = AnonymousIdentity.objects.get(
+            article=comment.discussion.article, user=comment.author, community=comment.discussion.community
+        )
+        anonymous_name = pseudonym.fake_name
+        avatar = pseudonym.identicon
 
         return DiscussionCommentOut(
             id=comment.id,
@@ -503,6 +537,7 @@ class DiscussionCommentOut(ModelSchema):
             replies=replies,
             anonymous_name=anonymous_name,
             is_author=(comment.author == current_user) if current_user else False,
+            avatar=avatar if avatar else None,
         )
 
 

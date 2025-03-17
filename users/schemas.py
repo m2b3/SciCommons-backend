@@ -41,6 +41,13 @@ class LogInSchemaIn(Schema):
     login: str
     password: str
 
+    
+class LogInUserSchemaOut(Schema):
+    id: int
+    username: str
+    email: str
+    first_name: str
+    last_name: str
 
 class LogInSchemaOut(Schema):
     """
@@ -51,6 +58,7 @@ class LogInSchemaOut(Schema):
     status: str
     message: str
     token: str
+    user: LogInUserSchemaOut
 
 
 class ResetPasswordSchema(Schema):
