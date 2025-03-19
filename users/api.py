@@ -65,7 +65,6 @@ def update_user(
     ]
 
     if payload.details.research_interests:
-        print(payload.details.research_interests)
         # Use hashtags to store research interests
         content_type = ContentType.objects.get_for_model(User)
         HashtagRelation.objects.filter(

@@ -126,7 +126,7 @@ def get_my_articles(
 
     return 200, PaginatedArticlesResponse(
         items=[
-            ArticleOut.from_orm_with_custom_fields(article, user)
+            ArticleOut.from_orm_with_custom_fields(article, None, user)
             for article in paginated_articles
         ],
         total=paginator.count,
@@ -190,7 +190,7 @@ def list_community_articles_by_status(
 
     return {
         "items": [
-            ArticleOut.from_orm_with_custom_fields(article, current_user)
+            ArticleOut.from_orm_with_custom_fields(article, community, current_user)
             for article in paginated_articles
         ],
         "total": paginator.count,
@@ -345,7 +345,7 @@ def get_assigned_articles(
         ).distinct()
 
     return [
-        ArticleOut.from_orm_with_custom_fields(article, user)
+        ArticleOut.from_orm_with_custom_fields(article, community, user)
         for article in assigned_articles
     ]
 

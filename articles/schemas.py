@@ -3,7 +3,7 @@ from enum import Enum
 from typing import List, Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Sum
+from django.db.models import Avg, Sum
 from ninja import Field, ModelSchema, Schema
 
 from articles.models import (
@@ -126,7 +126,7 @@ class ArticleOut(ModelSchema):
 
     @classmethod
     def from_orm_with_custom_fields(
-        cls, article: Article, current_user: Optional[User]
+        cls, article: Article, community: Community, current_user: Optional[User]
     ):
         # keywords = [
         #     relation.hashtag.name
@@ -140,11 +140,10 @@ class ArticleOut(ModelSchema):
             pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
         ]
 
-        total_reviews = Review.objects.filter(article=article).count()
-        total_ratings = Review.objects.filter(article=article).aggregate(rating=Sum("rating"))["rating"] or 0
+        total_reviews = Review.objects.filter(article=article, community=community).count()
+        total_ratings = Review.objects.filter(article=article, community=community).aggregate(rating=Avg("rating"))["rating"] or 0
         total_discussions = Discussion.objects.filter(article=article).count()
         total_comments = ReviewComment.objects.filter(review__article=article, is_deleted=False).count()
-        # comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
         community_article = None
@@ -332,9 +331,13 @@ class ReviewOut(ModelSchema):
             )
             community_article = CommunityArticleOut.from_orm(community_article)
 
-        comments_ratings = ReviewCommentRating.objects.filter(review=review, community=review.community).aggregate(
-            rating=Sum("rating")
-        )["rating"]
+        comments_ratings = ReviewCommentRating.objects.filter(
+                                review=review, community=review.community
+                            ).exclude(
+                                user=review.user
+                            ).aggregate(
+                                rating=Avg("rating")
+                            )["rating"]
 
         return cls(
             id=review.id,
@@ -398,14 +401,14 @@ class ReviewCommentOut(ModelSchema):
             for reply in comment.review_replies.all()
         ]
         pseudonym = AnonymousIdentity.objects.get(
-            article=comment.review.article, user=comment.review.user, community=comment.review.community
+            article=comment.review.article, user=comment.author, community=comment.review.community
         )
         anonymous_name = pseudonym.fake_name
         avatar = pseudonym.identicon
 
         return ReviewCommentOut(
             id=comment.id,
-            rating=comment.rating,
+            rating=comment.rating if comment.review.user != comment.author else None,
             author=author,
             content=comment.content,
             created_at=comment.created_at,

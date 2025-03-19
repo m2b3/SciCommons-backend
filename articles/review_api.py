@@ -231,6 +231,9 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
 
     if review.community and not review.community.is_member(user):
         return 403, {"message": "You are not a member of this community."}
+    
+    if review.user == user and payload.rating > 0:
+        return 400, {"message": "You can't rate your own review."}
 
     parent_comment = None
 
