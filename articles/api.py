@@ -49,6 +49,7 @@ def create_article(
         # validate_tags(details.payload.keywords)
         article_title = details.payload.title.strip()
         article_abstract = details.payload.abstract.strip()
+        community = None
         # If either title, abstract aren't unique, return an error
         if Article.objects.filter(
             title=article_title, abstract=article_abstract
@@ -120,7 +121,7 @@ def create_article(
                 external_url=pdf_link
             )
 
-        return ArticleOut.from_orm_with_custom_fields(article, request.auth)
+        return ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
 
 
 # Todo: Make this Endpoint partially protected
@@ -165,7 +166,7 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
         return 403, {"message": "This article is not available in this community."}
 
     # Use the custom method to create the ArticleOut instance
-    article_data = ArticleOut.from_orm_with_custom_fields(article, request.auth)
+    article_data = ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
 
     return 200, article_data
 
@@ -184,6 +185,7 @@ def update_article(
 ):
     with transaction.atomic():
         article = Article.objects.get(id=article_id)
+        article_community = CommunityArticle.objects.filter(article=article).first() or None
 
         # Check if the user is the submitter
         if article.submitter != request.auth:
@@ -215,7 +217,7 @@ def update_article(
         article.submission_type = details.payload.submission_type
         article.save()
 
-        return ArticleOut.from_orm_with_custom_fields(article, request.auth)
+        return ArticleOut.from_orm_with_custom_fields(article, article_community, request.auth)
 
 
 @router.get(
@@ -235,7 +237,7 @@ def get_articles(
 ):
     # Start with all public articles
     articles = Article.objects.filter(submission_type="Public").order_by("-created_at") if not community_id else Article.objects.order_by("-created_at")
-
+    community = None
     current_user: Optional[User] = None if not request.auth else request.auth
 
     if community_id:
@@ -292,7 +294,7 @@ def get_articles(
 
     return PaginatedArticlesResponse(
         items=[
-            ArticleOut.from_orm_with_custom_fields(article, current_user)
+            ArticleOut.from_orm_with_custom_fields(article, community, current_user)
             for article in paginated_articles
         ],
         total=paginator.count,
