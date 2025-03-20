@@ -142,8 +142,8 @@ class ArticleOut(ModelSchema):
 
         total_reviews = Review.objects.filter(article=article, community=community).count()
         total_ratings = Review.objects.filter(article=article, community=community).aggregate(rating=Avg("rating"))["rating"] or 0
-        total_discussions = Discussion.objects.filter(article=article).count()
-        total_comments = ReviewComment.objects.filter(review__article=article, is_deleted=False).count()
+        total_discussions = Discussion.objects.filter(article=article, community=community).count()
+        total_comments = ReviewComment.objects.filter(review__article=article, review__community=community, is_deleted=False).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
         community_article = None
