@@ -46,8 +46,9 @@ def create_review(
     article = Article.objects.get(id=article_id)
     user = request.auth
 
-    if article.submitter == user:
-        return 400, {"message": "You can't review your own article."}
+    # Uncomment this after testing
+    # if article.submitter == user:
+    #     return 400, {"message": "You can't review your own article."}
 
     existing_review = Review.objects.filter(article=article, user=user)
 
