@@ -86,14 +86,16 @@ class AnonymousIdentity(models.Model):
             return fake.word().lower()
 
         patterns = [
-            lambda: f"{cap_word()}{cap_word()}{random.randint(1000, 9999)}",
-            lambda: f"{cap_word()}_{cap_word()}",
-            lambda: f"{low_word()}_{random.randint(100, 9999)}",
-            lambda: (
-                f"{fake.first_name()}{random.choice(['_', ''])}"
-                f"{''.join(random.choices('aeiou', k=2))}{random.randint(10, 99)}"
-            ),
-            lambda: f"{cap_word()}{uuid.uuid4().hex[:6]}",
+            lambda: f"{cap_word()}_{cap_word()}_{random.randint(1000, 99999)}",
+            lambda: f"{cap_word()}_{cap_word()}{random.randint(10000, 999999):x}",
+            lambda: f"{low_word()}_{low_word()}",
+            lambda: f"{cap_word()}-{cap_word()}",
+            lambda: f"{cap_word()}{uuid.uuid4().hex[:4]}",
+            lambda: f"{fake.first_name()}_{''.join(random.choices('aeiouy', k=3))}",
+            lambda: f"{cap_word()}{random.choice(['', '_'])}{random.randint(10, 99)}",
+            lambda: f"{low_word()}_{cap_word()}{random.choice(['.', '-', '_'])}{uuid.uuid4().hex[:5]}",
+            lambda: f"{cap_word()}.{low_word()}{random.randint(100, 999)}{cap_word()}",
+            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}"
         ]
         fake_name = random.choice(patterns)()
         return fake_name
@@ -305,7 +307,7 @@ class Discussion(models.Model):
         ordering = ["-created_at"]
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article)
+        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article, self.community)
 
 
 class DiscussionComment(models.Model):
@@ -336,7 +338,7 @@ class DiscussionComment(models.Model):
 
     def get_anonymous_name(self):
         return AnonymousIdentity.get_or_create_fake_name(
-            self.author, self.discussion.article
+            self.author, self.discussion.article, self.discussion.community
         )
 
 

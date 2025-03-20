@@ -132,10 +132,6 @@ def create_article(
 )
 def get_article(request, article_slug: str, community_name: Optional[str] = None):
     article = Article.objects.get(slug=article_slug)
-
-    # Check submission type and user's access
-    if article.submission_type == "Private" and article.submitter != request.auth:
-        return 403, {"message": "You don't have access to this article."}
     
     community = None
     community_article = None 
@@ -161,6 +157,10 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
                         " Please request access from the community admin."
                     )
                 }
+    else:
+        # Check submission type and user's access
+        if article.submission_type == "Private" and article.submitter != request.auth:
+            return 403, {"message": "You don't have access to this article."}
 
     if community_article and community_article.status == "rejected":
         return 403, {"message": "This article is not available in this community."}

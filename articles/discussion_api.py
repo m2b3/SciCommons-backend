@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from django.core.paginator import Paginator
+from django.db import transaction
 from ninja import Router
 from ninja.responses import codes_4xx
 
@@ -37,26 +38,27 @@ def create_discussion(
     discussion_data: CreateDiscussionSchema,
     community_id: Optional[int] = None,
 ):
-    article = Article.objects.get(id=article_id)
-    user = request.auth
+    with transaction.atomic():
+        article = Article.objects.get(id=article_id)
+        user = request.auth
 
-    community = None
+        community = None
 
-    if community_id:
-        community = Community.objects.get(id=community_id)
-        if not community.is_member(user):
-            return 403, {"message": "You are not a member of this community."}
+        if community_id:
+            community = Community.objects.get(id=community_id)
+            if not community.is_member(user):
+                return 403, {"message": "You are not a member of this community."}
 
-    discussion = Discussion.objects.create(
-        article=article,
-        author=user,
-        community=community,
-        topic=discussion_data.topic,
-        content=discussion_data.content,
-    )
+        discussion = Discussion.objects.create(
+            article=article,
+            author=user,
+            community=community,
+            topic=discussion_data.topic,
+            content=discussion_data.content,
+        )
 
-    # Create an anonymous name for the user who created the review
-    discussion.get_anonymous_name()
+        # Create an anonymous name for the user who created the review
+        discussion.get_anonymous_name()
 
     return 201, DiscussionOut.from_orm(discussion, user)
 
@@ -70,7 +72,7 @@ def list_discussions(
     request, article_id: int, community_id: int = None, page: int = 1, size: int = 10
 ):
     article = Article.objects.get(id=article_id)
-    discussions = Discussion.objects.filter(article=article).order_by("-created_at")
+    # discussions = Discussion.objects.filter(article=article).order_by("-created_at")
 
     if community_id:
         community = Community.objects.get(id=community_id)
@@ -78,9 +80,10 @@ def list_discussions(
         if not community.is_member(request.auth) and community.type == "hidden":
             return 403, {"message": "You are not a member of this community."}
 
-        discussions = discussions.filter(community=community)
+        # discussions = discussions.filter(community=community)
+        discussions = Discussion.objects.filter(article=article, community=community).order_by("-created_at")
     else:
-        discussions = discussions.filter(community=None)
+        discussions = Discussion.objects.filter(article=article, community=None).order_by("-created_at")
 
     paginator = Paginator(discussions, size)
     page_obj = paginator.page(page)
