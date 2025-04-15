@@ -500,7 +500,7 @@ def get_community_article_stats(request, article_slug: str):
     ]
 
     # Get average rating
-    average_rating = reviews.aggregate(Avg("rating"))["rating__avg"]
+    average_rating = round(reviews.aggregate(Avg("rating"))["rating__avg"] or 0, 1)
 
     return CommunityArticleStatsResponse(
         title=article.title,

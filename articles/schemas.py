@@ -141,7 +141,7 @@ class ArticleOut(ModelSchema):
         ]
 
         total_reviews = Review.objects.filter(article=article, community=community).count()
-        total_ratings = Review.objects.filter(article=article, community=community).aggregate(rating=Avg("rating"))["rating"] or 0
+        total_ratings = round(Review.objects.filter(article=article, community=community).aggregate(rating=Avg("rating"))["rating"] or 0, 1)
         total_discussions = Discussion.objects.filter(article=article, community=community).count()
         total_comments = ReviewComment.objects.filter(review__article=article, review__community=community, is_deleted=False).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
@@ -331,13 +331,13 @@ class ReviewOut(ModelSchema):
             )
             community_article = CommunityArticleOut.from_orm(community_article)
 
-        comments_ratings = ReviewCommentRating.objects.filter(
+        comments_ratings = round(ReviewCommentRating.objects.filter(
                                 review=review, community=review.community
                             ).exclude(
                                 user=review.user
                             ).aggregate(
                                 rating=Avg("rating")
-                            )["rating"]
+                            )["rating"] or 0, 1)
 
         return cls(
             id=review.id,
