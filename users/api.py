@@ -63,6 +63,8 @@ def update_user(
     user.academic_statuses = [
         academic_status.dict() for academic_status in payload.details.academic_statuses
     ]
+    if profile_image:
+        user.profile_pic_url.save(profile_image.name, profile_image)
 
     if payload.details.research_interests:
         print(payload.details.research_interests)
