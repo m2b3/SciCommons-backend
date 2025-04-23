@@ -147,6 +147,7 @@ class Review(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
     reaction = GenericRelation("Reaction", related_query_name="reviews")
+    is_pseudonymous = models.BooleanField(default=False, editable=True)
 
     def __str__(self):
         return (
@@ -225,6 +226,7 @@ class ReviewComment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     is_deleted = models.BooleanField(default=False)
     reactions = GenericRelation("Reaction", related_query_name="review_comments")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return f"ReviewComment by {self.author.username}"
@@ -299,6 +301,7 @@ class Discussion(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
     reactions = GenericRelation("Reaction")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Discussion: {self.title} (Article: {self.article.title})"
@@ -327,6 +330,7 @@ class DiscussionComment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation("Reaction")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return (

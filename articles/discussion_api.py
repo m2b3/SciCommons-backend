@@ -14,7 +14,7 @@ from articles.schemas import (
     DiscussionOut,
     PaginatedDiscussionSchema,
 )
-from communities.models import Community
+from communities.models import Community, CommunityArticle
 from myapp.schemas import Message
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
@@ -43,11 +43,17 @@ def create_discussion(
         user = request.auth
 
         community = None
-
+        is_pseudonymous = False
         if community_id:
             community = Community.objects.get(id=community_id)
             if not community.is_member(user):
                 return 403, {"message": "You are not a member of this community."}
+            
+            community_article = CommunityArticle.objects.get(
+                article=article, community=community
+            )
+            if community_article.is_pseudonymous:
+                is_pseudonymous = True
 
         discussion = Discussion.objects.create(
             article=article,
@@ -55,10 +61,12 @@ def create_discussion(
             community=community,
             topic=discussion_data.topic,
             content=discussion_data.content,
+            is_pseudonymous=is_pseudonymous,
         )
 
-        # Create an anonymous name for the user who created the review
-        discussion.get_anonymous_name()
+        if is_pseudonymous:
+            # Create an anonymous name for the user who created the review
+            discussion.get_anonymous_name()
 
     return 201, DiscussionOut.from_orm(discussion, user)
 
@@ -175,9 +183,17 @@ Endpoints for comments on discussions
 def create_comment(request, discussion_id: int, payload: DiscussionCommentCreateSchema):
     user = request.auth
     discussion = Discussion.objects.get(id=discussion_id)
-
-    if discussion.community and not discussion.community.is_member(user):
-        return 403, {"message": "You are not a member of this community."}
+    is_pseudonymous = False
+    
+    if discussion.community:
+        if not discussion.community.is_member(user):
+            return 403, {"message": "You are not a member of this community."}
+        
+        community_article = CommunityArticle.objects.get(
+            article=discussion.article, community=discussion.community
+        )
+        if community_article.is_pseudonymous:
+            is_pseudonymous = True
 
     parent_comment = None
 
@@ -193,9 +209,12 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
         author=user,
         content=payload.content,
         parent=parent_comment,
+        is_pseudonymous=is_pseudonymous,
     )
-    # Create an anonymous name for the user who created the comment
-    comment.get_anonymous_name()
+
+    if is_pseudonymous:
+        # Create an anonymous name for the user who created the comment
+        comment.get_anonymous_name()
 
     # Return comment with replies
     return 201, DiscussionCommentOut.from_orm_with_replies(comment, user)
