@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import List, Optional
-from urllib.parse import unquote
+from urllib.parse import quote_plus, unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -120,8 +120,8 @@ def create_article(
                 pdf_file_url=None,
                 external_url=pdf_link
             )
-
-        return ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
+        response_data = ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
+        return 200, response_data
 
 
 # Todo: Make this Endpoint partially protected
@@ -167,7 +167,6 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
 
     # Use the custom method to create the ArticleOut instance
     article_data = ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
-
     return 200, article_data
 
 
@@ -217,7 +216,8 @@ def update_article(
         article.submission_type = details.payload.submission_type
         article.save()
 
-        return ArticleOut.from_orm_with_custom_fields(article, article_community, request.auth)
+        response_data = ArticleOut.from_orm_with_custom_fields(article, article_community, request.auth)
+        return 200, response_data
 
 
 @router.get(
@@ -292,7 +292,7 @@ def get_articles(
 
     current_user: Optional[User] = None if not request.auth else request.auth
 
-    return PaginatedArticlesResponse(
+    response_data = PaginatedArticlesResponse(
         items=[
             ArticleOut.from_orm_with_custom_fields(article, community, current_user)
             for article in paginated_articles
@@ -302,6 +302,8 @@ def get_articles(
         per_page=per_page,
         num_pages=paginator.num_pages,
     )
+
+    return 200, response_data
 
 
 # Delete Article
@@ -319,6 +321,7 @@ def delete_article(request, article_id: int):
 
     # Do not delete the article, just mark it as deleted
     article.title = f"Deleted - {article.title}"
+    article.save()
 
     return {"message": "Article deleted successfully."}
 
@@ -402,7 +405,7 @@ def get_article_official_stats(request, article_slug: str):
         "rating__avg"
     ]
 
-    return OfficialArticleStatsResponse(
+    response_data = OfficialArticleStatsResponse(
         title=article.title,
         submission_date=article.created_at.date(),
         submitter=article.submitter.username,
@@ -418,6 +421,8 @@ def get_article_official_stats(request, article_slug: str):
         average_rating=average_rating or 0,
     )
 
+    return 200, response_data
+
 
 @router.get(
     "/article/{article_slug}/community-stats",
@@ -425,6 +430,7 @@ def get_article_official_stats(request, article_slug: str):
     auth=JWTAuth(),
 )
 def get_community_article_stats(request, article_slug: str):
+
     article = Article.objects.get(slug=article_slug)
 
     try:
@@ -502,7 +508,7 @@ def get_community_article_stats(request, article_slug: str):
     # Get average rating
     average_rating = round(reviews.aggregate(Avg("rating"))["rating__avg"] or 0, 1)
 
-    return CommunityArticleStatsResponse(
+    response_data = CommunityArticleStatsResponse(
         title=article.title,
         submission_date=submission_date.date(),
         submitter=article.submitter.username,
@@ -518,6 +524,8 @@ def get_community_article_stats(request, article_slug: str):
         likes_over_time=likes_over_time,
         average_rating=average_rating or 0,
     )
+
+    return 200, response_data
 
 
 """

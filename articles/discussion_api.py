@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 from django.core.paginator import Paginator
@@ -20,7 +21,7 @@ from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
 router = Router(tags=["Discussions"])
-
+logger = logging.getLogger(__name__)
 
 """
 Article discussions API
@@ -101,9 +102,11 @@ def list_discussions(
         DiscussionOut.from_orm(review, current_user) for review in page_obj.object_list
     ]
 
-    return PaginatedDiscussionSchema(
+    response_data = PaginatedDiscussionSchema(
         items=items, total=paginator.count, page=page, per_page=size
     )
+
+    return 200, response_data
 
 
 @router.get(
@@ -112,13 +115,15 @@ def list_discussions(
     auth=OptionalJWTAuth,
 )
 def get_discussion(request, discussion_id: int):
+
     discussion = Discussion.objects.get(id=discussion_id)
     user = request.auth
 
     if discussion.community and not discussion.community.is_member(user):
         return 403, {"message": "You are not a member of this community."}
-
-    return 200, DiscussionOut.from_orm(discussion, user)
+    
+    response_data = DiscussionOut.from_orm(discussion, user)
+    return 200, response_data
 
 
 @router.put(
@@ -144,7 +149,8 @@ def update_discussion(
     discussion.content = discussion_data.content or discussion.content
     discussion.save()
 
-    return 201, DiscussionOut.from_orm(discussion, user)
+    response_data = DiscussionOut.from_orm(discussion, user)
+    return 201, response_data
 
 
 @router.delete(

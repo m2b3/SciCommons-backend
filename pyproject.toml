@@ -26,8 +26,9 @@ dj-database-url = "^2.2.0"
 faker = "^26.0.0"
 django-ratelimit = "^4.1.0"
 celery = "^5.4.0"
-redis = "^5.0.8"
+redis = {extras = ["hiredis"], version = "^5.2.1"}
 pydenticon = "^0.3.1"
+django-redis = "^5.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
