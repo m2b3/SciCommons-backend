@@ -262,7 +262,6 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
-        'file': None,
     },
     'root': {
         'handlers': ['console'],
