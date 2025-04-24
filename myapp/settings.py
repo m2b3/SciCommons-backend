@@ -262,25 +262,20 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
-        # Optional: add file logging only in development
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'dev.log'),
-            'formatter': 'simple',
-        } if DEBUG else None,
+        'file': None,
     },
     'root': {
-        'handlers': ['console'] if not DEBUG else ['console', 'file'],
-        'level': 'DEBUG' if not DEBUG else 'INFO',
+        'handlers': ['console'],
+        'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'] if not DEBUG else ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'myapp': {
-            'handlers': ['console'] if not DEBUG else ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
