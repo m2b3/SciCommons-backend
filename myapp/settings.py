@@ -17,6 +17,8 @@ from pathlib import Path
 import dj_database_url
 from decouple import config
 
+from myapp.constants import FIFTEEN_MINUTES
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -226,3 +228,55 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_WORKER_CONCURRENCY = 5
+
+CACHES = {
+    "default": {    
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_HOST_URL", default="redis://localhost:6379/1"),  # Use DB 1 for Django cache
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            # "PARSER_CLASS": "redis.connection.HiredisParser",
+            "SOCKET_CONNECT_TIMEOUT": 5,  # seconds
+            "SOCKET_TIMEOUT": 5,          # seconds
+        },
+        "KEY_PREFIX": "sci:",  # Optional, helps prevent key collisions
+        "TIMEOUT": FIFTEEN_MINUTES,          # Default cache timeout (5 minutes)
+    }
+}
+
+# Optional: Use cache for session storage
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+# SESSION_CACHE_ALIAS = "default"
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '[{levelname}] {asctime} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'myapp': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}

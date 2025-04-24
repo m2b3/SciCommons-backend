@@ -24,7 +24,6 @@ class Community(models.Model):
     rules = models.JSONField(default=list)
     about = models.JSONField(default=dict)
     requires_admin_approval = models.BooleanField(default=False)
-    is_pseudonymous = models.BooleanField(default=False)
     community_settings = models.CharField(max_length=100, null=True, blank=True)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
@@ -135,6 +134,7 @@ class CommunityArticle(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
     )
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return (

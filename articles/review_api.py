@@ -51,6 +51,7 @@ def create_review(
     #     return 400, {"message": "You can't review your own article."}
 
     existing_review = Review.objects.filter(article=article, user=user)
+    is_pseudonymous = False
 
     if community_id:
         community = Community.objects.get(id=community_id)
@@ -92,6 +93,8 @@ def create_review(
         #                 "after all assigned reviewers have approved it."
         #             }
         review_type = Review.PUBLIC
+        if community_article.is_pseudonymous:
+            is_pseudonymous = True
 
         if existing_review.filter(community=community).exists():
             return 400, {
@@ -113,9 +116,11 @@ def create_review(
         rating=review_data.rating,
         subject=review_data.subject,
         content=review_data.content,
+        is_pseudonymous=is_pseudonymous,
     )
 
-    review.get_anonymous_name()
+    if is_pseudonymous:
+        review.get_anonymous_name()
 
     return 201, ReviewOut.from_orm(review, user)
 
@@ -261,6 +266,9 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
         ReviewCommentRating.objects.update_or_create(
             review=review, user=user, community=ratingCommunity, defaults={"rating": payload.rating}
         )
+    is_pseudonymous = False
+    if review.community_article.is_pseudonymous:
+        is_pseudonymous = True
 
     comment = ReviewComment.objects.create(
         review=review,
@@ -269,9 +277,12 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
         rating=payload.rating,
         content=payload.content,
         parent=parent_comment,
+        is_pseudonymous=is_pseudonymous,
     )
-    # Create an anonymous name for the user who created the comment
-    comment.get_anonymous_name()
+
+    if is_pseudonymous:
+        # Create an anonymous name for the user who created the comment
+        comment.get_anonymous_name()
 
     # Return comment with replies
     return 201, ReviewCommentOut.from_orm_with_replies(comment, user)

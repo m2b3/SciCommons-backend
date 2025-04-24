@@ -62,7 +62,7 @@ def create_community(
             return 400, {"message": "Invalid community type."}
         
         if payload.details.type == Community.PUBLIC and payload.details.community_settings not in [COMMUNITY_SETTINGS.ANYONE_CAN_JOIN.value, COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value] or \
-        payload.details.type == Community.PRIVATE and payload.details.community_settings not in [None, COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value]:
+        payload.details.type == Community.PRIVATE and payload.details.community_settings not in [None]:
             return 400, {"message": "Invalid community settings."}
 
         # Validate the provided data and create a new Community
@@ -71,7 +71,6 @@ def create_community(
             description=payload.details.description,
             type=payload.details.type,
             requires_admin_approval=payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE,
-            is_pseudonymous=payload.details.community_settings == COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value,
             community_settings=payload.details.community_settings,
             # profile_pic_url=profile_image_file,
         )
@@ -196,7 +195,6 @@ def update_community(
         community.rules = payload.details.rules
         community.community_settings = payload.details.community_settings
         community.requires_admin_approval = payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE
-        community.is_pseudonymous = payload.details.community_settings == COMMUNITY_SETTINGS.IS_PSEUDONYMOUS.value
         # community.about = payload.details.about
 
         # # Update Tags

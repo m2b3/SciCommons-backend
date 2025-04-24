@@ -98,7 +98,7 @@ class CommunityOut(ModelSchema):
     id: int
     name: str
     description: str
-    type: str
+    type: CommunityType
     slug: str
     about: dict
     num_moderators: int
@@ -460,3 +460,7 @@ class StatusFilter(str, Enum):
     REJECTED = "rejected"
     PUBLISHED = "published"
     UNSUBMITTED = "unsubmitted"
+
+
+class CommunityArticlePseudonymousOut(Schema):
+    is_pseudonymous: bool

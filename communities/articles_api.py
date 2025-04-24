@@ -9,7 +9,12 @@ from ninja.responses import codes_4xx, codes_5xx
 from articles.models import Article, Review
 from articles.schemas import ArticleOut, PaginatedArticlesResponse
 from communities.models import Community, CommunityArticle
-from communities.schemas import Filters, Message, StatusFilter
+from communities.schemas import (
+    CommunityArticlePseudonymousOut,
+    Filters,
+    Message,
+    StatusFilter,
+)
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Notification, User
 
@@ -434,3 +439,34 @@ def approve_article(request, community_article_id: int):
                 return 200, {
                     "message": "Approval recorded. Waiting for other reviewers."
                 }
+
+@router.get(
+    "/{community_article_id}/pseudonymous/",
+    response={200: CommunityArticlePseudonymousOut, codes_4xx: Message, 500: Message},
+    auth=JWTAuth(),
+)
+def is_article_pseudonymous(request, community_article_id: int):
+    user = request.auth
+    community_article = CommunityArticle.objects.select_related("article").get(article__id=community_article_id)
+
+    if not community_article.community.is_admin(user):
+        return 403, {"message": "You are not an admin of this community."}
+    
+    return 200, {"is_pseudonymous": community_article.is_pseudonymous}
+
+@router.post(
+    "/{community_article_id}/pseudonymous/",
+    response={200: Message, codes_4xx: Message, 500: Message},
+    auth=JWTAuth(),
+)
+def toggle_article_pseudonymous(request, community_article_id: int, pseudonymous: bool):
+    user = request.auth
+    community_article = CommunityArticle.objects.select_related("article").get(article__id=community_article_id)
+
+    if not community_article.community.is_admin(user):
+        return 403, {"message": "You are not an admin of this community."}
+    
+    community_article.is_pseudonymous = pseudonymous
+    community_article.save()
+
+    return 200, {"message": f"Article reviews and discussions are {'pseudonymous' if pseudonymous else 'non-pseudonymous'} from now on."}
