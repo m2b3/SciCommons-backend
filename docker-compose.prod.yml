@@ -33,7 +33,9 @@ services:
       - "traefik.http.routers.traefik-secure.service=api@internal"
 
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -70,7 +72,9 @@ services:
       - proxy
 
   celery:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: celery -A myapp worker --loglevel=info --concurrency=5
     volumes:
       - .:/app

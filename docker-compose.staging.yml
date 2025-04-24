@@ -1,6 +1,8 @@
 services:
   web-test:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.staging
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -36,7 +38,9 @@ services:
       - proxy
 
   celery-test:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.staging
     command: celery -A myapp worker --loglevel=info --concurrency=5
     volumes:
       - .:/app
