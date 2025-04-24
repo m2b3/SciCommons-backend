@@ -78,6 +78,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "myapp.middleware.process_put_patch",
     "django_ratelimit.middleware.RatelimitMiddleware",
+    "ninja.compatibility.files.fix_request_files_middleware"
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
