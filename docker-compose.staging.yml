@@ -1,8 +1,6 @@
 services:
   web-test:
-    build:
-      context: .
-      dockerfile: Dockerfile.staging
+    build: .
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -10,7 +8,6 @@ services:
     networks:
       - proxy
     volumes:
-      - .:/app
       - /etc/localtime:/etc/localtime:ro
     labels:
       - "traefik.enable=true"
@@ -38,12 +35,8 @@ services:
       - proxy
 
   celery-test:
-    build:
-      context: .
-      dockerfile: Dockerfile.staging
+    build: .
     command: celery -A myapp worker --loglevel=info --concurrency=5
-    volumes:
-      - .:/app
     depends_on:
       - redis-test
     networks:
