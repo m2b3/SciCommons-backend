@@ -33,11 +33,10 @@ jobs:
       - name: Deploy to SERVER
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-            cd SciCommons-backend/
+            cd SciCommons-backend-main/
 
             # Pull the latest changes from the main branch
             echo "Pulling the latest changes from the main branch..."
-            git checkout main
             git pull origin main
 
             # Create the .env file
