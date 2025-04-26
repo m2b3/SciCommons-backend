@@ -116,12 +116,12 @@ class CommunityArticle(models.Model):
         (PUBLISHED, "Published"),
     ]
 
-    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE)
-    community = models.ForeignKey(Community, on_delete=models.CASCADE)
+    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE, db_index=True)
+    community = models.ForeignKey(Community, on_delete=models.CASCADE, db_index=True)
     status = models.CharField(
-        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED
+        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED, db_index=True
     )
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
     assigned_reviewers = models.ManyToManyField(
@@ -135,6 +135,13 @@ class CommunityArticle(models.Model):
         on_delete=models.SET_NULL,
     )
     is_pseudonymous = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['article', 'community']),
+            models.Index(fields=['community', 'status']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return (
