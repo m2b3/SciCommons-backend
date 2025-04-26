@@ -25,14 +25,20 @@ class Article(models.Model):
         max_length=10, choices=[("Public", "Public"), ("Private", "Private")]
     )
     submitter = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="submitted_articles"
+        User, on_delete=models.CASCADE, related_name="submitted_articles", db_index=True
     )
     faqs = models.JSONField(default=list)
-    slug = models.SlugField(max_length=255, unique=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    slug = models.SlugField(max_length=255, unique=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     hashtags = GenericRelation(HashtagRelation, related_query_name="articles")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['submitter', 'created_at']),
+            models.Index(fields=['created_at']),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -125,11 +131,11 @@ class Review(models.Model):
     ]
 
     article = models.ForeignKey(
-        Article, related_name="reviews", on_delete=models.CASCADE
+        Article, related_name="reviews", on_delete=models.CASCADE, db_index=True
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
     community = models.ForeignKey(
-        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE, db_index=True
     )
     community_article = models.ForeignKey(
         "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
@@ -143,7 +149,7 @@ class Review(models.Model):
     content = models.TextField()
     is_approved = models.BooleanField(default=False)
     version = models.PositiveIntegerField(default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
     reaction = GenericRelation("Reaction", related_query_name="reviews")
@@ -178,6 +184,12 @@ class Review(models.Model):
 
     class Meta:
         unique_together = ("article", "user", "community")
+        indexes = [
+            models.Index(fields=['article', 'created_at']),
+            models.Index(fields=['community', 'article']),
+            models.Index(fields=['user', 'article']),
+            models.Index(fields=['community_article']),
+        ]
 
 
 class ReviewVersion(models.Model):

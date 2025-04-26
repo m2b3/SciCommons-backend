@@ -735,3 +735,4 @@ def get_relevant_articles(
             return 500, {"message": "Error retrieving relevant articles. Please try again."}
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
+
