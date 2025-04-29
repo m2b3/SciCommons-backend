@@ -78,7 +78,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "myapp.middleware.process_put_patch",
     "django_ratelimit.middleware.RatelimitMiddleware",
     "ninja.compatibility.files.fix_request_files_middleware"
 ]
