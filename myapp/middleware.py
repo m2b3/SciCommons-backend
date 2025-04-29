@@ -1,1 +1,1 @@
-# Turning PUT and PATCH requests into POST requests in Django
+# middleware file
