@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "articles",
     "posts",
     "storages",
+    "rest_framework_simplejwt.token_blacklist",
 ]
 
 AUTH_USER_MODEL = "users.User"
@@ -60,10 +61,12 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=180),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": config("JWT_SECRET_KEY", default=SECRET_KEY),
 }
 
 MIDDLEWARE = [
@@ -83,19 +86,28 @@ MIDDLEWARE = [
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-# # Allow headers
-# CORS_ALLOW_HEADERS = [
-#     "accept",
-#     "accept-encoding",
-#     "Authorization",
-#     "content-type",
-#     "dnt",
-#     "origin",
-#     "user-agent",
-#     "x-csrftoken",
-#     "x-requested-with",
-#     "set-cookie",
+# CORS_ALLOW_ORIGINS = [
+#     "http://localhost:3000",
 # ]
+
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_EXPOSE_HEADERS = ['content-type', 'set-cookie']
+
+COOKIE_DOMAIN = config("COOKIE_DOMAIN", default="localhost")
 
 ROOT_URLCONF = "myapp.urls"
 
@@ -133,7 +145,6 @@ DATABASES = {
 }
 
 if not DEBUG:
-    print(config("DATABASE_URL"))
     DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 
 
@@ -220,7 +231,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Celery Configurations
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
-print("redis: ", CELERY_BROKER_URL, CELERY_RESULT_BACKEND)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'

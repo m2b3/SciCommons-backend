@@ -26,9 +26,15 @@ Global Exception Handlers (Error Handlers)
 
 @api.exception_handler(AuthenticationError)
 def custom_authentication_error_handler(request, exc):
+    if "Token is invalid or expired" in str(exc):
+        return api.create_response(
+            request,
+            {"message": "Your session has expired. Please log in again."},
+            status=401,
+        )
     return api.create_response(
         request,
-        {"message": "Please log in to access this resource."},
+        {"message": "Authentication failed. Please log in again."},
         status=401,
     )
 
