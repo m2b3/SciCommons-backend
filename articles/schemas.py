@@ -325,7 +325,7 @@ class ReviewOut(ModelSchema):
     def from_orm(cls, review: Review, current_user: Optional[User]):
         comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
         versions = [
-            ReviewVersionSchema.from_orm(version) for version in review.versions.all()
+            ReviewVersionSchema.from_orm(version) for version in review.versions.all().order_by('-version')[:3]
         ]
         is_pseudonymous = review.is_pseudonymous
         # if is_pseudonymous:

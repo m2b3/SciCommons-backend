@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
@@ -9,7 +10,9 @@ from ninja.responses import codes_4xx, codes_5xx
 
 # Todo: Move the Reaction model to the users app
 from articles.models import Article, Reaction
+from articles.schemas import ArticleOut, Message, PaginatedArticlesResponse
 from communities.models import Community
+from communities.schemas import CommunityListOut, PaginatedCommunities
 from myapp.schemas import Message, UserStats
 from posts.models import Post
 from users.auth import JWTAuth
@@ -114,6 +117,7 @@ User's Content API
 @router.get(
     "/contributed-articles",
     response={200: List[UserArticleSchema], 400: Message, 500: Message},
+    summary="Get Contributed Articles",
     auth=JWTAuth(),
 )
 def get_my_articles(request: HttpRequest):
@@ -128,9 +132,129 @@ def get_my_articles(request: HttpRequest):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
+# Get My Articles
+@router.get(
+    "/my-articles",
+    response={200: PaginatedArticlesResponse, 400: Message, 500: Message},
+    summary="Get My Articles",
+    auth=JWTAuth(),
+)
+def list_my_articles(request, page: int = 1, per_page: int = 10, search: Optional[str] = None):
+    try:
+        articles = Article.objects.filter(submitter=request.auth).order_by("-created_at")
+    except Exception:
+        return 500, {"message": "Error retrieving articles. Please try again."}
+
+    try:
+        if search:
+            articles = articles.filter(title__icontains=search)
+
+        paginator = Paginator(articles, per_page)
+        paginated_articles = paginator.get_page(page)
+    except Exception:
+        return 400, {"message": "Error with pagination parameters. Please try different values."}
+
+    try:
+        response_data = PaginatedArticlesResponse(
+            items=[
+                ArticleOut.from_orm_with_custom_fields(article, None, request.auth)
+                for article in paginated_articles
+            ],
+            total=paginator.count,
+            page=page,
+            per_page=per_page,
+            num_pages=paginator.num_pages,
+        )
+
+        return 200, response_data   
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
 @router.get(
     "/my-communities",
+    response={
+        200: PaginatedCommunities,
+        400: Message,
+        500: Message,
+    },
+    summary="Get My Communities",
+    auth=JWTAuth(),
+)
+def list_my_communities(
+    request: HttpRequest,
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 10,
+):
+    try:
+        user = request.auth
+        try:
+            communities = Community.objects.filter(admins__in=[user])
+        except Exception:
+            return 500, {"message": "Error retrieving communities. Please try again."}
+
+        # Apply search if provided
+        try:
+            if search:
+                search = search.strip()
+                if len(search) > 0:
+                    communities = communities \
+                        .filter(admins__in=[user]) \
+                        .filter(
+                            Q(name__icontains=search) | Q(description__icontains=search)
+                        )
+        except Exception:
+            return 500, {"message": "Error processing search query. Please try again."}
+
+        # Apply sorting
+        try:
+            if sort:
+                sort = sort.strip()
+                if sort == "latest":
+                    communities = communities.order_by("-created_at")
+                elif sort == "oldest":
+                    communities = communities.order_by("created_at")
+                elif sort == "name_asc":
+                    communities = communities.order_by("name")
+                elif sort == "name_desc":
+                    communities = communities.order_by("-name")
+                # Add more sorting options if needed
+            else:
+                # Default sort by latest
+                communities = communities.order_by("-created_at")
+        except Exception:
+            return 500, {"message": "Error sorting communities. Please try again."}
+
+        try:
+            paginator = Paginator(communities, per_page)
+            paginated_communities = paginator.get_page(page)
+        except Exception:
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
+
+        try:
+            results = [
+                CommunityListOut.from_orm_with_custom_fields(community, user=user)
+                for community in paginated_communities.object_list
+            ]
+
+            return 200, PaginatedCommunities(
+                items=results,
+                total=paginator.count,
+                page=page,
+                per_page=per_page,
+                num_pages=paginator.num_pages,
+            )
+        except Exception:
+            return 500, {"message": "Error formatting community data. Please try again."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+@router.get(
+    "/contributed-communities",
     response={200: List[UserCommunitySchema], 400: Message, 500: Message},
+    summary="Get Contributed Communities",
     auth=JWTAuth(),
 )
 def get_my_communities(request):
