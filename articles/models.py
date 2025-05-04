@@ -8,11 +8,12 @@ from django.db import models
 from django.utils.text import slugify
 from faker import Faker
 
+from myapp.utils import generate_identicon
 from users.models import HashtagRelation, User
 
 
 class Article(models.Model):
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=500)
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
@@ -24,14 +25,20 @@ class Article(models.Model):
         max_length=10, choices=[("Public", "Public"), ("Private", "Private")]
     )
     submitter = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="submitted_articles"
+        User, on_delete=models.CASCADE, related_name="submitted_articles", db_index=True
     )
     faqs = models.JSONField(default=list)
-    slug = models.SlugField(max_length=255, unique=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    slug = models.SlugField(max_length=255, unique=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     hashtags = GenericRelation(HashtagRelation, related_query_name="articles")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['submitter', 'created_at']),
+            models.Index(fields=['created_at']),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -48,48 +55,67 @@ class Article(models.Model):
 
 class ArticlePDF(models.Model):
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to="article_pdfs/")
+    pdf_file_url = models.FileField(upload_to="article_pdfs/", null=True, blank=True)
+    external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.article.title} - PDF {self.id}"
+    
+    def get_url(self):
+        """Return either the local file URL or external URL"""
+        if self.pdf_file_url:
+            return self.pdf_file_url.url
+        return self.external_url
 
 
 class AnonymousIdentity(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     article = models.ForeignKey("Article", on_delete=models.CASCADE)
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
     fake_name = models.CharField(max_length=100)
+    identicon = models.TextField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("user", "article")
+        unique_together = ("user", "article", "community")
 
     @staticmethod
     def generate_reddit_style_username():
         fake = Faker()
 
         def cap_word():
-            return fake.word(ext_word_list=None).capitalize()
+            return fake.word().capitalize()
 
         def low_word():
-            return fake.word(ext_word_list=None).lower()
+            return fake.word().lower()
 
         patterns = [
-            lambda: f"{cap_word()}{cap_word()}{random.randint(0, 9999)}",
-            lambda: f"{cap_word()}_{cap_word()}",
-            lambda: f"{low_word()}_{random.randint(0, 999)}",
-            lambda: (
-                f"{fake.first_name()}{random.choice(['_', ''])}"
-                f"{''.join(random.choices('aeiou', k=2))}{random.randint(0, 99)}"
-            ),
+            lambda: f"{cap_word()}_{cap_word()}_{random.randint(1000, 99999)}",
+            lambda: f"{cap_word()}_{cap_word()}{random.randint(10000, 999999):x}",
+            lambda: f"{low_word()}_{low_word()}",
+            lambda: f"{cap_word()}-{cap_word()}",
+            lambda: f"{cap_word()}{uuid.uuid4().hex[:4]}",
+            lambda: f"{fake.first_name()}_{''.join(random.choices('aeiouy', k=3))}",
+            lambda: f"{cap_word()}{random.choice(['', '_'])}{random.randint(10, 99)}",
+            lambda: f"{low_word()}_{cap_word()}{random.choice(['.', '-', '_'])}{uuid.uuid4().hex[:5]}",
+            lambda: f"{cap_word()}.{low_word()}{random.randint(100, 999)}{cap_word()}",
+            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}"
         ]
-        return random.choice(patterns)()
+        fake_name = random.choice(patterns)()
+        return fake_name
 
     @classmethod
-    def get_or_create_fake_name(cls, user, article):
+    def get_or_create_fake_name(cls, user, article, community=None):
         identity, created = cls.objects.get_or_create(
             user=user,
             article=article,
-            defaults={"fake_name": cls.generate_reddit_style_username()},
+            community=community,
+            defaults={
+                "fake_name": (fake_name := cls.generate_reddit_style_username()),
+                "identicon": generate_identicon(fake_name),
+            },
         )
         return identity.fake_name
 
@@ -105,11 +131,11 @@ class Review(models.Model):
     ]
 
     article = models.ForeignKey(
-        Article, related_name="reviews", on_delete=models.CASCADE
+        Article, related_name="reviews", on_delete=models.CASCADE, db_index=True
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
     community = models.ForeignKey(
-        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE, db_index=True
     )
     community_article = models.ForeignKey(
         "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
@@ -123,10 +149,11 @@ class Review(models.Model):
     content = models.TextField()
     is_approved = models.BooleanField(default=False)
     version = models.PositiveIntegerField(default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
     reaction = GenericRelation("Reaction", related_query_name="reviews")
+    is_pseudonymous = models.BooleanField(default=False, editable=True)
 
     def __str__(self):
         return (
@@ -149,7 +176,7 @@ class Review(models.Model):
         super().save(*args, **kwargs)
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article)
+        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article, self.community)
 
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
@@ -157,6 +184,12 @@ class Review(models.Model):
 
     class Meta:
         unique_together = ("article", "user", "community")
+        indexes = [
+            models.Index(fields=['article', 'created_at']),
+            models.Index(fields=['community', 'article']),
+            models.Index(fields=['user', 'article']),
+            models.Index(fields=['community_article']),
+        ]
 
 
 class ReviewVersion(models.Model):
@@ -205,9 +238,10 @@ class ReviewComment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     is_deleted = models.BooleanField(default=False)
     reactions = GenericRelation("Reaction", related_query_name="review_comments")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"ReviewComment by {self.user.username}"
+        return f"ReviewComment by {self.author.username}"
 
     def save(self, *args, **kwargs):
         if self.parent and self.parent.parent and self.parent.parent.parent:
@@ -216,11 +250,24 @@ class ReviewComment(models.Model):
 
     def get_anonymous_name(self):
         return AnonymousIdentity.get_or_create_fake_name(
-            self.author, self.review.article
+            self.author, self.review.article, self.review.community
         )
 
     class Meta:
         ordering = ["created_at"]
+
+class ReviewCommentRating(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    review = models.ForeignKey(Review, on_delete=models.CASCADE)
+    community = models.ForeignKey(
+        "communities.Community", null=True, blank=True, on_delete=models.CASCADE
+    )
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+
+    class Meta:
+        unique_together = ("user", "review", "community")
 
 
 class Reaction(models.Model):
@@ -266,6 +313,7 @@ class Discussion(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
     reactions = GenericRelation("Reaction")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Discussion: {self.title} (Article: {self.article.title})"
@@ -274,7 +322,7 @@ class Discussion(models.Model):
         ordering = ["-created_at"]
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article)
+        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article, self.community)
 
 
 class DiscussionComment(models.Model):
@@ -294,6 +342,7 @@ class DiscussionComment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation("Reaction")
+    is_pseudonymous = models.BooleanField(default=False)
 
     def __str__(self):
         return (
@@ -305,7 +354,7 @@ class DiscussionComment(models.Model):
 
     def get_anonymous_name(self):
         return AnonymousIdentity.get_or_create_fake_name(
-            self.author, self.discussion.article
+            self.author, self.discussion.article, self.discussion.community
         )
 
 

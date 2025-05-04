@@ -6,10 +6,13 @@ from users.models import HashtagRelation, User
 
 
 class Community(models.Model):
+    # PUBLIC = "public"
+    # HIDDEN = "hidden"
+    # LOCKED = "locked"
     PUBLIC = "public"
+    PRIVATE = "private"
     HIDDEN = "hidden"
-    LOCKED = "locked"
-    COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (LOCKED, "Locked")]
+    COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (PRIVATE, "Private")]
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -20,6 +23,8 @@ class Community(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     rules = models.JSONField(default=list)
     about = models.JSONField(default=dict)
+    requires_admin_approval = models.BooleanField(default=False)
+    community_settings = models.CharField(max_length=100, null=True, blank=True)
 
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")
@@ -111,12 +116,12 @@ class CommunityArticle(models.Model):
         (PUBLISHED, "Published"),
     ]
 
-    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE)
-    community = models.ForeignKey(Community, on_delete=models.CASCADE)
+    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE, db_index=True)
+    community = models.ForeignKey(Community, on_delete=models.CASCADE, db_index=True)
     status = models.CharField(
-        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED
+        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED, db_index=True
     )
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
     assigned_reviewers = models.ManyToManyField(
@@ -129,6 +134,14 @@ class CommunityArticle(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
     )
+    is_pseudonymous = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['article', 'community']),
+            models.Index(fields=['community', 'status']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return (

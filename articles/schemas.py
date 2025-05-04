@@ -3,6 +3,7 @@ from enum import Enum
 from typing import List, Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Avg, Sum
 from ninja import Field, ModelSchema, Schema
 
 from articles.models import (
@@ -13,6 +14,7 @@ from articles.models import (
     DiscussionComment,
     Review,
     ReviewComment,
+    ReviewCommentRating,
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
@@ -65,6 +67,8 @@ class CommunityArticleOut(ModelSchema):
     published_at: Optional[datetime]
     reviewer_ids: List[int] = Field(default_factory=list)
     moderator_id: Optional[int] = None
+    is_pseudonymous: bool
+    is_admin: bool
 
     class Config:
         model = CommunityArticle
@@ -77,7 +81,7 @@ class CommunityArticleOut(ModelSchema):
         ]
 
     @classmethod
-    def from_orm(cls, community_article: CommunityArticle):
+    def from_orm(cls, community_article: CommunityArticle, current_user: Optional[User]):
         return cls(
             id=community_article.id,
             community=ArticleCommunityDetails.from_orm(community_article.community),
@@ -92,21 +96,29 @@ class CommunityArticleOut(ModelSchema):
                 if community_article.assigned_moderator
                 else None
             ),
+            is_pseudonymous=community_article.is_pseudonymous,
+            is_admin = (
+                community_article.community.is_admin(current_user)
+                if current_user and not isinstance(current_user, bool)
+                else False
+            )
         )
 
 
 class ArticleOut(ModelSchema):
     authors: List[Tag]
-    keywords: List[str]
+    # keywords: List[str]
     faqs: List[FAQSchema]
     total_discussions: int
     total_reviews: int
+    total_ratings: float
     total_comments: int
     community_article: Optional[CommunityArticleOut]
     article_pdf_urls: List[str]
     user: UserStats
     is_submitter: bool
     submission_type: SubmissionType
+    is_pseudonymous: bool = Field(False)
 
     class Config:
         model = Article
@@ -123,30 +135,33 @@ class ArticleOut(ModelSchema):
 
     @classmethod
     def from_orm_with_custom_fields(
-        cls, article: Article, current_user: Optional[User]
+        cls, article: Article, community: Community, current_user: Optional[User]
     ):
-        keywords = [
-            relation.hashtag.name
-            for relation in HashtagRelation.objects.filter(
-                content_type=ContentType.objects.get_for_model(Article),
-                object_id=article.id,
-            )
-        ]
+        # keywords = [
+        #     relation.hashtag.name
+        #     for relation in HashtagRelation.objects.filter(
+        #         content_type=ContentType.objects.get_for_model(Article),
+        #         object_id=article.id,
+        #     )
+        # ]
 
         article_pdf_urls = [
-            pdf.pdf_file_url.url for pdf in ArticlePDF.objects.filter(article=article)
+            pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
         ]
 
-        total_reviews = Review.objects.filter(article=article).count()
-        total_discussions = Discussion.objects.filter(article=article).count()
-        total_comments = ReviewComment.objects.filter(review__article=article).count()
+        total_reviews = Review.objects.filter(article=article, community=community).count()
+        total_ratings = round(Review.objects.filter(article=article, community=community).aggregate(rating=Avg("rating"))["rating"] or 0, 1)
+        total_discussions = Discussion.objects.filter(article=article, community=community).count()
+        total_comments = ReviewComment.objects.filter(review__article=article, review__community=community, is_deleted=False).count()
         user = UserStats.from_model(article.submitter, basic_details=True)
 
         community_article = None
+        is_pseudonymous = False
 
-        if CommunityArticle.objects.filter(article=article).exists():
-            community_article = CommunityArticle.objects.get(article=article)
-            community_article = CommunityArticleOut.from_orm(community_article)
+        if CommunityArticle.objects.filter(article=article, community=community).exists():
+            community_article_instance = CommunityArticle.objects.get(article=article, community=community)
+            community_article = CommunityArticleOut.from_orm(community_article_instance, current_user)
+            is_pseudonymous = community_article.is_pseudonymous
 
         return cls(
             id=article.id,
@@ -160,7 +175,7 @@ class ArticleOut(ModelSchema):
             updated_at=article.updated_at,
             submission_type=article.submission_type,
             authors=article.authors,
-            keywords=keywords,
+            # keywords=keywords,
             faqs=article.faqs,
             total_reviews=total_reviews,
             total_discussions=total_discussions,
@@ -168,6 +183,8 @@ class ArticleOut(ModelSchema):
             community_article=community_article,
             user=user,
             is_submitter=(article.submitter == current_user) if current_user else False,
+            total_ratings=total_ratings if total_ratings else 0,
+            is_pseudonymous=is_pseudonymous,
         )
 
 
@@ -220,11 +237,12 @@ class PaginatedArticlesResponse(Schema):
 class ArticleCreateDetails(Schema):
     title: str
     abstract: str
-    keywords: List[str]
+    # keywords: List[str]
     authors: List[Tag]
     article_link: Optional[str] = Field(default=None)
     submission_type: Literal["Public", "Private"]
     community_name: Optional[str] = Field(default=None)
+    pdf_link: Optional[str] = Field(default=None)
 
 
 class ArticleCreateSchema(Schema):
@@ -234,7 +252,7 @@ class ArticleCreateSchema(Schema):
 class UpdateArticleDetails(Schema):
     title: str | None
     abstract: str | None
-    keywords: List[str] | None
+    # keywords: List[str] | None
     authors: List[Tag] | None
     submission_type: Literal["Public", "Private"] | None
     faqs: List[FAQSchema] = []
@@ -282,7 +300,10 @@ class ReviewOut(ModelSchema):
     community_article: Optional[CommunityArticleOut] = None
     article_id: int
     comments_count: int = Field(0)
-    anonymous_name: str = Field(None)
+    comments_ratings: float = Field(0)
+    # anonymous_name: str = Field(None)
+    # avatar: str = Field(None)
+    is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
 
     class Config:
@@ -302,14 +323,27 @@ class ReviewOut(ModelSchema):
 
     @classmethod
     def from_orm(cls, review: Review, current_user: Optional[User]):
-        comments_count = ReviewComment.objects.filter(review=review).count()
+        comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
         versions = [
-            ReviewVersionSchema.from_orm(version) for version in review.versions.all()
+            ReviewVersionSchema.from_orm(version) for version in review.versions.all().order_by('-version')[:3]
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=review.article, user=review.user
-        ).fake_name
+        is_pseudonymous = review.is_pseudonymous
+        # if is_pseudonymous:
+        #     pseudonym = AnonymousIdentity.objects.get(
+        #         article=review.article, user=review.user, community=review.community
+        #     )
+        #     anonymous_name = pseudonym.fake_name
+        #     avatar = pseudonym.identicon
+        # else:
+        #     anonymous_name = None
+        #     avatar = None
         user = UserStats.from_model(review.user, basic_details=True)
+        if is_pseudonymous:
+            pseudonym = AnonymousIdentity.objects.get(
+                article=review.article, user=review.user, community=review.community
+            )
+            user.username = pseudonym.fake_name
+            user.profile_pic_url = pseudonym.identicon
 
         community_article = None
 
@@ -319,7 +353,15 @@ class ReviewOut(ModelSchema):
             community_article = CommunityArticle.objects.get(
                 article=review.article, community=review.community
             )
-            community_article = CommunityArticleOut.from_orm(community_article)
+            community_article = CommunityArticleOut.from_orm(community_article, current_user)
+
+        comments_ratings = round(ReviewCommentRating.objects.filter(
+                                review=review, community=review.community
+                            ).exclude(
+                                user=review.user
+                            ).aggregate(
+                                rating=Avg("rating")
+                            )["rating"] or 0, 1)
 
         return cls(
             id=review.id,
@@ -337,8 +379,11 @@ class ReviewOut(ModelSchema):
             is_author=review.user == current_user,
             is_approved=review.is_approved,
             versions=versions,
-            anonymous_name=anonymous_name,
+            # anonymous_name=anonymous_name,
+            # avatar=avatar if avatar else None,
+            is_pseudonymous=is_pseudonymous,
             community_article=community_article,
+            comments_ratings=comments_ratings if comments_ratings else 0,
         )
 
 
@@ -365,7 +410,10 @@ class ReviewCommentOut(ModelSchema):
     replies: list["ReviewCommentOut"] = Field(...)
     upvotes: int
     is_author: bool = Field(False)
-    anonymous_name: str = Field(None)
+    is_deleted: bool = Field(False)
+    # anonymous_name: str = Field(None)
+    # avatar: str = Field(None)
+    is_pseudonymous: bool = Field(False)
 
     class Config:
         model = ReviewComment
@@ -378,20 +426,36 @@ class ReviewCommentOut(ModelSchema):
             ReviewCommentOut.from_orm_with_replies(reply, current_user)
             for reply in comment.review_replies.all()
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=comment.review.article, user=comment.author
-        ).fake_name
+        is_pseudonymous = comment.is_pseudonymous
+        # if is_pseudonymous:
+        #     pseudonym = AnonymousIdentity.objects.get(
+        #         article=comment.review.article, user=comment.author, community=comment.review.community
+        #     )
+        #     anonymous_name = pseudonym.fake_name
+        #     avatar = pseudonym.identicon
+        # else:
+        #     anonymous_name = None
+        #     avatar = None
+        if is_pseudonymous:
+            pseudonym = AnonymousIdentity.objects.get(
+                article=comment.review.article, user=comment.author, community=comment.review.community
+            )
+            author.username = pseudonym.fake_name
+            author.profile_pic_url = pseudonym.identicon
 
         return ReviewCommentOut(
             id=comment.id,
-            rating=comment.rating,
+            rating=comment.rating if comment.review.user != comment.author else None,
             author=author,
             content=comment.content,
             created_at=comment.created_at,
             upvotes=comment.reactions.filter(vote=1).count(),
             replies=replies,
-            anonymous_name=anonymous_name,
+            # anonymous_name=anonymous_name,
+            # avatar=avatar if avatar else None,
             is_author=(comment.author == current_user) if current_user else False,
+            is_deleted=comment.is_deleted,
+            is_pseudonymous=is_pseudonymous,
         )
 
 
@@ -408,6 +472,11 @@ class ReviewCommentUpdateSchema(Schema):
     rating: int | None
 
 
+
+class ReviewCommentRatingByUserOut(Schema):
+    rating: int | None
+
+
 """
 Discussion Related Schemas for serialization and deserialization
 """
@@ -418,7 +487,9 @@ class DiscussionOut(ModelSchema):
     user: UserStats = Field(...)
     article_id: int
     comments_count: int = Field(0)
-    anonymous_name: str = Field(None)
+    # anonymous_name: str = Field(None)
+    # avatar: str = Field(None)
+    is_pseudonymous: bool = Field(False)
 
     class Config:
         model = Discussion
@@ -434,10 +505,23 @@ class DiscussionOut(ModelSchema):
     @classmethod
     def from_orm(cls, discussion: Discussion, current_user: Optional[User]):
         comments_count = DiscussionComment.objects.filter(discussion=discussion).count()
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=discussion.article, user=discussion.author
-        ).fake_name
+        is_pseudonymous = discussion.is_pseudonymous
+        # if is_pseudonymous:
+        #     pseudonym = AnonymousIdentity.objects.get(
+        #         article=discussion.article, user=discussion.author, community=discussion.community
+        #     )
+        #     anonymous_name = pseudonym.fake_name
+        #     avatar = pseudonym.identicon
+        # else:
+        #     anonymous_name = None
+        #     avatar = None
         user = UserStats.from_model(discussion.author, basic_details=True)
+        if is_pseudonymous:
+            pseudonym = AnonymousIdentity.objects.get(
+                article=discussion.article, user=discussion.author, community=discussion.community
+            )
+            user.username = pseudonym.fake_name
+            user.profile_pic_url = pseudonym.identicon
 
         return cls(
             id=discussion.id,
@@ -450,7 +534,9 @@ class DiscussionOut(ModelSchema):
             deleted_at=discussion.deleted_at,
             comments_count=comments_count,
             is_author=discussion.author == current_user,
-            anonymous_name=anonymous_name,
+            # anonymous_name=anonymous_name,
+            # avatar=avatar if avatar else None,
+            is_pseudonymous=is_pseudonymous,
         )
 
 
@@ -476,7 +562,9 @@ class DiscussionCommentOut(ModelSchema):
     replies: list["DiscussionCommentOut"] = Field(...)
     upvotes: int
     is_author: bool = Field(False)
-    anonymous_name: str = Field(None)
+    # anonymous_name: str = Field(None)
+    # avatar: str = Field(None)
+    is_pseudonymous: bool = Field(False)
 
     class Config:
         model = DiscussionComment
@@ -489,9 +577,18 @@ class DiscussionCommentOut(ModelSchema):
             DiscussionCommentOut.from_orm_with_replies(reply, current_user)
             for reply in DiscussionComment.objects.filter(parent=comment)
         ]
-        anonymous_name = AnonymousIdentity.objects.get(
-            article=comment.discussion.article, user=comment.author
-        ).fake_name
+        # pseudonym = AnonymousIdentity.objects.get(
+        #     article=comment.discussion.article, user=comment.author, community=comment.discussion.community
+        # )
+        # anonymous_name = pseudonym.fake_name
+        # avatar = pseudonym.identicon
+        is_pseudonymous = comment.is_pseudonymous
+        if is_pseudonymous:
+            pseudonym = AnonymousIdentity.objects.get(
+                article=comment.discussion.article, user=comment.author, community=comment.discussion.community
+            )
+            author.username = pseudonym.fake_name
+            author.profile_pic_url = pseudonym.identicon
 
         return DiscussionCommentOut(
             id=comment.id,
@@ -500,8 +597,10 @@ class DiscussionCommentOut(ModelSchema):
             created_at=comment.created_at,
             upvotes=comment.reactions.filter(vote=1).count(),
             replies=replies,
-            anonymous_name=anonymous_name,
+            # anonymous_name=anonymous_name,
             is_author=(comment.author == current_user) if current_user else False,
+            # avatar=avatar if avatar else None,
+            is_pseudonymous=is_pseudonymous,
         )
 
 

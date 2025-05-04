@@ -17,6 +17,7 @@ from ninja.responses import codes_4xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
+from myapp.services.send_emails import send_email_task
 from users.models import Reputation, User
 from users.schemas import (
     LogInSchemaIn,
@@ -25,96 +26,122 @@ from users.schemas import (
     UserCreateSchema,
 )
 
-from myapp.services.send_emails import send_email_task
-
 router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
 
 
 @router.post("/signup", response={201: Message, 400: Message})
 def signup(request: HttpRequest, payload: UserCreateSchema):
-    if payload.password != payload.confirm_password:
-        return 400, {"message": "Passwords do not match."}
-
-    user = User.objects.filter(email=payload.email).first()
-
-    if user:
-        if not user.is_active:
-            return 400, {
-                "message": "Email already registered but not activated. Please"
-                " check your email for the activation link."
-            }
-        else:
-            return 400, {"message": "Email is already in use."}
-
-    if User.objects.filter(username=payload.username).exists():
-        return 400, {"message": "Username is already taken."}
-
     try:
-        user = User.objects.create_user(
-            username=payload.username,
-            email=payload.email,
-            password=payload.password,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-        )
-        user.is_active = False
+        if payload.password != payload.confirm_password:
+            return 400, {"message": "Passwords do not match."}
 
-        user.save()
+        try:
+            user = User.objects.filter(email=payload.email).first()
 
-        # Generate a token
-        token = signer.sign(user.pk)
+            if user:
+                if not user.is_active:
+                    return 400, {
+                        "message": "Email already registered but not activated. Please"
+                        " check your email for the activation link."
+                    }
+                else:
+                    return 400, {"message": "Email is already in use."}
+        except Exception:
+            return 500, {"message": "Error checking email existence. Please try again."}
 
-        link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
+        try:
+            if User.objects.filter(username=payload.username).exists():
+                return 400, {"message": "Username is already taken."}
+        except Exception:
+            return 500, {"message": "Error checking username availability. Please try again."}
 
-        # Render the HTML template with context
-        html_content = {
-                "name": user.first_name,
-                "activation_link": link,
-            }
+        try:
+            user = User.objects.create_user(
+                username=payload.username,
+                email=payload.email,
+                password=payload.password,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+            )
+            user.is_active = False
 
-        send_email_task.delay(
-            subject = "Activate your account",
-            html_template_name = "activation_email.html", 
-            context = html_content, 
-            recipient_list = [payload.email]
-        )
+            user.save()
+        except IntegrityError:
+            return 500, {"message": "User could not be created. Please try again."}
+        except Exception:
+            return 500, {"message": "Error creating user account. Please try again."}
 
-    except IntegrityError:
-        raise HttpError(500, "User could not be created.")
+        try:
+            # Generate a token
+            token = signer.sign(user.pk)
 
-    return 201, {
-        "message": (
-            "Account created successfully. Please check your "
-            "email to activate your account."
-        )
-    }
+            link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
+
+            # Render the HTML template with context
+            html_content = {
+                    "name": user.first_name,
+                    "activation_link": link,
+                }
+
+            send_email_task.delay(
+                subject = "Activate your account",
+                html_template_name = "activation_email.html", 
+                context = html_content, 
+                recipient_list = [payload.email]
+            )
+        except Exception:
+            # Continue even if email sending fails - user is created but might need to request activation link again
+            pass
+
+        return 201, {
+            "message": (
+                "Account created successfully. Please check your "
+                "email to activate your account."
+            )
+        }
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.post("/activate/{token}", response={200: Message, 400: Message, 404: Message})
 def activate(request: HttpRequest, token: str):
     try:
-        # Extract the user ID from the token and check expiration
-        user_id = signer.unsign(token, max_age=1800)  # 1800 seconds = 30 minutes
-        user = User.objects.get(pk=user_id)
+        try:
+            # Extract the user ID from the token and check expiration
+            user_id = signer.unsign(token, max_age=1800)  # 1800 seconds = 30 minutes
+        except SignatureExpired:
+            return 400, {"message": "Activation link expired. Please request a new one."}
+        except BadSignature:
+            return 400, {"message": "Invalid activation link. Please request a new one."}
+        except Exception:
+            return 500, {"message": "Error verifying token. Please try again."}
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return 404, {"message": "User not found. Please sign up again."}
+        except Exception:
+            return 500, {"message": "Error retrieving user account. Please try again."}
 
         if user.is_active:
-            return 400, {"message": "Account already activated."}
+            return 400, {"message": "Account already activated. You can now log in."}
 
-        # Create Reputation object for the user
-        Reputation.objects.get_or_create(user=user)
+        try:
+            # Create Reputation object for the user
+            Reputation.objects.get_or_create(user=user)
+        except Exception:
+            return 500, {"message": "Error setting up user reputation. Please try again."}
 
-        user.is_active = True
+        try:
+            user.is_active = True
+            user.save()
+        except Exception:
+            return 500, {"message": "Error activating account. Please try again."}
 
-        user.save()
-
-        return 200, {"message": "Account activated successfully."}
-
-    except SignatureExpired:
-        return 400, {"message": "Activation link expired."}
-
-    except BadSignature:
-        return 400, {"message": "Invalid activation link."}
+        return 200, {"message": "Account activated successfully. You can now log in."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.post(
@@ -122,144 +149,203 @@ def activate(request: HttpRequest, token: str):
 )
 def resend_activation(request: HttpRequest, email: str):
     try:
-        user = User.objects.get(email=email)
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return 404, {"message": "No account associated with this email was found."}
+        except Exception:
+            return 500, {"message": "Error retrieving user account. Please try again."}
 
         if user.is_active:
             return 400, {
-                "message": "This account is already active. Consider logging in."
+                "message": "This account is already active. You can log in now."
             }
 
-        # Generate a new and unique activation token
-        token = signer.sign(user.pk)
-        link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
+        try:
+            # Generate a new and unique activation token
+            token = signer.sign(user.pk)
+            link = f"{settings.FRONTEND_URL}/auth/activate/{token}"
 
-        # Render the HTML template with context
-        html_content = {
-                "name": user.first_name,
-                "activation_link": link,
-            }
+            # Render the HTML template with context
+            html_content = {
+                    "name": user.first_name,
+                    "activation_link": link,
+                }
 
-        # Send email
-        send_email_task.delay(
-            subject = "Activate your account",
-            html_template_name = "resend_activation_email.html", 
-            context = html_content, 
-            recipient_list = [email]
-        )
+            # Send email
+            send_email_task.delay(
+                subject = "Activate your account",
+                html_template_name = "resend_activation_email.html", 
+                context = html_content, 
+                recipient_list = [email]
+            )
+        except Exception:
+            return 500, {"message": "Error sending activation email. Please try again."}
 
-    except User.DoesNotExist:
-        return 404, {"message": "No account associated with this email was found."}
-
-    return 200, {"message": "Activation link sent. Please check your email."}
+        return 200, {"message": "Activation link sent. Please check your email."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.post("/login", response={200: LogInSchemaOut, codes_4xx: Message})
 def login_user(request, payload: LogInSchemaIn):
-    # Attempt to retrieve user by username or email
-    user = (
-        User.objects.filter(username=payload.login).first()
-        or User.objects.filter(email=payload.login).first()
-    )
-    if not user:
-        return 404, {"message": "No account found with the provided username/email."}
+    try:
+        try:
+            # Attempt to retrieve user by username or email
+            user = (
+                User.objects.filter(username=payload.login).first()
+                or User.objects.filter(email=payload.login).first()
+            )
+            if not user:
+                return 404, {"message": "No account found with the provided username/email."}
+        except Exception:
+            return 500, {"message": "Error retrieving user account. Please try again."}
 
-    # Check if the user's account is active
-    if not user.is_active:
-        return 403, {
-            "message": "This account is inactive. Please activate your account."
-        }
+        # Check if the user's account is active
+        if not user.is_active:
+            return 403, {
+                "message": "This account is inactive. Please activate your account first."
+            }
 
-    # Authenticate the user
-    user = authenticate(username=user.username, password=payload.password)
-    if user is None:
-        return 401, {"message": "Invalid password."}
+        try:
+            # Authenticate the user
+            user = authenticate(username=user.username, password=payload.password)
+            if user is None:
+                return 401, {"message": "Invalid password. Please try again."}
+        except Exception:
+            return 500, {"message": "Authentication error. Please try again."}
 
-    login(request, user)
+        try:
+            login(request, user)
+        except Exception:
+            return 500, {"message": "Error logging in. Please try again."}
 
-    # Generate JWT tokens
-    refresh = RefreshToken.for_user(user)
+        try:
+            # Generate JWT tokens
+            refresh = RefreshToken.for_user(user)
 
-    access_token = str(refresh.access_token)
-    refresh_token = str(refresh)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
+        except Exception:
+            return 500, {"message": "Error generating authentication tokens. Please try again."}
 
-    response = JsonResponse(
-        {
-            "status": "success",
-            "message": "Login successful.",
-            "token": access_token,
-        }
-    )
+        try:
+            response = JsonResponse(
+                {
+                    "status": "success",
+                    "message": "Login successful.",
+                    "token": access_token,
+                    "user": {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                    }
+                }
+            )
 
-    response.set_cookie(
-        key="accessToken",
-        value=access_token,
-        httponly=True,
-        secure=False,  # Ensure secure is False for localhost testing
-        samesite="None",  # Adjust for cross-site requests
-        max_age=120 * 60,  # 2 hours
-    )
-    response.set_cookie(
-        key="refreshToken",
-        value=refresh_token,
-        httponly=True,
-        secure=False,  # Ensure secure is False for localhost testing
-        samesite="None",  # Adjust for cross-site requests
-        max_age=7 * 24 * 60 * 60,  # 7 days
-    )
+            response.set_cookie(
+                key="accessToken",
+                value=access_token,
+                httponly=True,
+                secure=False,  # Ensure secure is False for localhost testing
+                samesite="None",  # Adjust for cross-site requests
+                max_age=120 * 60,  # 2 hours
+            )
+            response.set_cookie(
+                key="refreshToken",
+                value=refresh_token,
+                httponly=True,
+                secure=False,  # Ensure secure is False for localhost testing
+                samesite="None",  # Adjust for cross-site requests
+                max_age=7 * 24 * 60 * 60,  # 7 days
+            )
 
-    return response
+            return response
+        except Exception:
+            return 500, {"message": "Error creating response. Please try again."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.post("/forgot-password/{email}", response={200: Message, 404: Message})
 def request_reset(request: HttpRequest, email: str):
     try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
-        return 404, {"message": "No user found with this email address."}
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return 404, {"message": "No user found with this email address."}
+        except Exception:
+            return 500, {"message": "Error retrieving user account. Please try again."}
 
-    # Encode user's primary key and sign it with a timestamp
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    signed_uid = signer.sign(uid)
+        try:
+            # Encode user's primary key and sign it with a timestamp
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            signed_uid = signer.sign(uid)
 
-    # Generate the reset link
-    reset_link = f"{settings.FRONTEND_URL}/auth/resetpassword/{signed_uid}"
+            # Generate the reset link
+            reset_link = f"{settings.FRONTEND_URL}/auth/resetpassword/{signed_uid}"
+        except Exception:
+            return 500, {"message": "Error generating reset link. Please try again."}
 
-    # Render the HTML template with context
-    html_content = {
-            "name": user.first_name,
-            "reset_link": reset_link,
-        }
-    
-    send_email_task.delay(
-        subject = "Password Reset Request",
-        html_template_name = "password_reset_email.html", 
-        context = html_content, 
-        recipient_list = [user.email]
-    )
+        try:
+            # Render the HTML template with context
+            html_content = {
+                    "name": user.first_name,
+                    "reset_link": reset_link,
+                }
+            
+            send_email_task.delay(
+                subject = "Password Reset Request",
+                html_template_name = "password_reset_email.html", 
+                context = html_content, 
+                recipient_list = [user.email]
+            )
+        except Exception:
+            return 500, {"message": "Error sending reset email. Please try again."}
 
-    return 200, {"message": "Password reset link has been sent to your email."}
+        return 200, {"message": "Password reset link has been sent to your email."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.post("/reset-password/{token}", response={200: Message, 400: Message})
 def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchema):
     try:
-        # Unsign to verify the token and extract the UID
-        original_uid = signer.unsign(token, max_age=3600)  # Token expires after 1 hour
-        uid = urlsafe_base64_decode(original_uid).decode()
-        user = User.objects.get(pk=uid)
+        try:
+            # Unsign to verify the token and extract the UID
+            original_uid = signer.unsign(token, max_age=3600)  # Token expires after 1 hour
+        except SignatureExpired:
+            return 400, {"message": "Password reset link expired. Please request a new one."}
+        except BadSignature:
+            return 400, {"message": "Invalid password reset link. Please request a new one."}
+        except Exception:
+            return 500, {"message": "Error verifying token. Please try again."}
+
+        try:
+            uid = urlsafe_base64_decode(original_uid).decode()
+        except Exception:
+            return 400, {"message": "Invalid token format. Please request a new password reset link."}
+
+        try:
+            user = User.objects.get(pk=uid)
+        except User.DoesNotExist:
+            return 404, {"message": "User not found. Please request a new password reset link."}
+        except Exception:
+            return 500, {"message": "Error retrieving user account. Please try again."}
 
         # Check if passwords match
         if payload.password != payload.confirm_password:
-            return 400, {"message": "Passwords do not match."}
+            return 400, {"message": "Passwords do not match. Please try again."}
 
-        # Set the new password
-        user.set_password(payload.password)
-        user.save()
+        try:
+            # Set the new password
+            user.set_password(payload.password)
+            user.save()
+        except Exception:
+            return 500, {"message": "Error updating password. Please try again."}
 
-        return 200, {"message": "Password reset successfully."}
-
-    except SignatureExpired:
-        return 400, {"message": "Password reset link expired."}
-
-    except BadSignature:
-        return 400, {"message": "Invalid password reset link."}
+        return 200, {"message": "Password reset successfully. You can now log in with your new password."}
+    except Exception:
+        return 500, {"message": "An unexpected error occurred. Please try again later."}

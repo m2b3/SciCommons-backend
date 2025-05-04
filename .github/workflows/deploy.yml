@@ -70,6 +70,8 @@ jobs:
             echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env.prod
             echo "CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND }}" >> .env.prod
 
+            echo "REDIS_HOST_URL=${{ secrets.REDIS_HOST_URL }}" >> .env.prod
+
             echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.prod
             echo "CF_DNS_API_TOKEN=${{ secrets.CF_DNS_API_TOKEN }}" >> .env.prod
 
