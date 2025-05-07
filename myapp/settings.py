@@ -91,13 +91,12 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "https://scicommons.org",
     "https://test.scicommons.org",
-    "https://alphatest.scicommons.org",
     "https://backendtest.scicommons.org",
 ]
 
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://[a-zA-Z0-9-]+\.scicommons\.org$",
-]
+# CORS_ALLOWED_ORIGIN_REGEXES = [
+#     r"^https://[a-zA-Z0-9-]+\.scicommons\.org$",
+# ]
 
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True
