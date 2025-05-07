@@ -36,6 +36,7 @@ ALLOWED_HOSTS = [
     "scicommons.org",
     "test.scicommons.org",
     "alphatest.scicommons.org",
+    "backend.scicommons.org",
     "backendtest.scicommons.org"
 ]
 
@@ -93,6 +94,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://scicommons.org",
     "https://test.scicommons.org",
     "https://alphatest.scicommons.org",
+    "https://backend.scicommons.org",
     "https://backendtest.scicommons.org",
 ]
 
