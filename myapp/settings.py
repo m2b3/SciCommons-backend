@@ -35,8 +35,7 @@ DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = [
     "scicommons.org",
     "test.scicommons.org",
-    "alphatest.scicommons.org",
-    "*.scicommons.org"
+    "backendtest.scicommons.org"
 ]
 
 
