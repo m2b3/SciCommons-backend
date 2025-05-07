@@ -93,10 +93,33 @@ CORS_ALLOWED_ORIGINS = [
     "https://scicommons.org",
     "https://test.scicommons.org",
     "https://alphatest.scicommons.org",
+    "https://backendtest.scicommons.org",
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://[a-zA-Z0-9-]+\.scicommons\.org$",
+]
+
+# CORS Additional Settings
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
 
 # Security Settings
