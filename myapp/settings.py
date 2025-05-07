@@ -35,6 +35,7 @@ DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = [
     "scicommons.org",
     "test.scicommons.org",
+    "alphatest.scicommons.org",
     "backendtest.scicommons.org"
 ]
 
@@ -91,6 +92,7 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "https://scicommons.org",
     "https://test.scicommons.org",
+    "https://alphatest.scicommons.org",
     "https://backendtest.scicommons.org",
 ]
 
