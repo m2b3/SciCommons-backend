@@ -32,12 +32,16 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
 
+ENVIRONMENT = config("ENVIRONMENT", default="local")
+
 ALLOWED_HOSTS = [
     "scicommons.org",
     "test.scicommons.org",
     "alphatest.scicommons.org",
     "backend.scicommons.org",
-    "backendtest.scicommons.org"
+    "backendtest.scicommons.org",
+    "localhost",
+    "127.0.0.1",
 ]
 
 
@@ -96,6 +100,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://alphatest.scicommons.org",
     "https://backend.scicommons.org",
     "https://backendtest.scicommons.org",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 # CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -125,10 +131,10 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # Security Settings
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
@@ -198,7 +204,7 @@ AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
 AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME")
-AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+AWS_S3_CUSTOM_DOMAIN = config("AWS_S3_CUSTOM_DOMAIN")
 AWS_S3_FILE_OVERWRITE = False
 
 
