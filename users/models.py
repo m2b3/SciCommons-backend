@@ -12,6 +12,8 @@ from django.db.models import Sum
 from django.utils.timezone import now, timedelta
 from django.utils.translation import gettext_lazy as _
 
+from myapp import settings
+
 
 class UserManager(BaseUserManager):
     """
@@ -50,7 +52,7 @@ class User(AbstractUser):
     Custom User model with additional fields.
     """
 
-    profile_pic_url = models.FileField(upload_to="profile_images/", null=True)
+    profile_pic_url = models.FileField(upload_to=f"profile_images/{settings.ENVIRONMENT}/", null=True)
     bio = models.TextField(null=True, blank=True)
     pubMed_url = models.CharField(max_length=255, null=True, blank=True)
     google_scholar_url = models.CharField(max_length=255, null=True, blank=True)

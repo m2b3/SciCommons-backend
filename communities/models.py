@@ -2,6 +2,7 @@ from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.utils.text import slugify
 
+from myapp import settings
 from users.models import HashtagRelation, User
 
 
@@ -17,8 +18,8 @@ class Community(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
     type = models.CharField(max_length=10, choices=COMMUNITY_TYPES, default=PUBLIC)
-    profile_pic_url = models.FileField(upload_to="community_images/", null=True)
-    banner_pic_url = models.FileField(upload_to="community_images/", null=True)
+    profile_pic_url = models.FileField(upload_to=f"community_images/{settings.ENVIRONMENT}/", null=True)
+    banner_pic_url = models.FileField(upload_to=f"community_images/{settings.ENVIRONMENT}/", null=True)
     slug = models.SlugField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     rules = models.JSONField(default=list)

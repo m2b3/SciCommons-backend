@@ -8,6 +8,7 @@ from django.db import models
 from django.utils.text import slugify
 from faker import Faker
 
+from myapp import settings
 from myapp.utils import generate_identicon
 from users.models import HashtagRelation, User
 
@@ -18,7 +19,7 @@ class Article(models.Model):
     # Todo: Add Validator
     authors = models.JSONField(default=list)
     article_image_url = models.ImageField(
-        upload_to="article_images/", null=True, blank=True
+        upload_to=f"article_images/{settings.ENVIRONMENT}/", null=True, blank=True
     )
     article_link = models.URLField(null=True, blank=True, unique=True)
     submission_type = models.CharField(
@@ -55,7 +56,7 @@ class Article(models.Model):
 
 class ArticlePDF(models.Model):
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to="article_pdfs/", null=True, blank=True)
+    pdf_file_url = models.FileField(upload_to=f"article_pdfs/{settings.ENVIRONMENT}/", null=True, blank=True)
     external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
