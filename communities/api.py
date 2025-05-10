@@ -9,6 +9,9 @@ from django.utils import timezone
 from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
 
+# from users.models import Hashtag, HashtagRelation
+from ninja.responses import codes_4xx, codes_5xx
+
 from articles.models import Discussion, Review
 from articles.schemas import ArticleBasicOut
 from communities.models import Community, CommunityArticle
@@ -22,12 +25,11 @@ from communities.schemas import (
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
-from myapp.constants import COMMUNITY_SETTINGS, COMMUNITY_TYPES, COMMUNITY_TYPES_LIST
+from myapp.constants import COMMUNITY_SETTINGS, COMMUNITY_TYPES_LIST
 from myapp.feature_flags import MAX_COMMUNITIES_PER_USER
 from myapp.schemas import DateCount, Message
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Hashtag, HashtagRelation
 
 router = Router(tags=["Communities"])
 
@@ -39,7 +41,7 @@ Community Management Endpoints
 
 @router.post(
     "/communities/",
-    response={201: CommunityOut, 400: Message, 500: Message},
+    response={201: CommunityOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def create_community(
@@ -110,8 +112,8 @@ def create_community(
     "/",
     response={
         200: PaginatedCommunities,
-        400: Message,
-        500: Message,
+        codes_4xx: Message,
+        codes_5xx: Message,
     },
     summary="Get Communities",
     auth=OptionalJWTAuth,
@@ -188,7 +190,7 @@ def list_communities(
 
 @router.get(
     "/community/{community_name}/",
-    response={200: CommunityOut, 400: Message, 403: Message, 404: Message, 500: Message},
+    response={200: CommunityOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_community(request, community_name: str):
@@ -215,7 +217,7 @@ def get_community(request, community_name: str):
 
 @router.put(
     "/{community_id}/",
-    response={200: CommunityOut, 400: Message, 403: Message, 404: Message, 500: Message},
+    response={200: CommunityOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def update_community(
@@ -304,7 +306,7 @@ def delete_community(request: HttpRequest, community_id: int):
 
 @router.get(
     "/{community_id}/relevant-communities",
-    response={200: List[CommunityBasicOut], 400: Message, 404: Message, 500: Message},
+    response={200: List[CommunityBasicOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_relevant_communities(
@@ -374,7 +376,7 @@ Community Stats Endpoint
 
 @router.get(
     "/{community_slug}/dashboard",
-    response={200: CommunityStatsResponse, 400: Message, 404: Message, 500: Message},
+    response={200: CommunityStatsResponse, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_community_dashboard(request, community_slug: str):

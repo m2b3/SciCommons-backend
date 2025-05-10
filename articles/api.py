@@ -293,7 +293,7 @@ def update_article(
 
 @router.get(
     "/",
-    response={200: PaginatedArticlesResponse, 400: Message, 500: Message},
+    response={200: PaginatedArticlesResponse, codes_4xx: Message, codes_5xx: Message},
     summary="Get Public Articles",
     auth=OptionalJWTAuth,
 )
@@ -441,7 +441,7 @@ Article Stats Endpoints
 
 @router.get(
     "/article/{article_slug}/official-stats",
-    response={200: OfficialArticleStatsResponse, 400: Message},
+    response={200: OfficialArticleStatsResponse, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_article_official_stats(request, article_slug: str):
@@ -545,7 +545,7 @@ def get_article_official_stats(request, article_slug: str):
 
 @router.get(
     "/article/{article_slug}/community-stats",
-    response={200: CommunityArticleStatsResponse, 400: Message},
+    response={200: CommunityArticleStatsResponse, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_community_article_stats(request, article_slug: str):
@@ -670,7 +670,7 @@ Relevant Articles Endpoint
 
 @router.get(
     "/{article_id}/relevant-articles",
-    response={200: List[ArticleBasicOut], 400: Message, 500: Message},
+    response={200: List[ArticleBasicOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_relevant_articles(
