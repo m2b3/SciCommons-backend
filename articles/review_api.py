@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.utils import timezone
 from ninja import Router
-from ninja.responses import codes_4xx
+from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import (
     Article,
@@ -34,7 +34,7 @@ router = Router(tags=["Reviews"])
 
 @router.post(
     "/{article_id}/reviews/",
-    response={201: ReviewOut, codes_4xx: Message, 500: Message},
+    response={201: ReviewOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def create_review(
@@ -171,7 +171,7 @@ def create_review(
 
 @router.get(
     "/{article_id}/reviews/",
-    response={200: PaginatedReviewSchema, 404: Message, 500: Message},
+    response={200: PaginatedReviewSchema, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def list_reviews(
@@ -236,7 +236,7 @@ def list_reviews(
 
 @router.get(
     "/reviews/{review_id}/",
-    response={200: ReviewOut, 404: Message, 500: Message},
+    response={200: ReviewOut, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_review(request, review_id: int):
@@ -263,7 +263,7 @@ def get_review(request, review_id: int):
 
 @router.put(
     "/reviews/{review_id}/",
-    response={201: ReviewOut, 404: Message, 500: Message},
+    response={201: ReviewOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
@@ -304,7 +304,7 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
 
 @router.delete(
     "/reviews/{review_id}/",
-    response={201: Message, 404: Message, 500: Message},
+    response={201: Message, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def delete_review(request, review_id: int):
@@ -345,7 +345,7 @@ Endpoints for comments on reviews
 # Create a Comment
 @router.post(
     "reviews/{review_id}/comments/", 
-    response={201: ReviewCommentOut, 400: Message, 403: Message, 404: Message, 500: Message}, 
+    response={201: ReviewCommentOut, codes_4xx: Message, codes_5xx: Message}, 
     auth=JWTAuth()
 )
 def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
@@ -439,7 +439,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
 # Get a Comment
 @router.get(
     "reviews/comments/{comment_id}/",
-    response={200: ReviewCommentOut, 404: Message, 403: Message, 500: Message},
+    response={200: ReviewCommentOut, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_comment(request, comment_id: int):
@@ -470,7 +470,7 @@ def get_comment(request, comment_id: int):
 
 @router.get(
     "reviews/{review_id}/comments/",
-    response={200: List[ReviewCommentOut], 403: Message, 404: Message, 500: Message},
+    response={200: List[ReviewCommentOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def list_review_comments(request, review_id: int):
@@ -515,7 +515,7 @@ def list_review_comments(request, review_id: int):
 
 @router.put(
     "reviews/comments/{comment_id}/",
-    response={200: ReviewCommentOut, 403: Message, 404: Message, 500: Message},
+    response={200: ReviewCommentOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema):
@@ -565,7 +565,7 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
 
 @router.delete(
     "reviews/comments/{comment_id}/", 
-    response={204: None, 403: Message, 404: Message, 500: Message}, 
+    response={204: None, codes_4xx: Message, codes_5xx: Message}, 
     auth=JWTAuth()
 )
 def delete_comment(request, comment_id: int):
@@ -620,7 +620,7 @@ def delete_comment(request, comment_id: int):
 # Get Rating for a review by user
 @router.get(
     "reviews/{review_id}/rating/", 
-    response={200: ReviewCommentRatingByUserOut, 403: Message, 404: Message, 500: Message}, 
+    response={200: ReviewCommentRatingByUserOut, codes_4xx: Message, codes_5xx: Message}, 
     auth=JWTAuth()
 )
 def get_rating(request, review_id: int):

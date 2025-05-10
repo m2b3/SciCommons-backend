@@ -2,6 +2,8 @@
 Holds the User model and UserManager class.
 """
 
+import time
+import uuid
 from typing import Literal, Optional, Tuple
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -52,7 +54,14 @@ class User(AbstractUser):
     Custom User model with additional fields.
     """
 
-    profile_pic_url = models.FileField(upload_to=f"profile_images/{settings.ENVIRONMENT}/", null=True)
+    def get_upload_path(instance, filename):
+        # Get file extension
+        ext = filename.split('.')[-1]
+        # Generate unique filename using article ID and timestamp
+        unique_filename = f"{instance.id}_user_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        return f"profile_images/{settings.ENVIRONMENT}/{unique_filename}"
+
+    profile_pic_url = models.FileField(upload_to=get_upload_path, null=True)
     bio = models.TextField(null=True, blank=True)
     pubMed_url = models.CharField(max_length=255, null=True, blank=True)
     google_scholar_url = models.CharField(max_length=255, null=True, blank=True)

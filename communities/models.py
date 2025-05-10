@@ -1,3 +1,6 @@
+import time
+import uuid
+
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.utils.text import slugify
@@ -14,12 +17,19 @@ class Community(models.Model):
     PRIVATE = "private"
     HIDDEN = "hidden"
     COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (PRIVATE, "Private")]
+    
+    def get_upload_path(instance, filename):
+        # Get file extension
+        ext = filename.split('.')[-1]
+        # Generate unique filename using article ID and timestamp
+        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        return f"community_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
     type = models.CharField(max_length=10, choices=COMMUNITY_TYPES, default=PUBLIC)
-    profile_pic_url = models.FileField(upload_to=f"community_images/{settings.ENVIRONMENT}/", null=True)
-    banner_pic_url = models.FileField(upload_to=f"community_images/{settings.ENVIRONMENT}/", null=True)
+    profile_pic_url = models.FileField(upload_to=get_upload_path, null=True)
+    banner_pic_url = models.FileField(upload_to=get_upload_path, null=True)
     slug = models.SlugField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     rules = models.JSONField(default=list)

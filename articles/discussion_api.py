@@ -4,7 +4,7 @@ from typing import List, Optional
 from django.core.paginator import Paginator
 from django.db import transaction
 from ninja import Router
-from ninja.responses import codes_4xx
+from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import Article, Discussion, DiscussionComment, Reaction
 from articles.schemas import (
@@ -30,7 +30,7 @@ Article discussions API
 
 @router.post(
     "/{article_id}/discussions/",
-    response={201: DiscussionOut, codes_4xx: Message, 500: Message},
+    response={201: DiscussionOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def create_discussion(
@@ -104,7 +104,7 @@ def create_discussion(
 
 @router.get(
     "/{article_id}/discussions/",
-    response={200: PaginatedDiscussionSchema, 404: Message, 500: Message},
+    response={200: PaginatedDiscussionSchema, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def list_discussions(
@@ -167,7 +167,7 @@ def list_discussions(
 
 @router.get(
     "/discussions/{discussion_id}/",
-    response={200: DiscussionOut, 404: Message, 500: Message},
+    response={200: DiscussionOut, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_discussion(request, discussion_id: int):
@@ -195,7 +195,7 @@ def get_discussion(request, discussion_id: int):
 
 @router.put(
     "/discussions/{discussion_id}/",
-    response={201: DiscussionOut, 404: Message, 500: Message},
+    response={201: DiscussionOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def update_discussion(
@@ -237,7 +237,7 @@ def update_discussion(
 
 @router.delete(
     "/discussions/{discussion_id}/",
-    response={201: Message, 404: Message, 500: Message},
+    response={201: Message, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def delete_discussion(request, discussion_id: int):
@@ -277,7 +277,7 @@ Endpoints for comments on discussions
 # Create a Comment
 @router.post(
     "/discussions/{discussion_id}/comments/",
-    response={201: DiscussionCommentOut, 400: Message, 403: Message, 500: Message},
+    response={201: DiscussionCommentOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def create_comment(request, discussion_id: int, payload: DiscussionCommentCreateSchema):
@@ -352,7 +352,7 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
 # Get a Comment
 @router.get(
     "/discussions/comments/{comment_id}/",
-    response={200: DiscussionCommentOut, 404: Message, 403: Message, 500: Message},
+    response={200: DiscussionCommentOut, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_comment(request, comment_id: int):
@@ -383,7 +383,7 @@ def get_comment(request, comment_id: int):
 
 @router.get(
     "/discussions/{discussion_id}/comments/",
-    response={200: List[DiscussionCommentOut], 404: Message, 403: Message, 500: Message},
+    response={200: List[DiscussionCommentOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def list_discussion_comments(
@@ -428,7 +428,7 @@ def list_discussion_comments(
 
 @router.put(
     "/discussions/comments/{comment_id}/",
-    response={200: DiscussionCommentOut, 403: Message, 404: Message, 500: Message},
+    response={200: DiscussionCommentOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSchema):
@@ -464,7 +464,7 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
 
 @router.delete(
     "/discussions/comments/{comment_id}/",
-    response={204: None, 403: Message, 404: Message, 500: Message},
+    response={204: None, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def delete_comment(request, comment_id: int):
