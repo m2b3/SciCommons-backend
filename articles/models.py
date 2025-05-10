@@ -1,4 +1,5 @@
 import random
+import time
 import uuid
 
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -18,8 +19,15 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
+    def get_upload_path(instance, filename):
+        # Get file extension
+        ext = filename.split('.')[-1]
+        # Generate unique filename using article ID and timestamp
+        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        return f"article_images/{settings.ENVIRONMENT}/{unique_filename}"
+
     article_image_url = models.ImageField(
-        upload_to=f"article_images/{settings.ENVIRONMENT}/", null=True, blank=True
+        upload_to=get_upload_path, null=True, blank=True
     )
     article_link = models.URLField(null=True, blank=True, unique=True)
     submission_type = models.CharField(
@@ -55,8 +63,15 @@ class Article(models.Model):
 
 
 class ArticlePDF(models.Model):
+    def get_pdf_upload_path(instance, filename):
+        # Get file extension
+        ext = filename.split('.')[-1]
+        # Generate unique filename using article ID and timestamp
+        unique_filename = f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        return f"article_pdfs/{settings.ENVIRONMENT}/{unique_filename}"
+
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to=f"article_pdfs/{settings.ENVIRONMENT}/", null=True, blank=True)
+    pdf_file_url = models.FileField(upload_to=get_pdf_upload_path, null=True, blank=True)
     external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 

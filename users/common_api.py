@@ -10,6 +10,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count
 from ninja import Query, Router
 from ninja.errors import HttpRequest
+from ninja.responses import codes_4xx, codes_5xx
 
 # Todo: Move the Reaction model to the users app
 from articles.models import Article, Reaction
@@ -42,7 +43,7 @@ Check Permissions
 
 @router.get(
     "/check-permission",
-    response={200: PermissionCheckOut, 400: Message},
+    response={200: PermissionCheckOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def check_permission(
@@ -110,7 +111,7 @@ def get_content_type(content_type_value: str) -> ContentType:
 
 @router.post(
     "/toggle-bookmark",
-    response={200: BookmarkToggleResponseSchema, 400: Message},
+    response={200: BookmarkToggleResponseSchema, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def toggle_bookmark(request, data: BookmarkToggleSchema):
@@ -147,7 +148,7 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
 
 @router.get(
     "/bookmark-status/{content_type}/{object_id}",
-    response={200: BookmarkStatusResponseSchema, 400: Message},
+    response={200: BookmarkStatusResponseSchema, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
@@ -184,7 +185,7 @@ Reaction API (Like/Dislike)
 
 @router.post(
     "/reactions",
-    response={200: Message, 400: Message},
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def post_reaction(request, reaction: ReactionIn):
@@ -257,7 +258,7 @@ def post_reaction(request, reaction: ReactionIn):
 
 @router.get(
     "/reaction_count/{content_type}/{object_id}/",
-    response=ReactionCountOut,
+    response={200: ReactionCountOut, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
 def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
@@ -309,7 +310,7 @@ Hashtags API
 """
 
 
-@router.get("/hashtags/", response=PaginatedHashtagOut)
+@router.get("/hashtags/", response={200: PaginatedHashtagOut, codes_4xx: Message, codes_5xx: Message})
 def get_hashtags(
     request,
     sort: SortEnum = Query(SortEnum.POPULAR),
@@ -363,7 +364,7 @@ def get_hashtags(
 
 
 # Todo: Delete this API endpoint
-@router.get("/my-posts", response=PaginatedPostsResponse, auth=JWTAuth())
+@router.get("/my-posts", response={200: PaginatedPostsResponse, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth())
 def list_my_posts(
     request: HttpRequest,
     page: int = Query(1, ge=1),

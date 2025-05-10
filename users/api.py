@@ -42,7 +42,7 @@ User's Profile API
 
 
 # Get user details
-@router.get("/me", response={200: UserDetails, 401: Message}, auth=JWTAuth())
+@router.get("/me", response={200: UserDetails, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth())
 def get_me(request: HttpRequest):
     try:
         return 200, UserDetails.resolve_user(request.auth)
@@ -51,7 +51,7 @@ def get_me(request: HttpRequest):
 
 
 # Update user details
-@router.put("/me", response={200: UserDetails, 401: Message}, auth=JWTAuth())
+@router.put("/me", response={200: UserDetails, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth())
 def update_user(
     request: HttpRequest,
     payload: UserUpdateSchema,
@@ -101,7 +101,7 @@ def update_user(
 
 
 # Get UserStats
-@router.get("/me/stats", response={200: UserStats, 401: Message}, auth=JWTAuth())
+@router.get("/me/stats", response={200: UserStats, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth())
 def get_user_stats(request: HttpRequest):
     try:
         return 200, UserStats.from_model(request.auth)
@@ -116,7 +116,7 @@ User's Content API
 
 @router.get(
     "/contributed-articles",
-    response={200: List[UserArticleSchema], 400: Message, 500: Message},
+    response={200: List[UserArticleSchema], codes_4xx: Message, codes_5xx: Message},
     summary="Get Contributed Articles",
     auth=JWTAuth(),
 )
@@ -135,7 +135,7 @@ def get_my_articles(request: HttpRequest):
 # Get My Articles
 @router.get(
     "/my-articles",
-    response={200: PaginatedArticlesResponse, 400: Message, 500: Message},
+    response={200: PaginatedArticlesResponse, codes_4xx: Message, codes_5xx: Message},
     summary="Get My Articles",
     auth=JWTAuth(),
 )
@@ -175,8 +175,8 @@ def list_my_articles(request, page: int = 1, per_page: int = 10, search: Optiona
     "/my-communities",
     response={
         200: PaginatedCommunities,
-        400: Message,
-        500: Message,
+        codes_4xx: Message,
+        codes_5xx: Message,
     },
     summary="Get My Communities",
     auth=JWTAuth(),
@@ -253,7 +253,7 @@ def list_my_communities(
 
 @router.get(
     "/contributed-communities",
-    response={200: List[UserCommunitySchema], 400: Message, 500: Message},
+    response={200: List[UserCommunitySchema], codes_4xx: Message, codes_5xx: Message},
     summary="Get Contributed Communities",
     auth=JWTAuth(),
 )
@@ -334,7 +334,7 @@ def get_my_communities(request):
 
 @router.get(
     "/contributed-posts",
-    response={200: List[UserPostSchema], 400: Message, 500: Message},
+    response={200: List[UserPostSchema], codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_my_posts(request):
@@ -389,7 +389,7 @@ def get_my_posts(request):
 
 @router.get(
     "/my-favorites",
-    response={200: List[FavoriteItemSchema], 400: Message, 500: Message},
+    response={200: List[FavoriteItemSchema], codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_my_favorites(request):
@@ -459,7 +459,7 @@ def get_my_favorites(request):
 
 
 @router.get(
-    "/bookmarks", response={200: List[BookmarkSchema], 400: Message}, auth=JWTAuth()
+    "/bookmarks", response={200: List[BookmarkSchema], codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth()
 )
 def get_my_bookmarks(request):
     try:

@@ -13,7 +13,7 @@ from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from ninja import Router
 from ninja.errors import HttpError, HttpRequest
-from ninja.responses import codes_4xx
+from ninja.responses import codes_4xx, codes_5xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from myapp.schemas import Message
@@ -30,7 +30,7 @@ router = Router(tags=["Users Auth"])
 signer = TimestampSigner()
 
 
-@router.post("/signup", response={201: Message, 400: Message})
+@router.post("/signup", response={201: Message, codes_4xx: Message, codes_5xx: Message})
 def signup(request: HttpRequest, payload: UserCreateSchema):
     try:
         if payload.password != payload.confirm_password:
@@ -104,7 +104,7 @@ def signup(request: HttpRequest, payload: UserCreateSchema):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.post("/activate/{token}", response={200: Message, 400: Message, 404: Message})
+@router.post("/activate/{token}", response={200: Message, codes_4xx: Message, codes_5xx: Message})
 def activate(request: HttpRequest, token: str):
     try:
         try:
@@ -145,7 +145,7 @@ def activate(request: HttpRequest, token: str):
 
 
 @router.post(
-    "/resend-activation/{email}", response={200: Message, 400: Message, 404: Message}
+    "/resend-activation/{email}", response={200: Message, codes_4xx: Message, codes_5xx: Message}
 )
 def resend_activation(request: HttpRequest, email: str):
     try:
@@ -187,7 +187,7 @@ def resend_activation(request: HttpRequest, email: str):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.post("/login", response={200: LogInSchemaOut, codes_4xx: Message})
+@router.post("/login", response={200: LogInSchemaOut, codes_4xx: Message, codes_5xx: Message})
 def login_user(request, payload: LogInSchemaIn):
     try:
         try:
@@ -269,7 +269,7 @@ def login_user(request, payload: LogInSchemaIn):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.post("/forgot-password/{email}", response={200: Message, 404: Message})
+@router.post("/forgot-password/{email}", response={200: Message, codes_4xx: Message, codes_5xx: Message})
 def request_reset(request: HttpRequest, email: str):
     try:
         try:
@@ -310,7 +310,7 @@ def request_reset(request: HttpRequest, email: str):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.post("/reset-password/{token}", response={200: Message, 400: Message})
+@router.post("/reset-password/{token}", response={200: Message, codes_4xx: Message, codes_5xx: Message})
 def reset_password(request: HttpRequest, token: str, payload: ResetPasswordSchema):
     try:
         try:

@@ -95,7 +95,7 @@ def submit_article(request, community_name: str, article_slug: str):
 
 @router.get(
     "/articles/my-articles/",
-    response={200: PaginatedArticlesResponse, 400: Message, 500: Message},
+    response={200: PaginatedArticlesResponse, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_my_articles(
@@ -187,7 +187,7 @@ Community Admin related API endpoints to manage articles
 
 @router.get(
     "/communities/{community_name}/articles/",
-    response={200: PaginatedArticlesResponse, 400: Message},
+    response={200: PaginatedArticlesResponse, codes_4xx: Message, codes_5xx: Message},
     summary="List articles in a community",
     auth=OptionalJWTAuth,
 )
@@ -268,7 +268,7 @@ def list_community_articles_by_status(
 
 @router.post(
     "/{community_article_id}/manage/{action}/",
-    response={200: Message, codes_4xx: Message, 500: Message},
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def manage_article(
@@ -434,7 +434,7 @@ Assessor related API endpoints to assess articles
 
 @router.get(
     "/{community_id}/assigned-articles/",
-    response={200: List[ArticleOut], codes_4xx: Message, 500: Message},
+    response={200: List[ArticleOut], codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def get_assigned_articles(
@@ -505,7 +505,7 @@ def get_assigned_articles(
 
 @router.post(
     "/{community_article_id}/approve/",
-    response={200: Message, codes_4xx: Message, 500: Message},
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def approve_article(request, community_article_id: int):
@@ -639,7 +639,7 @@ def approve_article(request, community_article_id: int):
 
 @router.get(
     "/{community_article_id}/pseudonymous/",
-    response={200: CommunityArticlePseudonymousOut, codes_4xx: Message, 500: Message},
+    response={200: CommunityArticlePseudonymousOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
 def is_article_pseudonymous(request, community_article_id: int):
