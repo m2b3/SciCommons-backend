@@ -21,6 +21,3 @@ COPY . /app/
 
 # Expose ports for Django and Redis
 EXPOSE 8000 6379
-
-# Start Redis, run migrations, and start Django and Celery
-CMD ["sh", "-c", "redis-server --daemonize yes && poetry run python manage.py migrate && poetry run python manage.py runserver 0.0.0.0:8000 & celery -A myapp worker --loglevel=info --concurrency=5"]
