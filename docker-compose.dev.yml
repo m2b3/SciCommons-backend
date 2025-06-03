@@ -4,7 +4,7 @@ services:
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
-              poetry run python manage.py runserver 0.0.0.0:8000"
+              poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers"
     volumes:
       - .:/app
     depends_on:
