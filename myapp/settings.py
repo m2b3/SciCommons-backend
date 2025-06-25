@@ -90,7 +90,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_ratelimit.middleware.RatelimitMiddleware",
-    "ninja.compatibility.files.fix_request_files_middleware"
+    "ninja.compatibility.files.fix_request_files_middleware",
+    "myapp.middleware.RequestTimingMiddleware",
 ]
 
 # CORS Settings
@@ -328,6 +329,17 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'dev_logger': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+            'filters': ['require_debug_true'],
+        },
+    },
+    'filters': {
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
     },
 }
 
@@ -346,3 +358,24 @@ CHANNEL_LAYERS = {
 
 # Update CORS settings to allow WebSocket connections
 CORS_ALLOW_WEBSOCKETS = True
+
+if DEBUG:
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+            },
+        },
+        'loggers': {
+            'django.db.backends': {
+                'handlers': ['console'],
+                'level': 'DEBUG',
+            },
+            'myapp.middleware': {
+                'handlers': ['console'],
+                'level': 'INFO',
+            },
+        },
+    }
