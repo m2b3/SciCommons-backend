@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "articles",
     "posts",
     "storages",
+    "channels",
 ]
 
 AUTH_USER_MODEL = "users.User"
@@ -165,7 +166,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "myapp.wsgi.application"
+# WSGI_APPLICATION = "myapp.wsgi.application"
 
 
 # Database
@@ -329,3 +330,19 @@ LOGGING = {
         },
     },
 }
+
+# ASGI application
+ASGI_APPLICATION = "myapp.asgi.application"
+
+# Channels configuration
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [config("REDIS_HOST_URL", default="redis://localhost:6379/2")],  # Use DB 2 for channels
+        },
+    },
+}
+
+# Update CORS settings to allow WebSocket connections
+CORS_ALLOW_WEBSOCKETS = True
