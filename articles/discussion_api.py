@@ -47,7 +47,7 @@ def create_discussion(
                 return 404, {"message": "Article not found."}
             except Exception:
                 return 500, {"message": "Error retrieving article. Please try again."}
-                
+
             user = request.auth
 
             community = None
@@ -58,11 +58,13 @@ def create_discussion(
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
                 except Exception:
-                    return 500, {"message": "Error retrieving community. Please try again."}
-                    
+                    return 500, {
+                        "message": "Error retrieving community. Please try again."
+                    }
+
                 if not community.is_member(user):
                     return 403, {"message": "You are not a member of this community."}
-                
+
                 try:
                     community_article = CommunityArticle.objects.get(
                         article=article, community=community
@@ -72,7 +74,9 @@ def create_discussion(
                 except CommunityArticle.DoesNotExist:
                     return 404, {"message": "Article not found in this community."}
                 except Exception:
-                    return 500, {"message": "Error retrieving community article. Please try again."}
+                    return 500, {
+                        "message": "Error retrieving community article. Please try again."
+                    }
 
             try:
                 discussion = Discussion.objects.create(
@@ -91,13 +95,17 @@ def create_discussion(
                     # Create an anonymous name for the user who created the review
                     discussion.get_anonymous_name()
                 except Exception:
-                    logger.error("Error creating anonymous name for discussion", exc_info=True)
+                    logger.error(
+                        "Error creating anonymous name for discussion", exc_info=True
+                    )
                     # Continue even if anonymous name creation fails
 
         try:
             return 201, DiscussionOut.from_orm(discussion, user)
         except Exception:
-            return 500, {"message": "Discussion created but error retrieving discussion data."}
+            return 500, {
+                "message": "Discussion created but error retrieving discussion data."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -125,33 +133,44 @@ def list_discussions(
                 return 404, {"message": "Community not found."}
             except Exception:
                 return 500, {"message": "Error retrieving community. Please try again."}
-                
+
             # if the community is hidden, only members can view reviews
             if not community.is_member(request.auth) and community.type == "hidden":
                 return 403, {"message": "You are not a member of this community."}
 
             try:
                 # discussions = discussions.filter(community=community)
-                discussions = Discussion.objects.filter(article=article, community=community).order_by("-created_at")
+                discussions = Discussion.objects.filter(
+                    article=article, community=community
+                ).order_by("-created_at")
             except Exception:
-                return 500, {"message": "Error retrieving community discussions. Please try again."}
+                return 500, {
+                    "message": "Error retrieving community discussions. Please try again."
+                }
         else:
             try:
-                discussions = Discussion.objects.filter(article=article, community=None).order_by("-created_at")
+                discussions = Discussion.objects.filter(
+                    article=article, community=None
+                ).order_by("-created_at")
             except Exception:
-                return 500, {"message": "Error retrieving discussions. Please try again."}
+                return 500, {
+                    "message": "Error retrieving discussions. Please try again."
+                }
 
         try:
             paginator = Paginator(discussions, size)
             page_obj = paginator.page(page)
         except Exception:
-            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
-            
+            return 400, {
+                "message": "Invalid pagination parameters. Please check page number and size."
+            }
+
         current_user: Optional[User] = None if not request.auth else request.auth
 
         try:
             items = [
-                DiscussionOut.from_orm(discussion, current_user) for discussion in page_obj.object_list
+                DiscussionOut.from_orm(discussion, current_user)
+                for discussion in page_obj.object_list
             ]
 
             response_data = PaginatedDiscussionSchema(
@@ -160,7 +179,9 @@ def list_discussions(
 
             return 200, response_data
         except Exception:
-            return 500, {"message": "Error formatting discussion data. Please try again."}
+            return 500, {
+                "message": "Error formatting discussion data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -178,17 +199,19 @@ def get_discussion(request, discussion_id: int):
             return 404, {"message": "Discussion not found."}
         except Exception:
             return 500, {"message": "Error retrieving discussion. Please try again."}
-            
+
         user = request.auth
 
         if discussion.community and not discussion.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
-        
+
         try:
             response_data = DiscussionOut.from_orm(discussion, user)
             return 200, response_data
         except Exception:
-            return 500, {"message": "Error formatting discussion data. Please try again."}
+            return 500, {
+                "message": "Error formatting discussion data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -208,12 +231,14 @@ def update_discussion(
             return 404, {"message": "Discussion not found."}
         except Exception:
             return 500, {"message": "Error retrieving discussion. Please try again."}
-            
+
         user = request.auth
 
         # Check if the review belongs to the user
         if discussion.author != user:
-            return 403, {"message": "You do not have permission to update this discussion."}
+            return 403, {
+                "message": "You do not have permission to update this discussion."
+            }
 
         if discussion.community and not discussion.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
@@ -230,7 +255,9 @@ def update_discussion(
             response_data = DiscussionOut.from_orm(discussion, user)
             return 201, response_data
         except Exception:
-            return 500, {"message": "Discussion updated but error retrieving discussion data."}
+            return 500, {
+                "message": "Discussion updated but error retrieving discussion data."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -248,11 +275,13 @@ def delete_discussion(request, discussion_id: int):
             return 404, {"message": "Discussion not found."}
         except Exception:
             return 500, {"message": "Error retrieving discussion. Please try again."}
-            
+
         user = request.auth  # Assuming user is authenticated
 
         if discussion.author != user:
-            return 403, {"message": "You do not have permission to delete this discussion."}
+            return 403, {
+                "message": "You do not have permission to delete this discussion."
+            }
 
         if discussion.community and not discussion.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
@@ -289,14 +318,14 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             return 404, {"message": "Discussion not found."}
         except Exception:
             return 500, {"message": "Error retrieving discussion. Please try again."}
-            
+
         is_pseudonymous = False
-        
+
         if discussion.community:
             try:
                 if not discussion.community.is_member(user):
                     return 403, {"message": "You are not a member of this community."}
-                
+
                 community_article = CommunityArticle.objects.get(
                     article=discussion.article, community=discussion.community
                 )
@@ -305,7 +334,9 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             except CommunityArticle.DoesNotExist:
                 return 404, {"message": "Article not found in this community."}
             except Exception:
-                return 500, {"message": "Error checking community membership. Please try again."}
+                return 500, {
+                    "message": "Error checking community membership. Please try again."
+                }
 
         parent_comment = None
 
@@ -314,11 +345,15 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 parent_comment = DiscussionComment.objects.get(id=payload.parent_id)
 
                 if parent_comment.parent and parent_comment.parent.parent:
-                    return 400, {"message": "Exceeded maximum comment nesting level of 3"}
+                    return 400, {
+                        "message": "Exceeded maximum comment nesting level of 3"
+                    }
             except DiscussionComment.DoesNotExist:
                 return 404, {"message": "Parent comment not found."}
             except Exception:
-                return 500, {"message": "Error retrieving parent comment. Please try again."}
+                return 500, {
+                    "message": "Error retrieving parent comment. Please try again."
+                }
 
         try:
             comment = DiscussionComment.objects.create(
@@ -344,7 +379,9 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
         try:
             return 201, DiscussionCommentOut.from_orm_with_replies(comment, user)
         except Exception:
-            return 500, {"message": "Comment created but error retrieving comment data."}
+            return 500, {
+                "message": "Comment created but error retrieving comment data."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -363,7 +400,7 @@ def get_comment(request, comment_id: int):
             return 404, {"message": "Comment not found."}
         except Exception:
             return 500, {"message": "Error retrieving comment. Please try again."}
-            
+
         current_user: Optional[User] = None if not request.auth else request.auth
 
         if (
@@ -374,7 +411,9 @@ def get_comment(request, comment_id: int):
             return 403, {"message": "You are not a member of this community."}
 
         try:
-            return 200, DiscussionCommentOut.from_orm_with_replies(comment, current_user)
+            return 200, DiscussionCommentOut.from_orm_with_replies(
+                comment, current_user
+            )
         except Exception:
             return 500, {"message": "Error formatting comment data. Please try again."}
     except Exception:
@@ -396,7 +435,7 @@ def list_discussion_comments(
             return 404, {"message": "Discussion not found."}
         except Exception:
             return 500, {"message": "Error retrieving discussion. Please try again."}
-            
+
         current_user: Optional[User] = None if not request.auth else request.auth
 
         if (
@@ -441,7 +480,9 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         if comment.author != request.auth:
-            return 403, {"message": "You do not have permission to update this comment."}
+            return 403, {
+                "message": "You do not have permission to update this comment."
+            }
 
         if comment.discussion.community and not comment.discussion.community.is_member(
             request.auth
@@ -455,9 +496,13 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
             return 500, {"message": "Error updating comment. Please try again."}
 
         try:
-            return 200, DiscussionCommentOut.from_orm_with_replies(comment, request.auth)
+            return 200, DiscussionCommentOut.from_orm_with_replies(
+                comment, request.auth
+            )
         except Exception:
-            return 500, {"message": "Comment updated but error retrieving comment data."}
+            return 500, {
+                "message": "Comment updated but error retrieving comment data."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -479,7 +524,9 @@ def delete_comment(request, comment_id: int):
 
         # Check if the user is the owner of the comment or has permission to delete it
         if comment.author != user:
-            return 403, {"message": "You do not have permission to delete this comment."}
+            return 403, {
+                "message": "You do not have permission to delete this comment."
+            }
 
         try:
             # Delete reactions associated with the comment

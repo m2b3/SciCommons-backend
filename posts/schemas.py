@@ -32,7 +32,9 @@ class PostOut(ModelSchema):
             "title": post.title,
             "content": post.content,
             "created_at": post.created_at,
-            "author": UserStats.from_model(post.author, basic_details=True),
+            "author": UserStats.from_model(
+                post.author, basic_details_with_reputation=True
+            ),
             "upvotes": post.reactions.filter(vote=1).count(),
             "comments_count": Comment.objects.filter(post=post).count(),
             "hashtags": [
@@ -73,7 +75,9 @@ class CommentOut(ModelSchema):
     def from_orm_with_replies(comment: Comment, current_user: Optional[User]):
         return CommentOut(
             id=comment.id,
-            author=UserStats.from_model(comment.author, basic_details=True),
+            author=UserStats.from_model(
+                comment.author, basic_details_with_reputation=True
+            ),
             content=comment.content,
             created_at=comment.created_at,
             upvotes=comment.reactions.filter(vote=1).count(),

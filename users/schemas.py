@@ -41,13 +41,14 @@ class LogInSchemaIn(Schema):
     login: str
     password: str
 
-    
+
 class LogInUserSchemaOut(Schema):
     id: int
     username: str
     email: str
     first_name: str
     last_name: str
+
 
 class LogInSchemaOut(Schema):
     """
@@ -74,6 +75,24 @@ class AcademicStatusSchema(Schema):
     academic_email: str
     start_year: str
     end_year: Optional[str] = None
+
+
+class UserBasicDetails(Schema):
+    id: int
+    username: str
+    profile_pic_url: str
+
+    class Config:
+        model = User
+        model_fields = ["id", "username", "profile_pic_url"]
+
+    @staticmethod
+    def from_model(user: User):
+        return {
+            "id": user.id,
+            "username": user.username,
+            "profile_pic_url": user.profile_pic_url,
+        }
 
 
 class UserDetails(ModelSchema):

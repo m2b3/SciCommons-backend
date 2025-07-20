@@ -56,19 +56,34 @@ def create_community(
         with transaction.atomic():
             try:
                 # Check if the user created communities are less than 5
-                if Community.objects.filter(admins=user).count() >= MAX_COMMUNITIES_PER_USER:
-                    return 400, {"message": f"You can only create {MAX_COMMUNITIES_PER_USER} communities."}
+                if (
+                    Community.objects.filter(admins=user).count()
+                    >= MAX_COMMUNITIES_PER_USER
+                ):
+                    return 400, {
+                        "message": f"You can only create {MAX_COMMUNITIES_PER_USER} communities."
+                    }
             except Exception:
-                return 500, {"message": "Error checking your community count. Please try again."}
+                return 500, {
+                    "message": "Error checking your community count. Please try again."
+                }
 
             # validate all tags at once
             # validate_tags(payload.details.tags)
 
             if payload.details.type not in COMMUNITY_TYPES_LIST:
                 return 400, {"message": "Invalid community type."}
-            
-            if payload.details.type == Community.PUBLIC and payload.details.community_settings not in [COMMUNITY_SETTINGS.ANYONE_CAN_JOIN.value, COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value] or \
-            payload.details.type == Community.PRIVATE and payload.details.community_settings not in [None]:
+
+            if (
+                payload.details.type == Community.PUBLIC
+                and payload.details.community_settings
+                not in [
+                    COMMUNITY_SETTINGS.ANYONE_CAN_JOIN.value,
+                    COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value,
+                ]
+                or payload.details.type == Community.PRIVATE
+                and payload.details.community_settings not in [None]
+            ):
                 return 400, {"message": "Invalid community settings."}
 
             try:
@@ -77,7 +92,9 @@ def create_community(
                     name=payload.details.name,
                     description=payload.details.description,
                     type=payload.details.type,
-                    requires_admin_approval=payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE,
+                    requires_admin_approval=payload.details.community_settings
+                    == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value
+                    or payload.details.type == Community.PRIVATE,
                     community_settings=payload.details.community_settings,
                     # profile_pic_url=profile_image_file,
                 )
@@ -98,12 +115,18 @@ def create_community(
                 new_community.admins.add(user)  # Add the creator as an admin
                 new_community.members.add(user)  # Add the creator as a member
             except Exception:
-                return 500, {"message": "Error setting up community membership. Please try again."}
+                return 500, {
+                    "message": "Error setting up community membership. Please try again."
+                }
 
             try:
-                return 201, CommunityOut.from_orm_with_custom_fields(new_community, user)
+                return 201, CommunityOut.from_orm_with_custom_fields(
+                    new_community, user
+                )
             except Exception:
-                return 500, {"message": "Community created but error retrieving community data."}
+                return 500, {
+                    "message": "Community created but error retrieving community data."
+                }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -167,13 +190,75 @@ def list_communities(
             paginator = Paginator(communities, per_page)
             paginated_communities = paginator.get_page(page)
         except Exception:
-            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
+            return 400, {
+                "message": "Invalid pagination parameters. Please check page number and size."
+            }
 
         try:
-            results = [
-                CommunityListOut.from_orm_with_custom_fields(community, user=user)
-                for community in paginated_communities.object_list
-            ]
+            # results = [
+            #     CommunityListOut.from_orm_with_custom_fields(community, user=user)
+            #     for community in paginated_communities.object_list
+            # ]
+
+            # return 200, PaginatedCommunities(
+            #     items=results,
+            #     total=paginator.count,
+            #     page=page,
+            #     per_page=per_page,
+            #     num_pages=paginator.num_pages,
+            # )
+            community_ids = [c.id for c in paginated_communities.object_list]
+
+            # Bulk fetch counts to eliminate N+1
+            published_counts = (
+                CommunityArticle.objects.filter(
+                    community_id__in=community_ids, status=CommunityArticle.PUBLISHED
+                )
+                .values("community_id")
+                .annotate(num_published_articles=Count("id"))
+            )
+            published_map = {
+                c["community_id"]: c["num_published_articles"] for c in published_counts
+            }
+
+            members_counts = (
+                Community.objects.filter(id__in=community_ids)
+                .annotate(num_members=Count("members"))
+                .values("id", "num_members")
+            )
+            members_map = {c["id"]: c["num_members"] for c in members_counts}
+
+            # Build Response
+            results = []
+            for community in paginated_communities.object_list:
+                response_data = {
+                    "id": community.id,
+                    "name": community.name,
+                    "description": community.description,
+                    "type": community.type,
+                    "slug": community.slug,
+                    "created_at": community.created_at,
+                    "num_members": members_map.get(community.id, 0),
+                    "num_published_articles": published_map.get(community.id, 0),
+                }
+
+                # Optional user-specific flags (minimal perf impact here)
+                # if user and not isinstance(user, bool):
+                #     if community.is_member(user):
+                #         response_data["is_member"] = True
+                #     elif community.is_admin(user):
+                #         response_data["is_admin"] = True
+                #     else:
+                #         join_request = JoinRequest.objects.filter(
+                #             community=community, user=user
+                #         ).order_by("-id")
+                #         if join_request.exists():
+                #             response_data["is_request_sent"] = True
+                #             response_data["requested_at"] = (
+                #                 join_request.first().requested_at
+                #             )
+
+                results.append(CommunityListOut(**response_data))
 
             return 200, PaginatedCommunities(
                 items=results,
@@ -183,7 +268,9 @@ def list_communities(
                 num_pages=paginator.num_pages,
             )
         except Exception:
-            return 500, {"message": "Error formatting community data. Please try again."}
+            return 500, {
+                "message": "Error formatting community data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -201,16 +288,20 @@ def get_community(request, community_name: str):
             return 404, {"message": "Community not found."}
         except Exception:
             return 500, {"message": "Error retrieving community. Please try again."}
-            
+
         user = request.auth
 
         if community.type == Community.HIDDEN and not community.is_member(user):
-            return 403, {"message": "You do not have permission to view this community."}
+            return 403, {
+                "message": "You do not have permission to view this community."
+            }
 
         try:
             return 200, CommunityOut.from_orm_with_custom_fields(community, user)
         except Exception:
-            return 500, {"message": "Error formatting community data. Please try again."}
+            return 500, {
+                "message": "Error formatting community data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -248,7 +339,11 @@ def update_community(
                 community.type = payload.details.type
                 community.rules = payload.details.rules
                 community.community_settings = payload.details.community_settings
-                community.requires_admin_approval = payload.details.community_settings == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value or payload.details.type == Community.PRIVATE
+                community.requires_admin_approval = (
+                    payload.details.community_settings
+                    == COMMUNITY_SETTINGS.REQUEST_TO_JOIN.value
+                    or payload.details.type == Community.PRIVATE
+                )
                 # community.about = payload.details.about
 
                 # # Update Tags
@@ -272,14 +367,22 @@ def update_community(
                 return 500, {"message": "Error updating community. Please try again."}
 
             try:
-                return 200, CommunityOut.from_orm_with_custom_fields(community, request.auth)
+                return 200, CommunityOut.from_orm_with_custom_fields(
+                    community, request.auth
+                )
             except Exception:
-                return 500, {"message": "Community updated but error retrieving community data."}
+                return 500, {
+                    "message": "Community updated but error retrieving community data."
+                }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.delete("/{community_id}/", response={204: None, 403: Message, 404: Message, 500: Message}, auth=JWTAuth())
+@router.delete(
+    "/{community_id}/",
+    response={204: None, 403: Message, 404: Message, 500: Message},
+    auth=JWTAuth(),
+)
 def delete_community(request: HttpRequest, community_id: int):
     try:
         try:
@@ -291,7 +394,9 @@ def delete_community(request: HttpRequest, community_id: int):
 
         # Check if the user is an admin of this community
         if not community.admins.filter(id=request.auth.id).exists():
-            return 403, {"message": "You do not have permission to delete this community."}
+            return 403, {
+                "message": "You do not have permission to delete this community."
+            }
 
         try:
             # Todo: Do not delete the community, just mark it as deleted
@@ -324,7 +429,9 @@ def get_relevant_communities(
         try:
             base_hashtags = base_community.hashtags.values_list("hashtag_id", flat=True)
         except Exception:
-            return 500, {"message": "Error retrieving community tags. Please try again."}
+            return 500, {
+                "message": "Error retrieving community tags. Please try again."
+            }
 
         try:
             # Query for relevant communities
@@ -340,13 +447,18 @@ def get_relevant_communities(
                 )
             ).filter(relevance_score__gt=0)
         except Exception:
-            return 500, {"message": "Error calculating relevance scores. Please try again."}
+            return 500, {
+                "message": "Error calculating relevance scores. Please try again."
+            }
 
         try:
             if filters.filter_type == "popular":
                 queryset = queryset.annotate(
                     popularity_score=Count("members")
-                    + Count("communityarticle", filter=Q(communityarticle__status="published"))
+                    + Count(
+                        "communityarticle",
+                        filter=Q(communityarticle__status="published"),
+                    )
                 ).order_by("-popularity_score", "-relevance_score")
             elif filters.filter_type == "recent":
                 queryset = queryset.order_by("-created_at", "-relevance_score")
@@ -361,10 +473,14 @@ def get_relevant_communities(
             return 400, {"message": "Invalid pagination parameters."}
 
         try:
-            result = [CommunityBasicOut.from_orm(community) for community in communities]
+            result = [
+                CommunityBasicOut.from_orm(community) for community in communities
+            ]
             return 200, result
         except Exception:
-            return 500, {"message": "Error formatting community data. Please try again."}
+            return 500, {
+                "message": "Error formatting community data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
@@ -387,7 +503,7 @@ def get_community_dashboard(request, community_slug: str):
             return 404, {"message": "Community not found."}
         except Exception:
             return 500, {"message": "Error retrieving community. Please try again."}
-            
+
         now = timezone.now()
         week_ago = now - timedelta(days=7)
 
@@ -398,7 +514,9 @@ def get_community_dashboard(request, community_slug: str):
                 membership__joined_at__gte=week_ago
             ).count()
         except Exception:
-            return 500, {"message": "Error retrieving member statistics. Please try again."}
+            return 500, {
+                "message": "Error retrieving member statistics. Please try again."
+            }
 
         try:
             # Article stats
@@ -412,25 +530,33 @@ def get_community_dashboard(request, community_slug: str):
                 status="published", published_at__gte=week_ago
             ).count()
         except Exception:
-            return 500, {"message": "Error retrieving article statistics. Please try again."}
+            return 500, {
+                "message": "Error retrieving article statistics. Please try again."
+            }
 
         try:
             # Review and discussion stats
             total_reviews = Review.objects.filter(community=community).count()
             total_discussions = Discussion.objects.filter(community=community).count()
         except Exception:
-            return 500, {"message": "Error retrieving review and discussion statistics. Please try again."}
+            return 500, {
+                "message": "Error retrieving review and discussion statistics. Please try again."
+            }
 
         try:
             # Member growth over time (last 5 days)
             member_growth = []
             for i in range(5):
                 date = now - timedelta(days=i)
-                count = community.members.filter(membership__joined_at__date__lte=date).count()
+                count = community.members.filter(
+                    membership__joined_at__date__lte=date
+                ).count()
                 member_growth.append(DateCount(date=date.date(), count=count))
             member_growth.reverse()
         except Exception:
-            return 500, {"message": "Error calculating member growth trends. Please try again."}
+            return 500, {
+                "message": "Error calculating member growth trends. Please try again."
+            }
 
         try:
             # Article submission trends (last 5 days)
@@ -438,10 +564,14 @@ def get_community_dashboard(request, community_slug: str):
             for i in range(5):
                 date = now - timedelta(days=i)
                 count = community_articles.filter(submitted_at__date__lte=date).count()
-                article_submission_trends.append(DateCount(date=date.date(), count=count))
+                article_submission_trends.append(
+                    DateCount(date=date.date(), count=count)
+                )
             article_submission_trends.reverse()
         except Exception:
-            return 500, {"message": "Error calculating article submission trends. Please try again."}
+            return 500, {
+                "message": "Error calculating article submission trends. Please try again."
+            }
 
         try:
             # Recently published articles
@@ -458,7 +588,9 @@ def get_community_dashboard(request, community_slug: str):
                 for community_article in recently_published
             ]
         except Exception:
-            return 500, {"message": "Error retrieving recently published articles. Please try again."}
+            return 500, {
+                "message": "Error retrieving recently published articles. Please try again."
+            }
 
         try:
             return 200, CommunityStatsResponse(
@@ -477,6 +609,8 @@ def get_community_dashboard(request, community_slug: str):
                 recently_published_articles=recently_published_articles,
             )
         except Exception:
-            return 500, {"message": "Error generating dashboard data. Please try again."}
+            return 500, {
+                "message": "Error generating dashboard data. Please try again."
+            }
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}

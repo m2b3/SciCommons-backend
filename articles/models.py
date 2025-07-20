@@ -19,11 +19,14 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
+
     def get_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"article_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     article_image_url = models.ImageField(
@@ -45,8 +48,10 @@ class Article(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['submitter', 'created_at']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=["submitter", "created_at"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["submission_type"]),
+            models.Index(fields=["submission_type", "created_at"]),
         ]
 
     def save(self, *args, **kwargs):
@@ -65,19 +70,23 @@ class Article(models.Model):
 class ArticlePDF(models.Model):
     def get_pdf_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"article_pdfs/{settings.ENVIRONMENT}/{unique_filename}"
 
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to=get_pdf_upload_path, null=True, blank=True)
+    pdf_file_url = models.FileField(
+        upload_to=get_pdf_upload_path, null=True, blank=True
+    )
     external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.article.title} - PDF {self.id}"
-    
+
     def get_url(self):
         """Return either the local file URL or external URL"""
         if self.pdf_file_url:
@@ -117,7 +126,7 @@ class AnonymousIdentity(models.Model):
             lambda: f"{cap_word()}{random.choice(['', '_'])}{random.randint(10, 99)}",
             lambda: f"{low_word()}_{cap_word()}{random.choice(['.', '-', '_'])}{uuid.uuid4().hex[:5]}",
             lambda: f"{cap_word()}.{low_word()}{random.randint(100, 999)}{cap_word()}",
-            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}"
+            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}",
         ]
         fake_name = random.choice(patterns)()
         return fake_name
@@ -151,7 +160,11 @@ class Review(models.Model):
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
     community = models.ForeignKey(
-        "communities.Community", null=True, blank=True, on_delete=models.CASCADE, db_index=True
+        "communities.Community",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        db_index=True,
     )
     community_article = models.ForeignKey(
         "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
@@ -192,7 +205,9 @@ class Review(models.Model):
         super().save(*args, **kwargs)
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.user, self.article, self.community
+        )
 
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
@@ -201,10 +216,10 @@ class Review(models.Model):
     class Meta:
         unique_together = ("article", "user", "community")
         indexes = [
-            models.Index(fields=['article', 'created_at']),
-            models.Index(fields=['community', 'article']),
-            models.Index(fields=['user', 'article']),
-            models.Index(fields=['community_article']),
+            models.Index(fields=["article", "created_at"]),
+            models.Index(fields=["community", "article"]),
+            models.Index(fields=["user", "article"]),
+            models.Index(fields=["community_article"]),
         ]
 
 
@@ -272,6 +287,7 @@ class ReviewComment(models.Model):
     class Meta:
         ordering = ["created_at"]
 
+
 class ReviewCommentRating(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     review = models.ForeignKey(Review, on_delete=models.CASCADE)
@@ -338,7 +354,9 @@ class Discussion(models.Model):
         ordering = ["-created_at"]
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.author, self.article, self.community
+        )
 
 
 class DiscussionComment(models.Model):
