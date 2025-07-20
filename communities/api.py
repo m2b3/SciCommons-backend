@@ -195,18 +195,6 @@ def list_communities(
             }
 
         try:
-            # results = [
-            #     CommunityListOut.from_orm_with_custom_fields(community, user=user)
-            #     for community in paginated_communities.object_list
-            # ]
-
-            # return 200, PaginatedCommunities(
-            #     items=results,
-            #     total=paginator.count,
-            #     page=page,
-            #     per_page=per_page,
-            #     num_pages=paginator.num_pages,
-            # )
             community_ids = [c.id for c in paginated_communities.object_list]
 
             # Bulk fetch counts to eliminate N+1

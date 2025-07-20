@@ -1,6 +1,5 @@
 from enum import Enum
 from typing import List, Optional
-import traceback
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -339,7 +338,6 @@ def list_my_communities(
                 num_pages=paginator.num_pages,
             )
         except Exception:
-            print("err: ", traceback.format_exc())
             return 500, {
                 "message": "Error formatting community data. Please try again."
             }

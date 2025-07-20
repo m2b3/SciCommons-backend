@@ -1,6 +1,5 @@
 from collections import defaultdict
 from datetime import timedelta
-import traceback
 from typing import Counter, List, Optional
 from urllib.parse import quote_plus, unquote
 
@@ -318,7 +317,6 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
             )
             return 200, article_data
         except Exception:
-            print("\n FIRST ERROR------\n", traceback.format_exc(), "\n------\n")
             return 500, {"message": "Error preparing article data. Please try again."}
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}
