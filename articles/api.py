@@ -245,7 +245,7 @@ def update_article(
                 return 500, {"message": "Error retrieving article. Please try again."}
                 
             try:
-                article_community = CommunityArticle.objects.filter(article=article).first() or None
+                article_community = CommunityArticle.objects.filter(article=article).first()
             except Exception:
                 return 500, {"message": "Error retrieving article community information. Please try again."}
 
@@ -283,7 +283,9 @@ def update_article(
                 return 500, {"message": "Error updating article. Please try again."}
 
             try:
-                response_data = ArticleOut.from_orm_with_custom_fields(article, article_community, request.auth)
+                # Extract the community from article_community if it exists
+                community = article_community.community if article_community else None
+                response_data = ArticleOut.from_orm_with_custom_fields(article, community, request.auth)
                 return 200, response_data
             except Exception:
                 return 500, {"message": "Article updated but error retrieving article data. Please refresh to see your changes."}
