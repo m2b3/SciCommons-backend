@@ -63,3 +63,6 @@ poetry.lock
 
 # Ignore collected static files
 static/
+
+# Cursor
+.cursor/

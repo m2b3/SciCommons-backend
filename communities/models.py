@@ -17,12 +17,14 @@ class Community(models.Model):
     PRIVATE = "private"
     HIDDEN = "hidden"
     COMMUNITY_TYPES = [(PUBLIC, "Public"), (HIDDEN, "Hidden"), (PRIVATE, "Private")]
-    
+
     def get_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"community_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     name = models.CharField(max_length=100, unique=True)
@@ -127,7 +129,9 @@ class CommunityArticle(models.Model):
         (PUBLISHED, "Published"),
     ]
 
-    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE, db_index=True)
+    article = models.ForeignKey(
+        "articles.Article", on_delete=models.CASCADE, db_index=True
+    )
     community = models.ForeignKey(Community, on_delete=models.CASCADE, db_index=True)
     status = models.CharField(
         max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED, db_index=True
@@ -149,9 +153,9 @@ class CommunityArticle(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['article', 'community']),
-            models.Index(fields=['community', 'status']),
-            models.Index(fields=['status']),
+            models.Index(fields=["article", "community"]),
+            models.Index(fields=["community", "status"]),
+            models.Index(fields=["status"]),
         ]
 
     def __str__(self):
