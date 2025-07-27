@@ -1,12 +1,20 @@
 import logging
+import traceback
 from typing import List, Optional
 
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Count
 from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 
-from articles.models import Article, Discussion, DiscussionComment, Reaction
+from articles.models import (
+    AnonymousIdentity,
+    Article,
+    Discussion,
+    DiscussionComment,
+    Reaction,
+)
 from articles.schemas import (
     CreateDiscussionSchema,
     DiscussionCommentCreateSchema,
@@ -16,9 +24,9 @@ from articles.schemas import (
     PaginatedDiscussionSchema,
 )
 from communities.models import Community, CommunityArticle
-from myapp.schemas import Message
+from myapp.schemas import Message, UserStats
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import User
+from users.models import Reputation, User
 
 router = Router(tags=["Discussions"])
 logger = logging.getLogger(__name__)
@@ -120,42 +128,32 @@ def list_discussions(
 ):
     try:
         try:
-            article = Article.objects.get(id=article_id)
+            # article = Article.objects.get(id=article_id)
+            article = Article.objects.only("id").get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
         except Exception:
+            print(traceback.format_exc())
             return 500, {"message": "Error retrieving article. Please try again."}
 
+        community = None
         if community_id:
             try:
-                community = Community.objects.get(id=community_id)
+                community = Community.objects.only("id", "type").get(id=community_id)
             except Community.DoesNotExist:
                 return 404, {"message": "Community not found."}
-            except Exception:
-                return 500, {"message": "Error retrieving community. Please try again."}
-
-            # if the community is hidden, only members can view reviews
             if not community.is_member(request.auth) and community.type == "hidden":
                 return 403, {"message": "You are not a member of this community."}
 
-            try:
-                # discussions = discussions.filter(community=community)
-                discussions = Discussion.objects.filter(
-                    article=article, community=community
-                ).order_by("-created_at")
-            except Exception:
-                return 500, {
-                    "message": "Error retrieving community discussions. Please try again."
-                }
-        else:
-            try:
-                discussions = Discussion.objects.filter(
-                    article=article, community=None
-                ).order_by("-created_at")
-            except Exception:
-                return 500, {
-                    "message": "Error retrieving discussions. Please try again."
-                }
+        # Filter discussions and annotate with comments count
+        discussions = (
+            Discussion.objects.filter(article=article, community=community)
+            .select_related("author", "article", "community")
+            # Use the correct related_name "discussion_comments" configured on
+            # the DiscussionComment model.
+            .annotate(comments_count=Count("discussion_comments"))
+            .order_by("-created_at")
+        )
 
         try:
             paginator = Paginator(discussions, size)
@@ -168,21 +166,83 @@ def list_discussions(
         current_user: Optional[User] = None if not request.auth else request.auth
 
         try:
-            items = [
-                DiscussionOut.from_orm(discussion, current_user)
-                for discussion in page_obj.object_list
-            ]
+            discussions_list = list(page_obj.object_list)
 
-            response_data = PaginatedDiscussionSchema(
-                items=items, total=paginator.count, page=page, per_page=size
+            # Prefetch reputations in one query
+            author_ids = set(d.author_id for d in discussions_list)
+            reputations = {
+                rep.user_id: rep
+                for rep in Reputation.objects.filter(user_id__in=author_ids)
+            }
+
+            # Prefetch pseudonyms in one query (for only pseudonymous discussions)
+            pseudonym_map = {}
+            pseudonym_needed = [d for d in discussions_list if d.is_pseudonymous]
+            if pseudonym_needed:
+                pseudonyms = AnonymousIdentity.objects.filter(
+                    article=article,
+                    user_id__in=[d.author_id for d in pseudonym_needed],
+                    community=community,
+                )
+                for p in pseudonyms:
+                    pseudonym_map[(p.user_id, p.article_id, p.community_id)] = p
+
+            current_user = request.auth if request.auth else None
+            items = []
+            for discussion in discussions_list:
+                reputation = reputations.get(discussion.author_id)
+                # Use basic user details and attach prefetched reputation to avoid
+                # additional DB queries (UserStats.from_model doesn’t accept a
+                # "reputation" kwarg).
+                user = UserStats.from_model(
+                    discussion.author,
+                    basic_details=True,
+                )
+
+                if reputation:
+                    user.reputation_score = reputation.score
+                    user.reputation_level = reputation.level
+
+                if discussion.is_pseudonymous:
+                    key = (
+                        discussion.author_id,
+                        discussion.article_id,
+                        community.id if community else None,
+                    )
+                    pseudonym = pseudonym_map.get(key)
+                    if pseudonym:
+                        user.username = pseudonym.fake_name
+                        user.profile_pic_url = pseudonym.identicon
+
+                items.append(
+                    DiscussionOut(
+                        id=discussion.id,
+                        topic=discussion.topic,
+                        content=discussion.content,
+                        created_at=discussion.created_at,
+                        updated_at=discussion.updated_at,
+                        deleted_at=discussion.deleted_at,
+                        user=user,
+                        is_author=(discussion.author == current_user),
+                        article_id=article.id,
+                        comments_count=discussion.comments_count,
+                        is_pseudonymous=discussion.is_pseudonymous,
+                    )
+                )
+
+            return 200, PaginatedDiscussionSchema(
+                items=items,
+                total=paginator.count,
+                page=page,
+                per_page=size,
             )
-
-            return 200, response_data
         except Exception:
+            print(traceback.format_exc())
             return 500, {
                 "message": "Error formatting discussion data. Please try again."
             }
     except Exception:
+        print(traceback.format_exc())
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
