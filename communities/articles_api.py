@@ -2,16 +2,16 @@ from typing import List, Literal, Optional
 
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Avg, Exists, OuterRef
+from django.db.models import Avg, Exists, OuterRef, Q
 from ninja import Query, Router
 from ninja.responses import codes_4xx, codes_5xx
 
 from articles.models import Article, Review
 from articles.schemas import (
     ArticleOut,
-    PaginatedArticlesResponse,
-    PaginatedArticlesListResponse,
     ArticlesListOut,
+    PaginatedArticlesListResponse,
+    PaginatedArticlesResponse,
 )
 from communities.models import Community, CommunityArticle
 from communities.schemas import (
