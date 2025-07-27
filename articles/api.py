@@ -554,13 +554,13 @@ def get_articles(
             }
 
             # CommunityArticle bulk fetch (for community only)
-            community_articles = {}
-            if community:
-                ca_qs = CommunityArticle.objects.filter(
-                    article_id__in=article_ids, community=community
-                ).select_related("community", "article")
-                for ca in ca_qs:
-                    community_articles[ca.article.id] = ca
+            # community_articles = {}
+            # if community:
+            #     ca_qs = CommunityArticle.objects.filter(
+            #         article_id__in=article_ids, community=community
+            #     ).select_related("community", "article")
+            #     for ca in ca_qs:
+            #         community_articles[ca.article.id] = ca
 
             response_data = PaginatedArticlesListResponse(
                 items=[
