@@ -1,4 +1,3 @@
-import traceback
 from typing import List, Optional
 
 from django.core.paginator import Paginator
@@ -347,7 +346,6 @@ def list_reviews(
                 items=items, total=paginator.count, page=page, size=size
             )
         except Exception:
-            print(traceback.format_exc())
             return 500, {"message": "Error formatting review data. Please try again."}
     except Exception:
         return 500, {"message": "An unexpected error occurred. Please try again later."}

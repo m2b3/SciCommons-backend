@@ -1,5 +1,4 @@
 import logging
-import traceback
 from typing import List, Optional
 
 from django.core.paginator import Paginator
@@ -133,7 +132,6 @@ def list_discussions(
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
         except Exception:
-            print(traceback.format_exc())
             return 500, {"message": "Error retrieving article. Please try again."}
 
         community = None
@@ -237,12 +235,10 @@ def list_discussions(
                 per_page=size,
             )
         except Exception:
-            print(traceback.format_exc())
             return 500, {
                 "message": "Error formatting discussion data. Please try again."
             }
     except Exception:
-        print(traceback.format_exc())
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
