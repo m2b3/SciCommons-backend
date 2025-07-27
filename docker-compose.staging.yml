@@ -9,6 +9,7 @@ services:
       - proxy
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-test.entrypoints=http"
@@ -43,6 +44,8 @@ services:
       - proxy
     env_file:
       - .env.test
+    volumes:
+      - /home/ubuntu/logs:/logs
 
 networks:
   proxy:
