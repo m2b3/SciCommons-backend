@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import timedelta
 from typing import Counter, List, Optional
@@ -23,15 +24,15 @@ from articles.schemas import (
     ArticleBasicOut,
     ArticleCreateSchema,
     ArticleFilters,
-    ArticlesListOut,
     ArticleOut,
+    ArticlesListOut,
     ArticleUpdateSchema,
     CommunityArticleStatsResponse,
     DateCount,
     Message,
     OfficialArticleStatsResponse,
-    PaginatedArticlesResponse,
     PaginatedArticlesListResponse,
+    PaginatedArticlesResponse,
     ReviewExcerpt,
 )
 from communities.models import Community, CommunityArticle
@@ -41,6 +42,9 @@ from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation, Notification, User
 
 router = Router(tags=["Articles"])
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -574,9 +578,11 @@ def get_articles(
             )
 
             return 200, response_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error preparing article data: {e}")
             return 500, {"message": "Error preparing article data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"Unexpected error in get_articles endpoint: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 

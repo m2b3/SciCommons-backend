@@ -303,49 +303,74 @@ CACHES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 # SESSION_CACHE_ALIAS = "default"
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "simple": {
-            "format": "[{levelname}] {asctime} {name}: {message}",
-            "style": "{",
+# -------------------- Logging Configuration --------------------
+LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(pathname)s - %(message)s"
+
+if DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "detailed": {
+                "format": LOG_FORMAT,
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+            },
         },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "simple",
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "detailed",
+            },
         },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
-    "loggers": {
-        "django": {
+        "root": {
             "handlers": ["console"],
+            "level": "DEBUG",
+        },
+        "loggers": {
+            "django.db.backends": {
+                "handlers": ["console"],
+                "level": "DEBUG",
+                "propagate": False,
+            },
+            "myapp.middleware": {
+                "handlers": ["console"],
+                "level": "INFO",
+            },
+        },
+    }
+else:
+    # Ensure /logs directory (mounted from host) exists inside container
+    LOG_DIR = Path("/logs")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "detailed": {
+                "format": LOG_FORMAT,
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "detailed",
+                "level": "INFO",
+            },
+            "error_file": {
+                "class": "logging.FileHandler",
+                "filename": str(LOG_FILE_PATH),
+                "formatter": "detailed",
+                "level": "ERROR",
+            },
+        },
+        "root": {
+            "handlers": ["console", "error_file"],
             "level": "INFO",
-            "propagate": False,
         },
-        "myapp": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
-        "dev_logger": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-            "filters": ["require_debug_true"],
-        },
-    },
-    "filters": {
-        "require_debug_true": {
-            "()": "django.utils.log.RequireDebugTrue",
-        },
-    },
-}
+    }
+# ---------------------------------------------------------------
 
 # ASGI application
 ASGI_APPLICATION = "myapp.asgi.application"
@@ -364,30 +389,3 @@ CHANNEL_LAYERS = {
 
 # Update CORS settings to allow WebSocket connections
 CORS_ALLOW_WEBSOCKETS = True
-if DEBUG:
-    LOGGING = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-            },
-        },
-        "filters": {
-            "require_debug_true": {
-                "()": "django.utils.log.RequireDebugTrue",
-            },
-        },
-        "loggers": {
-            "django.db.backends": {
-                "handlers": ["console"],
-                "level": "DEBUG",
-                "propagate": False,
-                "filters": ["require_debug_true"],
-            },
-            "myapp.middleware": {
-                "handlers": ["console"],
-                "level": "INFO",
-            },
-        },
-    }
