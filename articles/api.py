@@ -12,6 +12,7 @@ from django.utils import timezone
 from ninja import File, Query, Router, UploadedFile
 from ninja.responses import codes_4xx, codes_5xx
 
+from articles.cache import generate_articles_cache_key, invalidate_articles_cache
 from articles.models import (
     Article,
     ArticlePDF,
@@ -36,6 +37,8 @@ from articles.schemas import (
     ReviewExcerpt,
 )
 from communities.models import Community, CommunityArticle
+from myapp.cache import get_cache, set_cache
+from myapp.constants import FIFTEEN_MINUTES
 from myapp.schemas import FilterType
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
@@ -192,6 +195,10 @@ def create_article(
                     community_article=community_article,
                     current_user=user,
                 )
+
+                # Invalidate articles cache since new article was created
+                invalidate_articles_cache()
+
                 return 200, response_data
             except Exception as e:
                 logger.error(f"Error retrieving article data: {e}")
@@ -445,6 +452,10 @@ def update_article(
                     community_article=article_community,
                     current_user=request.auth,
                 )
+
+                # Invalidate articles cache since article was updated
+                invalidate_articles_cache()
+
                 return 200, response_data
             except Exception as e:
                 logger.error(f"Error retrieving article data: {e}")
@@ -476,6 +487,23 @@ def get_articles(
     per_page: int = 10,
 ):
     try:
+        # Generate cache key based on parameters
+        cache_key = generate_articles_cache_key(
+            community_id=community_id,
+            search=search,
+            sort=sort,
+            rating=rating,
+            page=page,
+            per_page=per_page,
+        )
+
+        # Try to get data from cache first
+        cached_data = get_cache(cache_key)
+        if cached_data is not None:
+            logger.debug(f"Returning cached data for key: {cache_key}")
+            return 200, cached_data
+
+        logger.debug(f"Cache miss for key: {cache_key}, fetching from database")
         try:
             articles = Article.objects.select_related("submitter")
 
@@ -601,6 +629,15 @@ def get_articles(
                 per_page=per_page,
                 num_pages=paginator.num_pages,
             )
+
+            # Cache the response data for 15 minutes
+            try:
+                set_cache(
+                    cache_key, response_data, timeout=FIFTEEN_MINUTES
+                )  # 15 minutes
+                logger.debug(f"Cached response data for key: {cache_key}")
+            except Exception as e:
+                logger.warning(f"Failed to cache data for key {cache_key}: {e}")
 
             return 200, response_data
         except Exception as e:
