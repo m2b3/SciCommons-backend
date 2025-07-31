@@ -52,7 +52,8 @@ def create_discussion(
                 article = Article.objects.get(id=article_id)
             except Article.DoesNotExist:
                 return 404, {"message": "Article not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving article: {e}")
                 return 500, {"message": "Error retrieving article. Please try again."}
 
             user = request.auth
@@ -64,7 +65,8 @@ def create_discussion(
                     community = Community.objects.get(id=community_id)
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error retrieving community: {e}")
                     return 500, {
                         "message": "Error retrieving community. Please try again."
                     }
@@ -80,7 +82,8 @@ def create_discussion(
                         is_pseudonymous = True
                 except CommunityArticle.DoesNotExist:
                     return 404, {"message": "Article not found in this community."}
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error retrieving community article: {e}")
                     return 500, {
                         "message": "Error retrieving community article. Please try again."
                     }
@@ -94,7 +97,8 @@ def create_discussion(
                     content=discussion_data.content,
                     is_pseudonymous=is_pseudonymous,
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error creating discussion: {e}")
                 return 500, {"message": "Error creating discussion. Please try again."}
 
             if is_pseudonymous:
@@ -109,11 +113,13 @@ def create_discussion(
 
         try:
             return 201, DiscussionOut.from_orm(discussion, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting discussion data: {e}")
             return 500, {
                 "message": "Discussion created but error retrieving discussion data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -131,7 +137,8 @@ def list_discussions(
             article = Article.objects.only("id").get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         community = None
@@ -234,11 +241,13 @@ def list_discussions(
                 page=page,
                 per_page=size,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting discussion data: {e}")
             return 500, {
                 "message": "Error formatting discussion data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -253,7 +262,8 @@ def get_discussion(request, discussion_id: int):
             discussion = Discussion.objects.get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
         user = request.auth
@@ -264,11 +274,13 @@ def get_discussion(request, discussion_id: int):
         try:
             response_data = DiscussionOut.from_orm(discussion, user)
             return 200, response_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting discussion data: {e}")
             return 500, {
                 "message": "Error formatting discussion data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -285,7 +297,8 @@ def update_discussion(
             discussion = Discussion.objects.get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
         user = request.auth
@@ -304,17 +317,20 @@ def update_discussion(
             discussion.topic = discussion_data.topic or discussion.topic
             discussion.content = discussion_data.content or discussion.content
             discussion.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating discussion: {e}")
             return 500, {"message": "Error updating discussion. Please try again."}
 
         try:
             response_data = DiscussionOut.from_orm(discussion, user)
             return 201, response_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting discussion data: {e}")
             return 500, {
                 "message": "Discussion updated but error retrieving discussion data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -329,7 +345,8 @@ def delete_discussion(request, discussion_id: int):
             discussion = Discussion.objects.get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
         user = request.auth  # Assuming user is authenticated
@@ -346,11 +363,13 @@ def delete_discussion(request, discussion_id: int):
             discussion.topic = "[deleted]"
             discussion.content = "[deleted]"
             discussion.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting discussion: {e}")
             return 500, {"message": "Error deleting discussion. Please try again."}
 
         return 201, {"message": "Discussion deleted successfully."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -372,7 +391,8 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             discussion = Discussion.objects.get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
         is_pseudonymous = False
@@ -389,7 +409,8 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                     is_pseudonymous = True
             except CommunityArticle.DoesNotExist:
                 return 404, {"message": "Article not found in this community."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking community membership: {e}")
                 return 500, {
                     "message": "Error checking community membership. Please try again."
                 }
@@ -406,7 +427,8 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                     }
             except DiscussionComment.DoesNotExist:
                 return 404, {"message": "Parent comment not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving parent comment: {e}")
                 return 500, {
                     "message": "Error retrieving parent comment. Please try again."
                 }
@@ -420,25 +442,28 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 parent=parent_comment,
                 is_pseudonymous=is_pseudonymous,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating comment: {e}")
             return 500, {"message": "Error creating comment. Please try again."}
 
         if is_pseudonymous:
             try:
                 # Create an anonymous name for the user who created the comment
                 comment.get_anonymous_name()
-            except Exception:
-                logger.error("Error creating anonymous name for comment", exc_info=True)
+            except Exception as e:
+                logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
 
         # Return comment with replies
         try:
             return 201, DiscussionCommentOut.from_orm_with_replies(comment, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {
                 "message": "Comment created but error retrieving comment data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -454,7 +479,8 @@ def get_comment(request, comment_id: int):
             comment = DiscussionComment.objects.get(id=comment_id)
         except DiscussionComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
@@ -470,9 +496,11 @@ def get_comment(request, comment_id: int):
             return 200, DiscussionCommentOut.from_orm_with_replies(
                 comment, current_user
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -489,7 +517,8 @@ def list_discussion_comments(
             discussion = Discussion.objects.get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
@@ -507,7 +536,8 @@ def list_discussion_comments(
                 .select_related("author")
                 .order_by("-created_at")
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comments: {e}")
             return 500, {"message": "Error retrieving comments. Please try again."}
 
         try:
@@ -515,9 +545,11 @@ def list_discussion_comments(
                 DiscussionCommentOut.from_orm_with_replies(comment, current_user)
                 for comment in comments
             ]
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -532,7 +564,8 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
             comment = DiscussionComment.objects.get(id=comment_id)
         except DiscussionComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         if comment.author != request.auth:
@@ -548,18 +581,21 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
         try:
             comment.content = payload.content or comment.content
             comment.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating comment: {e}")
             return 500, {"message": "Error updating comment. Please try again."}
 
         try:
             return 200, DiscussionCommentOut.from_orm_with_replies(
                 comment, request.auth
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {
                 "message": "Comment updated but error retrieving comment data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -575,7 +611,8 @@ def delete_comment(request, comment_id: int):
             comment = DiscussionComment.objects.get(id=comment_id)
         except DiscussionComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         # Check if the user is the owner of the comment or has permission to delete it
@@ -594,9 +631,11 @@ def delete_comment(request, comment_id: int):
             comment.content = "[deleted]"
             comment.is_deleted = True
             comment.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting comment: {e}")
             return 500, {"message": "Error deleting comment. Please try again."}
 
         return 204, None
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

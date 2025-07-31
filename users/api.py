@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 from typing import List, Optional
 
@@ -10,11 +11,7 @@ from ninja.responses import codes_4xx, codes_5xx
 
 # Todo: Move the Reaction model to the users app
 from articles.models import Article, Reaction, Review
-from articles.schemas import (
-    ArticlesListOut,
-    Message,
-    PaginatedArticlesListResponse,
-)
+from articles.schemas import ArticlesListOut, Message, PaginatedArticlesListResponse
 from communities.models import Community, CommunityArticle, Membership
 from communities.schemas import CommunityListOut, PaginatedCommunities
 from myapp.schemas import Message, UserStats
@@ -33,6 +30,9 @@ from users.schemas import (
 )
 
 router = Router(tags=["Users"])
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 
 class StatusFilter(str, Enum):
@@ -54,7 +54,8 @@ User's Profile API
 def get_me(request: HttpRequest):
     try:
         return 200, UserDetails.resolve_user(request.auth)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error retrieving user details: {e}")
         return 500, {"message": "Error retrieving user details. Please try again."}
 
 
@@ -84,7 +85,8 @@ def update_user(
                 academic_status.dict()
                 for academic_status in payload.details.academic_statuses
             ]
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating profile information: {e}")
             return 500, {
                 "message": "Error updating profile information. Please try again."
             }
@@ -104,18 +106,21 @@ def update_user(
                     HashtagRelation.objects.create(
                         hashtag=hashtag, content_type=content_type, object_id=user.id
                     )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating research interests: {e}")
                 return 500, {
                     "message": "Error updating research interests. Please try again."
                 }
 
         try:
             user.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error saving user profile: {e}")
             return 500, {"message": "Error saving user profile. Please try again."}
 
         return 200, UserDetails.resolve_user(user)
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -128,7 +133,8 @@ def update_user(
 def get_user_stats(request: HttpRequest):
     try:
         return 200, UserStats.from_model(request.auth)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error retrieving user statistics: {e}")
         return 500, {"message": "Error retrieving user statistics. Please try again."}
 
 
@@ -149,9 +155,11 @@ def get_my_articles(request: HttpRequest):
         try:
             articles = Article.objects.filter(submitter=user).order_by("-created_at")
             return 200, articles
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your articles: {e}")
             return 500, {"message": "Error retrieving your articles. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -173,7 +181,8 @@ def list_my_articles(
         articles = Article.objects.filter(submitter=request.auth).order_by(
             "-created_at"
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error retrieving articles: {e}")
         return 500, {"message": "Error retrieving articles. Please try again."}
 
     try:
@@ -213,7 +222,8 @@ def list_my_articles(
         )
 
         return 200, response_data
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -238,7 +248,8 @@ def list_my_communities(
         user = request.auth
         try:
             communities = Community.objects.filter(admins__in=[user])
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving communities: {e}")
             return 500, {"message": "Error retrieving communities. Please try again."}
 
         # Apply search if provided
@@ -249,7 +260,8 @@ def list_my_communities(
                     communities = communities.filter(admins__in=[user]).filter(
                         Q(name__icontains=search) | Q(description__icontains=search)
                     )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error processing search query: {e}")
             return 500, {"message": "Error processing search query. Please try again."}
 
         # Apply sorting
@@ -268,7 +280,8 @@ def list_my_communities(
             else:
                 # Default sort by latest
                 communities = communities.order_by("-created_at")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting communities: {e}")
             return 500, {"message": "Error sorting communities. Please try again."}
 
         try:
@@ -337,11 +350,13 @@ def list_my_communities(
                 per_page=per_page,
                 num_pages=paginator.num_pages,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting community data: {e}")
             return 500, {
                 "message": "Error formatting community data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -369,7 +384,8 @@ def get_my_communities(request):
                         "members_count": community.members_count,
                     }
                 )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving admin communities: {e}")
             return 500, {
                 "message": "Error retrieving admin communities. Please try again."
             }
@@ -388,7 +404,8 @@ def get_my_communities(request):
                             "members_count": community.members_count,
                         }
                     )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving reviewer communities: {e}")
             return 500, {
                 "message": "Error retrieving reviewer communities. Please try again."
             }
@@ -407,7 +424,8 @@ def get_my_communities(request):
                             "members_count": community.members_count,
                         }
                     )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving moderator communities: {e}")
             return 500, {
                 "message": "Error retrieving moderator communities. Please try again."
             }
@@ -426,13 +444,15 @@ def get_my_communities(request):
                             "members_count": community.members_count,
                         }
                     )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving member communities: {e}")
             return 500, {
                 "message": "Error retrieving member communities. Please try again."
             }
 
         return 200, communities
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -448,12 +468,14 @@ def get_my_posts(request):
             posts = Post.objects.filter(author=user, is_deleted=False).order_by(
                 "-created_at"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your posts: {e}")
             return 500, {"message": "Error retrieving your posts. Please try again."}
 
         try:
             post_content_type = ContentType.objects.get_for_model(Post)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error setting up content types: {e}")
             return 500, {"message": "Error setting up content types. Please try again."}
 
         result = []
@@ -488,12 +510,14 @@ def get_my_posts(request):
                         "action_date": action_date,
                     }
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error formatting post data: {e}")
                 # Skip posts with errors instead of failing entirely
                 continue
 
         return 200, result
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -512,13 +536,15 @@ def get_my_favorites(request):
             article_type = ContentType.objects.get_for_model(Article)
             community_type = ContentType.objects.get_for_model(Community)
             post_type = ContentType.objects.get_for_model(Post)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error setting up content types: {e}")
             return 500, {"message": "Error setting up content types. Please try again."}
 
         try:
             # Get user's liked items
             liked_items = Reaction.objects.filter(user=user, vote=Reaction.LIKE)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your favorite items: {e}")
             return 500, {
                 "message": "Error retrieving your favorite items. Please try again."
             }
@@ -561,12 +587,14 @@ def get_my_favorites(request):
                             "slug": str(post.id),
                         }
                     )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error formatting favorite item data: {e}")
                 # Skip items with errors instead of failing entirely
                 continue
 
         return 200, favorites
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -582,7 +610,8 @@ def get_my_bookmarks(request):
             bookmarks = Bookmark.objects.filter(user=user).select_related(
                 "content_type"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your bookmarks: {e}")
             return 500, {
                 "message": "Error retrieving your bookmarks. Please try again."
             }
@@ -624,12 +653,14 @@ def get_my_bookmarks(request):
                             "slug": str(obj.id),
                         }
                     )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error formatting bookmark data: {e}")
                 # Skip bookmarks with errors instead of failing entirely
                 continue
 
         return 200, result
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -652,7 +683,8 @@ def get_notifications(
     try:
         try:
             user_notifications = Notification.objects.filter(user=request.auth)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your notifications: {e}")
             return 500, {
                 "message": "Error retrieving your notifications. Please try again."
             }
@@ -669,12 +701,14 @@ def get_notifications(
 
             if filters:
                 user_notifications = user_notifications.filter(filters)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error filtering notifications: {e}")
             return 500, {"message": "Error filtering notifications. Please try again."}
 
         try:
             user_notifications = user_notifications.order_by("-created_at")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting notifications: {e}")
             return 500, {"message": "Error sorting notifications. Please try again."}
 
         try:
@@ -695,11 +729,13 @@ def get_notifications(
                 for notif in user_notifications
             ]
             return 200, notifications_list
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting notification data: {e}")
             return 500, {
                 "message": "Error formatting notification data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -716,7 +752,8 @@ def mark_notification_as_read(request, notification_id: int):
             )
         except Notification.DoesNotExist:
             return 404, {"message": "Notification not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving notification: {e}")
             return 500, {"message": "Error retrieving notification. Please try again."}
 
         if not notification.is_read:
@@ -724,11 +761,13 @@ def mark_notification_as_read(request, notification_id: int):
                 notification.is_read = True
                 notification.save()
                 return 200, {"message": "Notification marked as read."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating notification status: {e}")
                 return 500, {
                     "message": "Error updating notification status. Please try again."
                 }
         else:
             return 200, {"message": "Notification was already marked as read."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

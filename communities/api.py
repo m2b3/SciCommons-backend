@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import List, Optional
 
@@ -33,6 +34,9 @@ from users.auth import JWTAuth, OptionalJWTAuth
 
 router = Router(tags=["Communities"])
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 
 """
 Community Management Endpoints
@@ -63,7 +67,8 @@ def create_community(
                     return 400, {
                         "message": f"You can only create {MAX_COMMUNITIES_PER_USER} communities."
                     }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking your community count: {e}")
                 return 500, {
                     "message": "Error checking your community count. Please try again."
                 }
@@ -99,7 +104,8 @@ def create_community(
                     # profile_pic_url=profile_image_file,
                 )
                 new_community.save()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error creating community: {e}")
                 return 500, {"message": "Error creating community. Please try again."}
 
             # Create Tags
@@ -114,7 +120,8 @@ def create_community(
             try:
                 new_community.admins.add(user)  # Add the creator as an admin
                 new_community.members.add(user)  # Add the creator as a member
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error setting up community membership: {e}")
                 return 500, {
                     "message": "Error setting up community membership. Please try again."
                 }
@@ -123,11 +130,13 @@ def create_community(
                 return 201, CommunityOut.from_orm_with_custom_fields(
                     new_community, user
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community data: {e}")
                 return 500, {
                     "message": "Community created but error retrieving community data."
                 }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -153,7 +162,8 @@ def list_communities(
         try:
             # Start with all non-hidden communities
             communities = Community.objects.filter(~Q(type=Community.HIDDEN))
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving communities: {e}")
             return 500, {"message": "Error retrieving communities. Please try again."}
 
         # Apply search if provided
@@ -164,7 +174,8 @@ def list_communities(
                     communities = communities.filter(
                         Q(name__icontains=search) | Q(description__icontains=search)
                     )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error processing search query: {e}")
             return 500, {"message": "Error processing search query. Please try again."}
 
         # Apply sorting
@@ -183,7 +194,8 @@ def list_communities(
             else:
                 # Default sort by latest
                 communities = communities.order_by("-created_at")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting communities: {e}")
             return 500, {"message": "Error sorting communities. Please try again."}
 
         try:
@@ -255,11 +267,13 @@ def list_communities(
                 per_page=per_page,
                 num_pages=paginator.num_pages,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting community data: {e}")
             return 500, {
                 "message": "Error formatting community data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -274,7 +288,8 @@ def get_community(request, community_name: str):
             community = Community.objects.get(name=community_name)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         user = request.auth
@@ -286,11 +301,13 @@ def get_community(request, community_name: str):
 
         try:
             return 200, CommunityOut.from_orm_with_custom_fields(community, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting community data: {e}")
             return 500, {
                 "message": "Error formatting community data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -312,7 +329,8 @@ def update_community(
                 community = Community.objects.get(id=community_id)
             except Community.DoesNotExist:
                 return 404, {"message": "Community not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community: {e}")
                 return 500, {"message": "Error retrieving community. Please try again."}
 
             # Check if the user is an admin of this community
@@ -351,18 +369,21 @@ def update_community(
                     community.profile_pic_url = profile_pic_file
 
                 community.save()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating community: {e}")
                 return 500, {"message": "Error updating community. Please try again."}
 
             try:
                 return 200, CommunityOut.from_orm_with_custom_fields(
                     community, request.auth
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error formatting community data: {e}")
                 return 500, {
                     "message": "Community updated but error retrieving community data."
                 }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -377,7 +398,8 @@ def delete_community(request: HttpRequest, community_id: int):
             community = Community.objects.get(id=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Check if the user is an admin of this community
@@ -389,11 +411,13 @@ def delete_community(request: HttpRequest, community_id: int):
         try:
             # Todo: Do not delete the community, just mark it as deleted
             community.delete()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting community: {e}")
             return 500, {"message": "Error deleting community. Please try again."}
 
         return 204, None
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -410,13 +434,15 @@ def get_relevant_communities(
             base_community = Community.objects.get(id=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Get hashtags of the base community
         try:
             base_hashtags = base_community.hashtags.values_list("hashtag_id", flat=True)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community tags: {e}")
             return 500, {
                 "message": "Error retrieving community tags. Please try again."
             }
@@ -424,7 +450,8 @@ def get_relevant_communities(
         try:
             # Query for relevant communities
             queryset = Community.objects.exclude(id=community_id).exclude(type="hidden")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving communities: {e}")
             return 500, {"message": "Error retrieving communities. Please try again."}
 
         try:
@@ -434,7 +461,8 @@ def get_relevant_communities(
                     "hashtags", filter=Q(hashtags__hashtag_id__in=base_hashtags)
                 )
             ).filter(relevance_score__gt=0)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error calculating relevance scores: {e}")
             return 500, {
                 "message": "Error calculating relevance scores. Please try again."
             }
@@ -452,7 +480,8 @@ def get_relevant_communities(
                 queryset = queryset.order_by("-created_at", "-relevance_score")
             else:  # "relevant" is the default
                 queryset = queryset.order_by("-relevance_score", "-created_at")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting communities: {e}")
             return 500, {"message": "Error sorting communities. Please try again."}
 
         try:
@@ -465,11 +494,13 @@ def get_relevant_communities(
                 CommunityBasicOut.from_orm(community) for community in communities
             ]
             return 200, result
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting community data: {e}")
             return 500, {
                 "message": "Error formatting community data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -489,7 +520,8 @@ def get_community_dashboard(request, community_slug: str):
             community = Community.objects.get(slug=community_slug)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         now = timezone.now()
@@ -501,7 +533,8 @@ def get_community_dashboard(request, community_slug: str):
             new_members_this_week = community.members.filter(
                 membership__joined_at__gte=week_ago
             ).count()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving member statistics: {e}")
             return 500, {
                 "message": "Error retrieving member statistics. Please try again."
             }
@@ -517,7 +550,8 @@ def get_community_dashboard(request, community_slug: str):
             new_published_articles_this_week = community_articles.filter(
                 status="published", published_at__gte=week_ago
             ).count()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article statistics: {e}")
             return 500, {
                 "message": "Error retrieving article statistics. Please try again."
             }
@@ -526,7 +560,8 @@ def get_community_dashboard(request, community_slug: str):
             # Review and discussion stats
             total_reviews = Review.objects.filter(community=community).count()
             total_discussions = Discussion.objects.filter(community=community).count()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review and discussion statistics: {e}")
             return 500, {
                 "message": "Error retrieving review and discussion statistics. Please try again."
             }
@@ -541,7 +576,8 @@ def get_community_dashboard(request, community_slug: str):
                 ).count()
                 member_growth.append(DateCount(date=date.date(), count=count))
             member_growth.reverse()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error calculating member growth trends: {e}")
             return 500, {
                 "message": "Error calculating member growth trends. Please try again."
             }
@@ -556,7 +592,8 @@ def get_community_dashboard(request, community_slug: str):
                     DateCount(date=date.date(), count=count)
                 )
             article_submission_trends.reverse()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error calculating article submission trends: {e}")
             return 500, {
                 "message": "Error calculating article submission trends. Please try again."
             }
@@ -575,7 +612,8 @@ def get_community_dashboard(request, community_slug: str):
                 )
                 for community_article in recently_published
             ]
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving recently published articles: {e}")
             return 500, {
                 "message": "Error retrieving recently published articles. Please try again."
             }
@@ -596,9 +634,11 @@ def get_community_dashboard(request, community_slug: str):
                 article_submission_trends=article_submission_trends,
                 recently_published_articles=recently_published_articles,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error generating dashboard data: {e}")
             return 500, {
                 "message": "Error generating dashboard data. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

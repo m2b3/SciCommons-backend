@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -20,6 +22,9 @@ from users.models import Notification, User
 
 router = Router(tags=["Community Invitations"])
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 
 """
 Invitation Management Endpoints
@@ -37,7 +42,8 @@ def invite_registered_users(request, community_id: int, payload: InvitePayload):
             community = Community.objects.get(pk=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Check if the requester is an admin of the community
@@ -51,8 +57,11 @@ def invite_registered_users(request, community_id: int, payload: InvitePayload):
                 nonexistent_users = set(payload.usernames) - set(
                     user.username for user in existing_users
                 )
-                return 400, {"message": f"User(s) {', '.join(nonexistent_users)} do not exist."}
-        except Exception:
+                return 400, {
+                    "message": f"User(s) {', '.join(nonexistent_users)} do not exist."
+                }
+        except Exception as e:
+            logger.error(f"Error checking user existence: {e}")
             return 500, {"message": "Error checking user existence. Please try again."}
 
         try:
@@ -69,15 +78,20 @@ def invite_registered_users(request, community_id: int, payload: InvitePayload):
                     "message": f"Invitation(s) already exists for "
                     f"{', '.join(invited_usernames)}."
                 }
-        except Exception:
-            return 500, {"message": "Error checking existing invitations. Please try again."}
+        except Exception as e:
+            logger.error(f"Error checking existing invitations: {e}")
+            return 500, {
+                "message": "Error checking existing invitations. Please try again."
+            }
 
         # Send invitations
         try:
             for user in existing_users:
                 try:
                     invitation = Invitation.objects.create(
-                        community=community, username=user.username, status=Invitation.PENDING
+                        community=community,
+                        username=user.username,
+                        status=Invitation.PENDING,
                     )
                     link = (
                         f"{settings.FRONTEND_URL}/community/{community_id}"
@@ -91,13 +105,18 @@ def invite_registered_users(request, community_id: int, payload: InvitePayload):
                         category="communities",
                         notification_type="join_request_received",
                     )
-                except Exception:
-                    return 500, {"message": "Error creating invitation for user. Please try again."}
-        except Exception:
+                except Exception as e:
+                    logger.error(f"Error creating invitation for user: {e}")
+                    return 500, {
+                        "message": "Error creating invitation for user. Please try again."
+                    }
+        except Exception as e:
+            logger.error(f"Error sending invitations: {e}")
             return 500, {"message": "Error sending invitations. Please try again."}
 
         return 200, {"message": "Invitations sent successfully."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -120,7 +139,8 @@ def respond_to_invitation(
                 "message": "Invitation does not exist or you "
                 "do not have permission to respond to it."
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving invitation: {e}")
             return 500, {"message": "Error retrieving invitation. Please try again."}
 
         # Check if the invitation has already been processed
@@ -134,9 +154,14 @@ def respond_to_invitation(
             if payload.action == "accept":
                 invitation.status = Invitation.ACCEPTED
                 try:
-                    Membership.objects.create(user=request.auth, community=invitation.community)
-                except Exception:
-                    return 500, {"message": "Error creating membership. Please try again."}
+                    Membership.objects.create(
+                        user=request.auth, community=invitation.community
+                    )
+                except Exception as e:
+                    logger.error(f"Error creating membership: {e}")
+                    return 500, {
+                        "message": "Error creating membership. Please try again."
+                    }
                 response_message = (
                     "Congratulations! You have successfully joined the community."
                 )
@@ -144,13 +169,19 @@ def respond_to_invitation(
                 invitation.status = Invitation.REJECTED
                 response_message = "Invitation has been rejected successfully."
             else:
-                return 400, {"message": "Invalid action. Please specify 'accept' or 'reject'."}
+                return 400, {
+                    "message": "Invalid action. Please specify 'accept' or 'reject'."
+                }
 
             try:
                 invitation.save()
-            except Exception:
-                return 500, {"message": "Error updating invitation status. Please try again."}
-        except Exception:
+            except Exception as e:
+                logger.error(f"Error updating invitation status: {e}")
+                return 500, {
+                    "message": "Error updating invitation status. Please try again."
+                }
+        except Exception as e:
+            logger.error(f"Error processing your response: {e}")
             return 500, {"message": "Error processing your response. Please try again."}
 
         # Optional: Send notification to community admin about the decision
@@ -162,12 +193,14 @@ def respond_to_invitation(
                 category="communities",
                 notification_type="join_request_responded",
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails - the invitation was already processed
             pass
 
         return 200, {"message": response_message}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -184,7 +217,8 @@ def send_invitations_to_unregistered_users(
             community = Community.objects.get(pk=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Check if the requester is an admin of the community
@@ -203,9 +237,14 @@ def send_invitations_to_unregistered_users(
                     invalid_emails.append(email)
 
             if invalid_emails:
-                return 400, {"message": f"Invalid email(s): {', '.join(invalid_emails)}."}
-        except Exception:
-            return 500, {"message": "Error validating email addresses. Please try again."}
+                return 400, {
+                    "message": f"Invalid email(s): {', '.join(invalid_emails)}."
+                }
+        except Exception as e:
+            logger.error(f"Error validating email addresses: {e}")
+            return 500, {
+                "message": "Error validating email addresses. Please try again."
+            }
 
         # Check for existing users
         # existing_users = User.objects.filter(email__in=payload.emails)
@@ -231,8 +270,11 @@ def send_invitations_to_unregistered_users(
                     "message": f"Invitation(s) already exists for "
                     f"{', '.join(existing_emails)}."
                 }
-        except Exception:
-            return 500, {"message": "Error checking existing invitations. Please try again."}
+        except Exception as e:
+            logger.error(f"Error checking existing invitations: {e}")
+            return 500, {
+                "message": "Error checking existing invitations. Please try again."
+            }
 
         # Send invitations
         try:
@@ -241,19 +283,21 @@ def send_invitations_to_unregistered_users(
                 "community_name": community.name,
                 "community_members": community.members.count(),
             }
-            
+
             for email in valid_emails:
                 try:
                     signed_email = signer.sign(email)
                     invitation = Invitation.objects.create(
                         community=community, email=email, status=Invitation.PENDING
                     )
-                    template_context["referral_link"] = f"{settings.FRONTEND_URL}/community/{community_id}/invitations/unregistered/{invitation.id}/{signed_email}"
+                    template_context["referral_link"] = (
+                        f"{settings.FRONTEND_URL}/community/{community_id}/invitations/unregistered/{invitation.id}/{signed_email}"
+                    )
                     # message = (
                     #     f"{payload.body} \n Your referral link: "
                     #     f"{settings.FRONTEND_URL}/community/{community_id}/"
                     #     f"invitations/unregistered/{invitation.id}/{signed_email}"
-                    # ) 
+                    # )
                     # send_email_task.delay(
                     #     subject=payload.subject,
                     #     message=message,
@@ -261,18 +305,23 @@ def send_invitations_to_unregistered_users(
                     #     is_html=False,
                     # )
                     send_email_task.delay(
-                        subject = payload.subject,
-                        html_template_name = "community_invitation_template.html", 
-                        context = template_context, 
-                        recipient_list = [email]
+                        subject=payload.subject,
+                        html_template_name="community_invitation_template.html",
+                        context=template_context,
+                        recipient_list=[email],
                     )
-                except Exception:
-                    return 500, {"message": f"Error sending invitation to {email}. Please try again."}
-        except Exception:
+                except Exception as e:
+                    logger.error(f"Error sending invitation to {email}: {e}")
+                    return 500, {
+                        "message": f"Error sending invitation to {email}. Please try again."
+                    }
+        except Exception as e:
+            logger.error(f"Error sending invitations: {e}")
             return 500, {"message": "Error sending invitations. Please try again."}
 
         return 200, {"message": "Invitations sent successfully."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -292,7 +341,8 @@ def respond_to_email_invitation(
             return 400, {"message": "Token expired. Please request a new invitation."}
         except BadSignature:
             return 400, {"message": "Invalid token. Please check the invitation link."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error verifying token: {e}")
             return 500, {"message": "Error verifying token. Please try again."}
 
         try:
@@ -302,10 +352,12 @@ def respond_to_email_invitation(
             ).first()
 
             if not invitation:
-                processed_invitation = Invitation.objects.filter(
-                    email=email
-                ).exclude(status=Invitation.PENDING).first()
-                
+                processed_invitation = (
+                    Invitation.objects.filter(email=email)
+                    .exclude(status=Invitation.PENDING)
+                    .first()
+                )
+
                 if processed_invitation:
                     return 400, {
                         "message": (
@@ -314,7 +366,8 @@ def respond_to_email_invitation(
                         )
                     }
                 return 404, {"message": "Invitation not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving invitation: {e}")
             return 500, {"message": "Error retrieving invitation. Please try again."}
 
         try:
@@ -326,7 +379,8 @@ def respond_to_email_invitation(
                     "message": "Please register for an account and then click "
                     "on the invitation link in your email to join the community."
                 }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking user status: {e}")
             return 500, {"message": "Error checking user status. Please try again."}
 
         try:
@@ -337,19 +391,28 @@ def respond_to_email_invitation(
                     response_message = (
                         "Invitation accepted and membership registered successfully."
                     )
-                except Exception:
-                    return 500, {"message": "Error creating membership. Please try again."}
+                except Exception as e:
+                    logger.error(f"Error creating membership: {e}")
+                    return 500, {
+                        "message": "Error creating membership. Please try again."
+                    }
             elif payload.action == "reject":
                 invitation.status = Invitation.REJECTED
                 response_message = "Invitation rejected successfully."
             else:
-                return 400, {"message": "Invalid action. Please specify 'accept' or 'reject'."}
+                return 400, {
+                    "message": "Invalid action. Please specify 'accept' or 'reject'."
+                }
 
             try:
                 invitation.save()
-            except Exception:
-                return 500, {"message": "Error updating invitation status. Please try again."}
-        except Exception:
+            except Exception as e:
+                logger.error(f"Error updating invitation status: {e}")
+                return 500, {
+                    "message": "Error updating invitation status. Please try again."
+                }
+        except Exception as e:
+            logger.error(f"Error processing your response: {e}")
             return 500, {"message": "Error processing your response. Please try again."}
 
         try:
@@ -363,12 +426,14 @@ def respond_to_email_invitation(
                 category="communities",
                 notification_type="join_request_responded",
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails - the invitation was already processed
             pass
 
         return 200, {"message": response_message}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -384,7 +449,8 @@ def get_community_invitations(request, community_name: str):
             community = Community.objects.get(name=community_name)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Verify if the authenticated user is an admin of this community
@@ -396,7 +462,8 @@ def get_community_invitations(request, community_name: str):
             invitations = Invitation.objects.filter(community=community).select_related(
                 "community"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving invitations: {e}")
             return 500, {"message": "Error retrieving invitations. Please try again."}
 
         try:
@@ -412,9 +479,13 @@ def get_community_invitations(request, community_name: str):
             ]
 
             return 200, result
-        except Exception:
-            return 500, {"message": "Error formatting invitation data. Please try again."}
-    except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting invitation data: {e}")
+            return 500, {
+                "message": "Error formatting invitation data. Please try again."
+            }
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -428,7 +499,8 @@ def get_community_invitation_details(request, community_id: int, invitation_id: 
             community = Community.objects.get(pk=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         # Check if the invitation exists
@@ -442,7 +514,8 @@ def get_community_invitation_details(request, community_id: int, invitation_id: 
                     "You have already responded to this invitation or it does not exist."
                 )
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving invitation: {e}")
             return 500, {"message": "Error retrieving invitation. Please try again."}
 
         try:
@@ -452,7 +525,11 @@ def get_community_invitation_details(request, community_id: int, invitation_id: 
                 # "profile_pic_url": community.profile_pic_url,
                 "num_members": community.members.count(),
             }
-        except Exception:
-            return 500, {"message": "Error formatting community data. Please try again."}
-    except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting community data: {e}")
+            return 500, {
+                "message": "Error formatting community data. Please try again."
+            }
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

@@ -6,7 +6,8 @@ from django_redis import get_redis_connection
 class CacheOperationError(Exception):
     pass
 
-def get_cache(key, default=None, version=None, cache_name='default'):
+
+def get_cache(key, default=None, version=None, cache_name="default"):
     """Safe cache retrieval with enhanced error handling"""
     try:
         if not isinstance(key, str):
@@ -18,18 +19,22 @@ def get_cache(key, default=None, version=None, cache_name='default'):
     except Exception as e:
         return default
 
-def set_cache(key, value, timeout=None, version=None, cache_name='default'):
+
+def set_cache(key, value, timeout=None, version=None, cache_name="default"):
     """Cache setter with timeout handling and validation"""
     try:
         if not isinstance(key, str):
             raise ValueError("Cache key must be string")
-            
+
         caches[cache_name].set(key, value, timeout=timeout, version=version)
         return True
     except Exception as e:
         raise CacheOperationError(f"Cache set failed: {str(e)}")
 
-def set_cache_with_tags(key, value, timeout=None, version=None, cache_name='default', tags=None):
+
+def set_cache_with_tags(
+    key, value, timeout=None, version=None, cache_name="default", tags=None
+):
     """Set cache with article IDs as tags."""
     try:
         if not isinstance(key, str):
@@ -56,7 +61,8 @@ def set_cache_with_tags(key, value, timeout=None, version=None, cache_name='defa
     except Exception as e:
         raise CacheOperationError(f"Cache operation failed: {str(e)}")
 
-def delete_cache(key, version=None, cache_name='default'):
+
+def delete_cache(key, version=None, cache_name="default"):
     """Idempotent cache deletion with error suppression"""
     try:
         caches[cache_name].delete(key, version=version)
@@ -64,7 +70,8 @@ def delete_cache(key, version=None, cache_name='default'):
     except Exception as e:
         return False
 
-def invalidate_cache_with_tags(tags, cache_name='default'):
+
+def invalidate_cache_with_tags(tags, cache_name="default"):
     """Invalidate cache entries associated with the given article IDs."""
     try:
         if not isinstance(tags, (list, set, tuple)):

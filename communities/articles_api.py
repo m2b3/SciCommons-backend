@@ -1,3 +1,4 @@
+import logging
 from typing import List, Literal, Optional
 
 from django.core.paginator import Paginator
@@ -26,6 +27,9 @@ from users.models import Notification, User
 # Initialize a router for the communities API
 router = Router(tags=["Community Articles"])
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 
 @router.post(
     "/communities/{community_name}/submit-article/{article_slug}",
@@ -38,7 +42,8 @@ def submit_article(request, community_name: str, article_slug: str):
             community = Community.objects.get(name=community_name)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         user = request.auth
@@ -53,7 +58,8 @@ def submit_article(request, community_name: str, article_slug: str):
             article = Article.objects.get(slug=article_slug)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
@@ -64,7 +70,8 @@ def submit_article(request, community_name: str, article_slug: str):
                 return 400, {
                     "message": "This article is already submitted to this community."
                 }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking article submission status: {e}")
             return 500, {
                 "message": "Error checking article submission status. Please try again."
             }
@@ -80,7 +87,8 @@ def submit_article(request, community_name: str, article_slug: str):
             CommunityArticle.objects.create(
                 article=article, community=community, status=community_article_status
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error submitting article to community: {e}")
             return 500, {
                 "message": "Error submitting article to community. Please try again."
             }
@@ -98,12 +106,14 @@ def submit_article(request, community_name: str, article_slug: str):
                 link=f"/community/{community.name}/submissions",
                 content=article.title,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails
             pass
 
         return 200, {"message": "Article submitted successfully"}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -128,7 +138,8 @@ def get_my_articles(
             articles = Article.objects.filter(submitter=user).select_related(
                 "submitter"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your articles: {e}")
             return 500, {"message": "Error retrieving your articles. Please try again."}
 
         try:
@@ -212,9 +223,11 @@ def get_my_articles(
                 per_page=limit,
                 num_pages=paginator.num_pages,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting article data: {e}")
             return 500, {"message": "Error formatting article data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -248,7 +261,8 @@ def list_community_articles_by_status(
             community = Community.objects.get(name=community_name)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         try:
@@ -270,7 +284,8 @@ def list_community_articles_by_status(
                 queryset = queryset.filter(
                     communityarticle__submitted_at__lte=filters.submitted_before
                 )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error filtering articles: {e}")
             return 500, {"message": "Error filtering articles. Please try again."}
 
         try:
@@ -286,7 +301,8 @@ def list_community_articles_by_status(
             )
             sort_prefix = "-" if sort_order.lower() == "desc" else ""
             queryset = queryset.order_by(f"{sort_prefix}{sort_field}")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting articles: {e}")
             return 500, {"message": "Error sorting articles. Please try again."}
 
         try:
@@ -340,9 +356,11 @@ def list_community_articles_by_status(
                 per_page=size,
                 num_pages=paginator.num_pages,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting article data: {e}")
             return 500, {"message": "Error formatting article data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -363,13 +381,15 @@ def manage_article(
             community_article = CommunityArticle.objects.get(id=community_article_id)
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
             if not community_article.community.is_admin(user):
                 return 403, {"message": "You are not an admin of this community."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking administrative privileges: {e}")
             return 500, {
                 "message": "Error checking administrative privileges. Please try again."
             }
@@ -395,7 +415,10 @@ def manage_article(
                             moderators = (
                                 community_article.community.moderators.order_by("?")
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.error(
+                                f"Error retrieving reviewers and moderators: {e}"
+                            )
                             return 500, {
                                 "message": "Error retrieving reviewers and moderators. Please try again."
                             }
@@ -412,7 +435,8 @@ def manage_article(
                                     "message": "Article automatically accepted due to lack of "
                                     "reviewers and moderators."
                                 }
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"Error updating article status: {e}")
                                 return 500, {
                                     "message": "Error updating article status. Please try again."
                                 }
@@ -420,7 +444,8 @@ def manage_article(
                         try:
                             community_article.status = CommunityArticle.UNDER_REVIEW
                             community_article.save()
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error updating article status: {e}")
                             return 500, {
                                 "message": "Error updating article status. Please try again."
                             }
@@ -429,7 +454,8 @@ def manage_article(
                             # Assign up to 3 reviewers, or all available if less than 3
                             assigned_reviewers = reviewers[:3]
                             community_article.assigned_reviewers.set(assigned_reviewers)
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error assigning reviewers: {e}")
                             return 500, {
                                 "message": "Error assigning reviewers. Please try again."
                             }
@@ -440,14 +466,16 @@ def manage_article(
                                 community_article.assigned_moderator = (
                                     moderators.first()
                                 )
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error assigning moderator: {e}")
                             return 500, {
                                 "message": "Error assigning moderator. Please try again."
                             }
 
                         try:
                             community_article.save()
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error saving article changes: {e}")
                             return 500, {
                                 "message": "Error saving article changes. Please try again."
                             }
@@ -468,11 +496,13 @@ def manage_article(
                                     "message": "Article automatically accepted due to lack of "
                                     "available reviewers and moderators."
                                 }
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"Error updating article status: {e}")
                                 return 500, {
                                     "message": "Error updating article status. Please try again."
                                 }
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error processing approval workflow: {e}")
                     return 500, {
                         "message": "Error processing approval workflow. Please try again."
                     }
@@ -484,7 +514,8 @@ def manage_article(
                         f"{1 if community_article.assigned_moderator else 0} moderator(s)."
                     )
                 }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error approving article: {e}")
                 return 500, {"message": "Error approving article. Please try again."}
 
         elif action == "reject":
@@ -502,19 +533,22 @@ def manage_article(
                         try:
                             community_article.status = CommunityArticle.REJECTED
                             community_article.save()
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error updating article status: {e}")
                             return 500, {
                                 "message": "Error updating article status. Please try again."
                             }
 
                         # TODO: Send notification to the article submitter
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error processing rejection workflow: {e}")
                     return 500, {
                         "message": "Error processing rejection workflow. Please try again."
                     }
 
                 return 200, {"message": "Article rejected."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error rejecting article: {e}")
                 return 500, {"message": "Error rejecting article. Please try again."}
 
         elif action == "publish":
@@ -529,22 +563,26 @@ def manage_article(
                         try:
                             community_article.status = CommunityArticle.PUBLISHED
                             community_article.save()
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error updating article status: {e}")
                             return 500, {
                                 "message": "Error updating article status. Please try again."
                             }
 
                         # TODO: Send notifications to relevant parties
                         # (submitter, community members, etc.)
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error processing publication workflow: {e}")
                     return 500, {
                         "message": "Error processing publication workflow. Please try again."
                     }
 
                 return 200, {"message": "Article published successfully."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error publishing article: {e}")
                 return 500, {"message": "Error publishing article. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -569,7 +607,8 @@ def get_assigned_articles(
             community = Community.objects.get(id=community_id)
         except Community.DoesNotExist:
             return 404, {"message": "Community not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community: {e}")
             return 500, {"message": "Error retrieving community. Please try again."}
 
         if not community.is_member(user):
@@ -583,7 +622,8 @@ def get_assigned_articles(
                 return 403, {
                     "message": "You are not assigned any review roles in this community."
                 }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error determining user role: {e}")
             return 500, {"message": "Error determining user role. Please try again."}
 
         try:
@@ -602,7 +642,8 @@ def get_assigned_articles(
                 .select_related("submitter")
                 .distinct()
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving assigned articles: {e}")
             return 500, {
                 "message": "Error retrieving assigned articles. Please try again."
             }
@@ -628,10 +669,12 @@ def get_assigned_articles(
                 for article in assigned_articles
             ]
             return 200, response
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting article data: {e}")
             return 500, {"message": "Error formatting article data. Please try again."}
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -648,7 +691,8 @@ def approve_article(request, community_article_id: int):
             community_article = CommunityArticle.objects.get(id=community_article_id)
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
@@ -657,7 +701,8 @@ def approve_article(request, community_article_id: int):
                 or community_article.assigned_moderator == user
             ):
                 return 403, {"message": "You are not assigned to review this article."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking reviewer assignment: {e}")
             return 500, {
                 "message": "Error checking reviewer assignment. Please try again."
             }
@@ -668,7 +713,8 @@ def approve_article(request, community_article_id: int):
             ).first()
             if not review:
                 return 400, {"message": "You need to submit a review before approving."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review information: {e}")
             return 500, {
                 "message": "Error retrieving review information. Please try again."
             }
@@ -678,7 +724,8 @@ def approve_article(request, community_article_id: int):
                 try:
                     review.is_approved = True
                     review.save()
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error saving review approval: {e}")
                     return 500, {
                         "message": "Error saving review approval. Please try again."
                     }
@@ -688,7 +735,8 @@ def approve_article(request, community_article_id: int):
                         community_article.assigned_reviewers.count()
                     )
                     assigned_moderator = community_article.assigned_moderator
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error retrieving article assignments: {e}")
                     return 500, {
                         "message": "Error retrieving article assignments. Please try again."
                     }
@@ -703,7 +751,8 @@ def approve_article(request, community_article_id: int):
                                 return 200, {
                                     "message": "Article approved and accepted by moderator."
                                 }
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"Error updating article status: {e}")
                                 return 500, {
                                     "message": "Error updating article status. Please try again."
                                 }
@@ -717,7 +766,8 @@ def approve_article(request, community_article_id: int):
                                     ).count()
                                     == assigned_reviewer_count
                                 )
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"Error checking reviewer approvals: {e}")
                                 return 500, {
                                     "message": "Error checking reviewer approvals. Please try again."
                                 }
@@ -726,7 +776,8 @@ def approve_article(request, community_article_id: int):
                                 try:
                                     community_article.status = CommunityArticle.ACCEPTED
                                     community_article.save()
-                                except Exception:
+                                except Exception as e:
+                                    logger.error(f"Error updating article status: {e}")
                                     return 500, {
                                         "message": "Error updating article status. Please try again."
                                     }
@@ -741,7 +792,8 @@ def approve_article(request, community_article_id: int):
                                     "message": "Moderator approval recorded. Waiting for "
                                     "all reviewers to approve."
                                 }
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"Error processing moderator approval: {e}")
                         return 500, {
                             "message": "Error processing moderator approval. Please try again."
                         }
@@ -756,7 +808,8 @@ def approve_article(request, community_article_id: int):
                                 ).count()
                                 == assigned_reviewer_count
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"Error checking reviewer approvals: {e}")
                             return 500, {
                                 "message": "Error checking reviewer approvals. Please try again."
                             }
@@ -772,7 +825,8 @@ def approve_article(request, community_article_id: int):
                                 try:
                                     community_article.status = CommunityArticle.ACCEPTED
                                     community_article.save()
-                                except Exception:
+                                except Exception as e:
+                                    logger.error(f"Error updating article status: {e}")
                                     return 500, {
                                         "message": "Error updating article status. Please try again."
                                     }
@@ -785,13 +839,16 @@ def approve_article(request, community_article_id: int):
                             return 200, {
                                 "message": "Approval recorded. Waiting for other reviewers."
                             }
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"Error processing reviewer approval: {e}")
                         return 500, {
                             "message": "Error processing reviewer approval. Please try again."
                         }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error processing approval: {e}")
             return 500, {"message": "Error processing approval. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -814,19 +871,22 @@ def is_article_pseudonymous(request, community_article_id: int):
             )
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Article not found in community."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
             if not community_article.community.is_admin(user):
                 return 403, {"message": "You are not an admin of this community."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking administrative privileges: {e}")
             return 500, {
                 "message": "Error checking administrative privileges. Please try again."
             }
 
         return 200, {"is_pseudonymous": community_article.is_pseudonymous}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -845,13 +905,15 @@ def toggle_article_pseudonymous(request, community_article_id: int, pseudonymous
             )
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Article not found in community."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
             if not community_article.community.is_admin(user):
                 return 403, {"message": "You are not an admin of this community."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking administrative privileges: {e}")
             return 500, {
                 "message": "Error checking administrative privileges. Please try again."
             }
@@ -859,11 +921,13 @@ def toggle_article_pseudonymous(request, community_article_id: int, pseudonymous
         try:
             community_article.is_pseudonymous = pseudonymous
             community_article.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating article setting: {e}")
             return 500, {"message": "Error updating article setting. Please try again."}
 
         return 200, {
             "message": f"Article reviews and discussions are {'pseudonymous' if pseudonymous else 'non-pseudonymous'} from now on."
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
