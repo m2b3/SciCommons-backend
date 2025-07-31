@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 from django.core.paginator import Paginator
@@ -36,6 +37,9 @@ from users.models import User
 
 router = Router(tags=["Reviews"])
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 
 @router.post(
     "/{article_id}/reviews/",
@@ -53,7 +57,8 @@ def create_review(
             article = Article.objects.get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         user = request.auth
@@ -64,7 +69,8 @@ def create_review(
 
         try:
             existing_review = Review.objects.filter(article=article, user=user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking existing reviews: {e}")
             return 500, {
                 "message": "Error checking existing reviews. Please try again."
             }
@@ -78,7 +84,8 @@ def create_review(
                 community = Community.objects.get(id=community_id)
             except Community.DoesNotExist:
                 return 404, {"message": "Community not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community: {e}")
                 return 500, {"message": "Error retrieving community. Please try again."}
 
             if not community.is_member(user):
@@ -90,7 +97,8 @@ def create_review(
                 )
             except CommunityArticle.DoesNotExist:
                 return 404, {"message": "Article not found in this community."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community article: {e}")
                 return 500, {
                     "message": "Error retrieving community article. Please try again."
                 }
@@ -136,7 +144,8 @@ def create_review(
                     return 400, {
                         "message": "You have already reviewed this article in this community."
                     }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking existing reviews: {e}")
                 return 500, {
                     "message": "Error checking existing reviews. Please try again."
                 }
@@ -145,7 +154,8 @@ def create_review(
             try:
                 if existing_review.filter(community__isnull=True).exists():
                     return 400, {"message": "You have already reviewed this article."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking existing reviews: {e}")
                 return 500, {
                     "message": "Error checking existing reviews. Please try again."
                 }
@@ -164,21 +174,25 @@ def create_review(
                 content=review_data.content,
                 is_pseudonymous=is_pseudonymous,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating review: {e}")
             return 500, {"message": "Error creating review. Please try again."}
 
         if is_pseudonymous:
             try:
                 review.get_anonymous_name()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error creating anonymous name for review: {e}")
                 # Continue even if anonymous name creation fails
                 pass
 
         try:
             return 201, ReviewOut.from_orm(review, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Review created but error retrieving review data."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -195,7 +209,8 @@ def list_reviews(
             article = Article.objects.get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
@@ -212,7 +227,8 @@ def list_reviews(
                 )
                 .order_by("-created_at")
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving reviews: {e}")
             return 500, {"message": "Error retrieving reviews. Please try again."}
 
         if community_id:
@@ -220,7 +236,8 @@ def list_reviews(
                 community = Community.objects.get(id=community_id)
             except Community.DoesNotExist:
                 return 404, {"message": "Community not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community: {e}")
                 return 500, {"message": "Error retrieving community. Please try again."}
 
             # if the community is hidden, only members can view reviews
@@ -345,9 +362,11 @@ def list_reviews(
             return 200, PaginatedReviewSchema(
                 items=items, total=paginator.count, page=page, size=size
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Error formatting review data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -362,7 +381,8 @@ def get_review(request, review_id: int):
             review = Review.objects.get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         user = request.auth
@@ -372,9 +392,11 @@ def get_review(request, review_id: int):
 
         try:
             return 200, ReviewOut.from_orm(review, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Error formatting review data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -389,7 +411,8 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
             review = Review.objects.get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         user = request.auth
@@ -408,14 +431,17 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
             review.content = review_data.content or review.content
 
             review.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating review: {e}")
             return 500, {"message": "Error updating review. Please try again."}
 
         try:
             return 201, ReviewOut.from_orm(review, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Review updated but error retrieving review data."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -430,7 +456,8 @@ def delete_review(request, review_id: int):
             review = Review.objects.get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         user = request.auth  # Assuming user is authenticated
@@ -446,11 +473,13 @@ def delete_review(request, review_id: int):
             review.content = "[deleted]"
             review.deleted_at = timezone.now()
             review.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting review: {e}")
             return 500, {"message": "Error deleting review. Please try again."}
 
         return 201, {"message": "Review deleted successfully."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -472,7 +501,8 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
             review = Review.objects.get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         if review.community and not review.community.is_member(user):
@@ -488,7 +518,8 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 parent_comment = ReviewComment.objects.get(id=payload.parent_id)
             except ReviewComment.DoesNotExist:
                 return 404, {"message": "Parent comment not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving parent comment: {e}")
                 return 500, {
                     "message": "Error retrieving parent comment. Please try again."
                 }
@@ -520,14 +551,16 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                     community=ratingCommunity,
                     defaults={"rating": payload.rating},
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating rating: {e}")
                 return 500, {"message": "Error updating rating. Please try again."}
 
         is_pseudonymous = False
         try:
             if review.community_article and review.community_article.is_pseudonymous:
                 is_pseudonymous = True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking article pseudonymity: {e}")
             return 500, {
                 "message": "Error checking article pseudonymity. Please try again."
             }
@@ -542,25 +575,29 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 parent=parent_comment,
                 is_pseudonymous=is_pseudonymous,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating comment: {e}")
             return 500, {"message": "Error creating comment. Please try again."}
 
         if is_pseudonymous:
             try:
                 # Create an anonymous name for the user who created the comment
                 comment.get_anonymous_name()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
                 pass
 
         # Return comment with replies
         try:
             return 201, ReviewCommentOut.from_orm_with_replies(comment, user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {
                 "message": "Comment created but error retrieving comment data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -576,7 +613,8 @@ def get_comment(request, comment_id: int):
             comment = ReviewComment.objects.get(id=comment_id)
         except ReviewComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
@@ -590,9 +628,11 @@ def get_comment(request, comment_id: int):
 
         try:
             return 200, ReviewCommentOut.from_orm_with_replies(comment, current_user)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -610,7 +650,8 @@ def list_review_comments(request, review_id: int):
             )
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
@@ -721,9 +762,11 @@ def list_review_comments(request, review_id: int):
                 ]
 
             return 200, [comment_map[rc.id] for rc in root_comments]
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -738,7 +781,8 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
             comment = ReviewComment.objects.get(id=comment_id)
         except ReviewComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         if comment.author != request.auth:
@@ -764,23 +808,27 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
                     community=ratingCommunity,
                     defaults={"rating": payload.rating},
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating rating: {e}")
                 return 500, {"message": "Error updating rating. Please try again."}
 
         try:
             comment.content = payload.content or comment.content
             comment.rating = payload.rating or comment.rating
             comment.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error updating comment: {e}")
             return 500, {"message": "Error updating comment. Please try again."}
 
         try:
             return 200, ReviewCommentOut.from_orm_with_replies(comment, request.auth)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting comment data: {e}")
             return 500, {
                 "message": "Comment updated but error retrieving comment data."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -796,7 +844,8 @@ def delete_comment(request, comment_id: int):
             comment = ReviewComment.objects.get(id=comment_id)
         except ReviewComment.DoesNotExist:
             return 404, {"message": "Comment not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         # Check if the user is the owner of the comment or has permission to delete it
@@ -836,11 +885,13 @@ def delete_comment(request, comment_id: int):
             comment.is_deleted = True
             comment.rating = None
             comment.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting comment: {e}")
             return 500, {"message": "Error deleting comment. Please try again."}
 
         return 204, None
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -861,7 +912,8 @@ def get_rating(request, review_id: int):
             review = Review.objects.get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving review: {e}")
             return 500, {"message": "Error retrieving review. Please try again."}
 
         if review.community and not review.community.is_member(user):
@@ -882,7 +934,9 @@ def get_rating(request, review_id: int):
                 return 200, {"rating": 0}
 
             return 200, {"rating": comment.rating}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving rating: {e}")
             return 500, {"message": "Error retrieving rating. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

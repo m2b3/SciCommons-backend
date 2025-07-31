@@ -1,8 +1,13 @@
+import logging
+
 from django.http import HttpRequest
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 
 class JWTAuth(HttpBearer):
@@ -19,6 +24,7 @@ class JWTAuth(HttpBearer):
         except InvalidToken:
             raise HttpError(401, "Your session has expired. Please log in again.")
         except Exception as e:
+            logger.error(f"Authentication failed: {e}")
             raise HttpError(500, f"Authentication failed: {str(e)}")
 
 
@@ -50,4 +56,5 @@ def OptionalJWTAuth(request: HttpRequest):
     except InvalidToken:
         raise HttpError(401, "Your session has expired. Please log in again.")
     except Exception as e:
+        logger.error(f"Authentication failed: {e}")
         raise HttpError(500, f"Authentication failed: {str(e)}")

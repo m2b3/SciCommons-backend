@@ -91,6 +91,7 @@ def list_posts(
         num_pages=paginator.num_pages,
     )
 
+
 @router.get("/{post_id}/", response={200: PostOut, 404: Message}, auth=OptionalJWTAuth)
 def get_post(request, post_id: int):
     current_user: Optional[User] = None if not request.auth else request.auth

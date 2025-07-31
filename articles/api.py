@@ -72,7 +72,8 @@ def create_article(
                     title=article_title, abstract=article_abstract
                 ).exists():
                     return 400, {"message": "This article has already been submitted."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking article uniqueness: {e}")
                 return 500, {
                     "message": "Error checking article uniqueness. Please try again."
                 }
@@ -89,7 +90,8 @@ def create_article(
                         return 400, {
                             "message": "This article has already been submitted."
                         }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking article link uniqueness: {e}")
                 return 500, {
                     "message": "Error checking article link uniqueness. Please try again."
                 }
@@ -105,7 +107,8 @@ def create_article(
                     submission_type=details.payload.submission_type,
                     submitter=request.auth,
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error creating article: {e}")
                 return 500, {"message": "Error creating article. Please try again."}
 
             # Todo: Create a common method to handle the creation of hashtags
@@ -152,7 +155,8 @@ def create_article(
                         pass
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error associating article with community: {e}")
                     return 500, {
                         "message": "Error associating article with community. Please try again."
                     }
@@ -169,7 +173,8 @@ def create_article(
                         article=article, pdf_file_url=None, external_url=pdf_link
                     )
                     article_pdf_urls.append(pdf_link)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error uploading PDF files: {e}")
                 return 500, {"message": "Error uploading PDF files. Please try again."}
 
             try:
@@ -188,11 +193,13 @@ def create_article(
                     current_user=user,
                 )
                 return 200, response_data
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving article data: {e}")
                 return 500, {
                     "message": "Article created but error retrieving article data. Please refresh to see your article."
                 }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -209,7 +216,8 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
             article = Article.objects.select_related("submitter").get(slug=article_slug)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         community = None
@@ -223,6 +231,7 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
             except Exception as e:
+                logger.error(f"Error processing community information: {e}")
                 return 500, {
                     "message": "Error processing community information. Please try again."
                 }
@@ -253,11 +262,13 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
                                     " Please request access from the community admin."
                                 )
                             }
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error checking access permissions: {e}")
                     return 500, {
                         "message": "Error checking access permissions. Please try again."
                     }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving community article: {e}")
                 return 500, {
                     "message": "Error retrieving community article. Please try again."
                 }
@@ -269,7 +280,8 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
                     and article.submitter != request.auth
                 ):
                     return 403, {"message": "You don't have access to this article."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error checking article permissions: {e}")
                 return 500, {
                     "message": "Error checking article permissions. Please try again."
                 }
@@ -320,9 +332,11 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
                 current_user=request.auth,
             )
             return 200, article_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error preparing article data: {e}")
             return 500, {"message": "Error preparing article data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -344,7 +358,8 @@ def update_article(
                 article = Article.objects.select_related("submitter").get(id=article_id)
             except Article.DoesNotExist:
                 return 404, {"message": "Article not found."}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving article: {e}")
                 return 500, {"message": "Error retrieving article. Please try again."}
 
             # Check if the user is the submitter
@@ -360,7 +375,8 @@ def update_article(
                     .first()
                     or None
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving article community information: {e}")
                 return 500, {
                     "message": "Error retrieving article community information. Please try again."
                 }
@@ -391,7 +407,8 @@ def update_article(
 
                 article.submission_type = details.payload.submission_type
                 article.save()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error updating article: {e}")
                 return 500, {"message": "Error updating article. Please try again."}
 
             try:
@@ -429,11 +446,13 @@ def update_article(
                     current_user=request.auth,
                 )
                 return 200, response_data
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving article data: {e}")
                 return 500, {
                     "message": "Article updated but error retrieving article data. Please refresh to see your changes."
                 }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -464,7 +483,8 @@ def get_articles(
                 articles = articles.filter(submission_type="Public")
             articles = articles.order_by("-created_at")
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving articles: {e}")
             return 500, {"message": "Error retrieving articles. Please try again."}
 
         community = None
@@ -492,11 +512,13 @@ def get_articles(
                             communityarticle__status__in=["published", "accepted"],
                         )
                     ).distinct()
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error filtering community articles: {e}")
                     return 500, {
                         "message": "Error filtering community articles. Please try again."
                     }
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error processing community information: {e}")
                 return 500, {
                     "message": "Error processing community information. Please try again."
                 }
@@ -506,7 +528,8 @@ def get_articles(
                 articles = articles.exclude(
                     communityarticle__community__type="hidden",
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error filtering articles: {e}")
                 return 500, {"message": "Error filtering articles. Please try again."}
 
         try:
@@ -524,7 +547,8 @@ def get_articles(
                     )  # Default sort by latest
             else:
                 articles = articles.order_by("-created_at")  # Default sort by latest
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting or filtering articles: {e}")
             return 500, {
                 "message": "Error sorting or filtering articles. Please try again."
             }
@@ -532,7 +556,8 @@ def get_articles(
         try:
             paginator = Paginator(articles, per_page)
             paginated_articles = paginator.get_page(page)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error with pagination parameters: {e}")
             return 400, {
                 "message": "Error with pagination parameters. Please try different values."
             }
@@ -598,7 +623,8 @@ def delete_article(request, article_id: int):
             article = Article.objects.get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         # Check if the user is the submitter
@@ -609,11 +635,13 @@ def delete_article(request, article_id: int):
             # Do not delete the article, just mark it as deleted
             article.title = f"Deleted - {article.title}"
             article.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error deleting article: {e}")
             return 500, {"message": "Error deleting article. Please try again."}
 
         return {"message": "Article deleted successfully."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -637,7 +665,8 @@ def get_article_official_stats(request, article_slug: str):
             article = Article.objects.get(slug=article_slug)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
@@ -731,11 +760,13 @@ def get_article_official_stats(request, article_slug: str):
             )
 
             return 200, response_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article statistics: {e}")
             return 500, {
                 "message": "Error retrieving article statistics. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -754,7 +785,8 @@ def get_community_article_stats(request, article_slug: str):
             article = Article.objects.get(slug=article_slug)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         community = None
@@ -770,7 +802,8 @@ def get_community_article_stats(request, article_slug: str):
             except CommunityArticle.DoesNotExist:
                 # Not a community article, use article's creation date
                 submission_date = article.created_at
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community information: {e}")
             return 500, {
                 "message": "Error retrieving community information. Please try again."
             }
@@ -866,11 +899,13 @@ def get_community_article_stats(request, article_slug: str):
             )
 
             return 200, response_data
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving community article statistics: {e}")
             return 500, {
                 "message": "Error retrieving community article statistics. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -892,7 +927,8 @@ def get_relevant_articles(
             base_article = Article.objects.get(id=article_id)
         except Article.DoesNotExist:
             return 404, {"message": "Article not found."}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
         try:
@@ -917,7 +953,8 @@ def get_relevant_articles(
                         communityarticle__community_id=filters.community_id,
                         communityarticle__community__type__ne="hidden",
                     )
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error filtering by community: {e}")
                     return 500, {
                         "message": "Error filtering by community. Please try again."
                     }
@@ -942,13 +979,16 @@ def get_relevant_articles(
                     for article in articles
                 ]
                 return 200, result
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error formatting article data: {e}")
                 return 500, {
                     "message": "Error formatting article data. Please try again."
                 }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving relevant articles: {e}")
             return 500, {
                 "message": "Error retrieving relevant articles. Please try again."
             }
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

@@ -19,14 +19,16 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myapp.settings")
 # Initialize Django ASGI application early to ensure the app is loaded when code is imported
 django_asgi_app = get_asgi_application()
 
-application = ProtocolTypeRouter({
-    "http": django_asgi_app,
-    # WebSocket routing will be added here when needed
-    # "websocket": AllowedHostsOriginValidator(
-    #     AuthMiddlewareStack(
-    #         URLRouter([
-    #             # Add your WebSocket URL patterns here
-    #         ])
-    #     )
-    # ),
-})
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        # WebSocket routing will be added here when needed
+        # "websocket": AllowedHostsOriginValidator(
+        #     AuthMiddlewareStack(
+        #         URLRouter([
+        #             # Add your WebSocket URL patterns here
+        #         ])
+        #     )
+        # ),
+    }
+)
