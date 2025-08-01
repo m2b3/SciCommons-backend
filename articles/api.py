@@ -25,6 +25,7 @@ from articles.schemas import (
     ArticleBasicOut,
     ArticleCreateSchema,
     ArticleFilters,
+    ArticleMetaOut,
     ArticleOut,
     ArticlesListOut,
     ArticleUpdateSchema,
@@ -45,6 +46,7 @@ from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Hashtag, HashtagRelation, Notification, User
 
 router = Router(tags=["Articles"])
+
 
 # Module-level logger
 logger = logging.getLogger(__name__)
@@ -342,6 +344,54 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
         except Exception as e:
             logger.error(f"Error preparing article data: {e}")
             return 500, {"message": "Error preparing article data. Please try again."}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/article-meta/{article_slug}",
+    response={200: ArticleMetaOut, codes_4xx: Message},
+    auth=OptionalJWTAuth,
+)
+def get_article_meta(request, article_slug: str):
+    """Return basic public metadata for an article.
+
+    This endpoint is intended for SEO and crawlers. It only exposes
+    articles that are publicly visible. Private articles or articles
+    that belong exclusively to hidden/private communities are filtered
+    out to avoid unintentionally leaking private content.
+    """
+    try:
+        try:
+            # Only fetch articles that are Public submissions
+            article = Article.objects.get(slug=article_slug, submission_type="Public")
+        except Article.DoesNotExist:
+            return 404, {"message": "Article not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
+            return 500, {"message": "Error retrieving article. Please try again."}
+
+        # Ensure the article is not tied to a hidden/private community and
+        # that it is published/accepted within the community context.
+        try:
+            community_article = (
+                CommunityArticle.objects.select_related("community")
+                .filter(article=article)
+                .first()
+            )
+            if community_article:
+                if community_article.community.type in ["hidden", "private"]:
+                    return 404, {"message": "Article not found."}
+                if community_article.status not in ["published", "accepted"]:
+                    return 404, {"message": "Article not found."}
+        except Exception as e:
+            logger.error(f"Error validating community article: {e}")
+            return 500, {
+                "message": "Error validating community article. Please try again."
+            }
+
+        return 200, ArticleMetaOut.from_orm(article)
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

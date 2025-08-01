@@ -297,6 +297,16 @@ class ArticleBasicOut(ModelSchema):
         )
 
 
+class ArticleMetaOut(ModelSchema):
+    class Config:
+        model = Article
+        model_fields = [
+            "title",
+            "abstract",
+            "article_image_url",
+        ]
+
+
 # Todo: Create a Generic PaginatedResponse Schema
 
 
