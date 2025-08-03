@@ -51,6 +51,18 @@ docker logs pgbouncer-test | grep -E "(LOG|DETAIL|WARNING|ERROR)"
 ```bash
 # Check that pgbouncer has correct environment variables
 docker exec pgbouncer-test env | grep -E "^DB_"
+
+# Check pgbouncer logs for environment validation
+docker logs pgbouncer-test | grep "Environment variables check"
+```
+
+### 6. Check User Permissions
+```bash
+# Verify pgbouncer is not running as root
+docker logs pgbouncer-test | grep -E "(root|pgbouncer user)"
+
+# Check if pgbouncer process is running as correct user
+docker exec pgbouncer-test ps aux | grep pgbouncer
 ```
 
 ## Expected Results
@@ -72,6 +84,28 @@ SHOW POOLS;
 
 ### Common Issues:
 
+**PgBouncer running as root:**
+```
+FATAL PgBouncer should not run as root
+```
+- Solution: Entrypoint script uses `su-exec` to run as pgbouncer user
+- Check: `docker logs pgbouncer-test | grep "pgbouncer user"`
+
+**Environment variables not set:**
+```
+Error: Required database environment variables are not set
+```
+- Check: `docker exec pgbouncer-test env | grep DB_`
+- Verify: All DB_* variables are in .env.test and being passed to container
+
+**Django can't resolve pgbouncer hostname:**
+```
+could not translate host name "pgbouncer-test" to address
+```
+- Cause: PgBouncer container not running due to configuration errors
+- Check: `docker ps | grep pgbouncer-test` should show "Up" status
+- Solution: Fix pgbouncer issues first, then Django will connect
+
 **Connection Refused:**
 - Check if remote PostgreSQL server is accessible
 - Verify DB_HOST, DB_PORT in .env.test
@@ -85,7 +119,10 @@ SHOW POOLS;
 - Monitor pool usage with `SHOW POOLS;`
 - Adjust pool_size in pgbouncer.ini if needed
 
-**Django Errors:**
+**Django Database Configuration Errors:**
+```
+invalid connection option "DISABLE_SERVER_SIDE_CURSORS"
+```
+- Solution: Move Django options to correct dictionary level in settings.py
 - Check that USE_PGBOUNCER=True is set
 - Verify PGBOUNCER_HOST=pgbouncer-test
-- Check Django logs for connection errors

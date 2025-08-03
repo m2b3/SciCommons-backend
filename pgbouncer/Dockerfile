@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     bash \
     netcat-openbsd \
     postgresql-client \
+    su-exec \
     && rm -rf /var/cache/apk/*
 
 # Create pgbouncer user and directories

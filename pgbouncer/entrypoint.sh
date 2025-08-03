@@ -6,6 +6,14 @@ set -e
 
 echo "Starting PgBouncer configuration..."
 
+# Debug: Print environment variables (without sensitive data)
+echo "Environment variables check:"
+echo "DB_HOST: ${DB_HOST:-NOT_SET}"
+echo "DB_NAME: ${DB_NAME:-NOT_SET}"
+echo "DB_USER: ${DB_USER:-NOT_SET}"
+echo "DB_PASSWORD: ${DB_PASSWORD:+SET}" # Only show if set, not the actual value
+echo "DB_PORT: ${DB_PORT:-NOT_SET}"
+
 # Validate required environment variables
 if [[ -z "$DB_HOST" || -z "$DB_NAME" || -z "$DB_USER" || -z "$DB_PASSWORD" || -z "$DB_PORT" ]]; then
     echo "Error: Required database environment variables are not set"
@@ -84,7 +92,7 @@ chmod 600 /etc/pgbouncer/userlist.txt
 chmod 644 /etc/pgbouncer/pgbouncer.ini
 
 echo "PgBouncer configuration completed successfully"
-echo "Starting PgBouncer..."
+echo "Starting PgBouncer as pgbouncer user..."
 
-# Start pgbouncer in foreground mode
-exec pgbouncer /etc/pgbouncer/pgbouncer.ini
+# Start pgbouncer as the pgbouncer user (not root)
+exec su-exec pgbouncer pgbouncer /etc/pgbouncer/pgbouncer.ini

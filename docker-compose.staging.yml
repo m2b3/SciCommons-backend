@@ -11,10 +11,10 @@ services:
       - .env.test
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "6432"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   web-test:
     build: .
@@ -41,9 +41,12 @@ services:
       - "traefik.http.services.web-test.loadbalancer.server.port=8000"
       - "traefik.docker.network=proxy"
     depends_on:
-      - redis-test
-      - celery-test
-      - pgbouncer-test
+      redis-test:
+        condition: service_started
+      celery-test:
+        condition: service_started
+      pgbouncer-test:
+        condition: service_healthy
     env_file:
       - .env.test
 
