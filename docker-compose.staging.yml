@@ -12,6 +12,11 @@ services:
       - POSTGRESQL_DATABASE=${DB_NAME}
       - POSTGRESQL_USERNAME=${DB_USER}
       - POSTGRESQL_PASSWORD=${DB_PASSWORD}
+      # <<< NEW – publish that database through PgBouncer >>>
+      - PGBOUNCER_DATABASE=${DB_NAME}          # expose scicommons (or use '*' for wildcard)
+      # Optional – include credentials in the DSN PgBouncer generates
+      - PGBOUNCER_SET_DATABASE_USER=yes
+      - PGBOUNCER_SET_DATABASE_PASSWORD=yes
       # ---- PgBouncer tuning  ----
       - PGBOUNCER_POOL_MODE=transaction          # safest option for Django-style apps
       - PGBOUNCER_MAX_CLIENT_CONN=200            # total client connections allowed
