@@ -1,9 +1,36 @@
 services:
+  # Lightweight connection pooler for PostgreSQL
+  pgbouncer-test:
+    image: bitnami/pgbouncer:1.24.1
+    restart: unless-stopped
+    env_file:
+      - .env.test
+    environment:
+      # Wire PgBouncer with the upstream PostgreSQL instance (all values come from .env.test)
+      - POSTGRESQL_HOST=${DB_HOST}
+      - POSTGRESQL_PORT=${DB_PORT}
+      - POSTGRESQL_DATABASE=${DB_NAME}
+      - POSTGRESQL_USERNAME=${DB_USER}
+      - POSTGRESQL_PASSWORD=${DB_PASSWORD}
+      # ---- PgBouncer tuning  ----
+      - PGBOUNCER_POOL_MODE=transaction          # safest option for Django-style apps
+      - PGBOUNCER_MAX_CLIENT_CONN=200            # total client connections allowed
+      - PGBOUNCER_DEFAULT_POOL_SIZE=20           # per-database pool size
+      - PGBOUNCER_RESERVE_POOL_SIZE=10           # extra connections for bursts
+      - PGBOUNCER_IGNORE_STARTUP_PARAMETERS=extra_float_digits
+      - PGBOUNCER_STATS_PERIOD=60
+    expose:                # only in-cluster; not published to host
+      - "6432"
+    networks:
+      - proxy
+
   web-test:
     build: .
     command: >
-      sh -c "redis-server --daemonize yes && 
-              poetry run python manage.py migrate && 
+      sh -c "redis-server --daemonize yes && \
+              # Route ORM traffic through PgBouncer (build url at runtime to avoid leaking creds)
+              export DATABASE_URL=\"postgres://${DB_USER}:${DB_PASSWORD}@pgbouncer-test:6432/${DB_NAME}\" && \
+              poetry run python manage.py migrate && \
               poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers"
     networks:
       - proxy
@@ -25,6 +52,7 @@ services:
     depends_on:
       - redis-test
       - celery-test
+      - pgbouncer-test
     env_file:
       - .env.test
 
@@ -37,9 +65,12 @@ services:
 
   celery-test:
     build: .
-    command: celery -A myapp worker --loglevel=info --concurrency=5
+    command: >
+      sh -c "export DATABASE_URL=\"postgres://${DB_USER}:${DB_PASSWORD}@pgbouncer-test:6432/${DB_NAME}\" && \
+               celery -A myapp worker --loglevel=info --concurrency=5"
     depends_on:
       - redis-test
+      - pgbouncer-test
     networks:
       - proxy
     env_file:
