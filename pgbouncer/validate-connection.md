@@ -126,3 +126,21 @@ invalid connection option "DISABLE_SERVER_SIDE_CURSORS"
 - Solution: Move Django options to correct dictionary level in settings.py
 - Check that USE_PGBOUNCER=True is set
 - Verify PGBOUNCER_HOST=pgbouncer-test
+
+**Neon Database SNI Issues:**
+```
+WARNING server login failed: ERROR Endpoint ID is not specified. Either please upgrade the postgres client library (libpq) for SNI support or pass the endpoint ID (first part of the domain name) as a parameter: '?options=endpoint%3D<endpoint-id>'.
+```
+- **Cause**: Neon databases require SNI (Server Name Indication) support
+- **Solution**: Endpoint ID is automatically extracted from hostname and added to connection string
+- **Check**: Look for "Detected Neon database, endpoint ID: xxx" in pgbouncer logs
+- **Verify**: Endpoint ID should match the beginning of your Neon hostname (before "-pooler")
+
+**Database Name Mismatch:**
+```
+FATAL: no such database: scicommons
+```
+- **Cause**: PgBouncer database alias doesn't match Django's DB_NAME
+- **Solution**: PgBouncer now uses DB_NAME environment variable as the alias
+- **Check**: Verify DB_NAME in .env.test matches what Django expects
+- **Verify**: `docker logs pgbouncer-test | grep "Using database alias"`

@@ -43,6 +43,16 @@ DATABASE_URL=''      # Alternative connection string (not used with pgbouncer)
 
 **Important:** PgBouncer connects to your **existing remote PostgreSQL server** - no local database container is created in staging.
 
+### **Neon Database Support**
+
+This configuration automatically detects and supports Neon databases with proper SNI (Server Name Indication) configuration:
+
+- **Automatic endpoint detection**: Extracts endpoint ID from Neon hostname
+- **SSL configuration**: Ensures secure connections with `sslmode=require`
+- **SNI support**: Adds `endpoint=<endpoint-id>` parameter for proper routing
+
+For Neon databases like `ep-fragrant-bread-a6yqerdt-pooler.us-west-2.aws.neon.tech`, the endpoint ID `ep-fragrant-bread-a6yqerdt` is automatically extracted and configured.
+
 ## Django Integration
 
 The Django application is configured to use pgbouncer when `USE_PGBOUNCER=True` is set. Key Django settings:

@@ -191,6 +191,7 @@ if not DEBUG:
 
     if use_pgbouncer:
         # PgBouncer configuration for staging
+        # Django connects to pgbouncer, not directly to the database
         DATABASES["default"] = {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": config("DB_NAME"),

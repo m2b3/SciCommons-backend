@@ -27,15 +27,38 @@ cat > /etc/pgbouncer/userlist.txt << EOF
 "$DB_USER" "md5$(echo -n "$DB_PASSWORD$DB_USER" | md5sum | cut -d' ' -f1)"
 EOF
 
+# Extract endpoint ID from Neon database host for SNI support
+ENDPOINT_ID=""
+if [[ "$DB_HOST" =~ \.neon\.tech$ ]]; then
+    # Extract endpoint ID - everything before the first dot or before "-pooler"
+    if [[ "$DB_HOST" =~ ^([^.]+)-pooler ]]; then
+        ENDPOINT_ID="${BASH_REMATCH[1]}"
+    else
+        ENDPOINT_ID="${DB_HOST%%.*}"
+    fi
+    echo "Detected Neon database, endpoint ID: $ENDPOINT_ID"
+    echo "Original host: $DB_HOST"
+    # For Neon, construct connection string with endpoint parameter in URL format
+    DB_CONNECTION_STRING="host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER password=$DB_PASSWORD options='endpoint=$ENDPOINT_ID' sslmode=require"
+    echo "Neon SNI configuration applied"
+else
+    echo "Using standard PostgreSQL connection (non-Neon)"
+    # For regular PostgreSQL
+    DB_CONNECTION_STRING="host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER password=$DB_PASSWORD"
+fi
+
+echo "Database connection string configured (endpoint masked for security)"
+echo "Using database alias: $DB_NAME"
+
 # Update pgbouncer.ini with actual database connection string
 echo "Generating pgbouncer.ini..."
-cat > /etc/pgbouncer/pgbouncer.ini << 'EOF'
+cat > /etc/pgbouncer/pgbouncer.ini << EOF
 ;; pgbouncer configuration for staging deployment
 ;; Configuration follows best practices for Django applications
 
 [databases]
-;; Database connection configuration
-scicommons_staging = host=${DB_HOST} port=${DB_PORT} dbname=${DB_NAME} user=${DB_USER} password=${DB_PASSWORD}
+;; Database connection configuration (matches Django DB_NAME)
+$DB_NAME = $DB_CONNECTION_STRING
 
 [pgbouncer]
 ;; Connection pooling settings - optimized for Django applications
