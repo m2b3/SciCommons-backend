@@ -184,9 +184,36 @@ DATABASES = {
     }
 }
 
+# Configure database connection for different environments
 if not DEBUG:
-    print(config("DATABASE_URL"))
-    DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
+    # Check if we're using pgbouncer (staging environment)
+    use_pgbouncer = config("USE_PGBOUNCER", default=False, cast=bool)
+
+    if use_pgbouncer:
+        # PgBouncer configuration for staging
+        DATABASES["default"] = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("PGBOUNCER_HOST", default="pgbouncer-test"),
+            "PORT": config("PGBOUNCER_PORT", default="6432"),
+            "OPTIONS": {
+                # Disable server-side cursors for pgbouncer compatibility
+                "DISABLE_SERVER_SIDE_CURSORS": True,
+                # Connection options optimized for pgbouncer
+                "CONN_MAX_AGE": 0,  # Don't persist connections
+                "AUTOCOMMIT": True,
+                # Application name for monitoring
+                "OPTIONS": {
+                    "application_name": f"scicommons_backend_{ENVIRONMENT}",
+                },
+            },
+        }
+    else:
+        # Direct database connection (production)
+        print(config("DATABASE_URL"))
+        DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"

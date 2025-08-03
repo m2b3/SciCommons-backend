@@ -1,4 +1,21 @@
 services:
+  pgbouncer-test:
+    build:
+      context: ./pgbouncer
+      dockerfile: Dockerfile
+    container_name: pgbouncer-test
+    restart: unless-stopped
+    networks:
+      - proxy
+    env_file:
+      - .env.test
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "6432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   web-test:
     build: .
     command: >
@@ -26,6 +43,7 @@ services:
     depends_on:
       - redis-test
       - celery-test
+      - pgbouncer-test
     env_file:
       - .env.test
 
@@ -41,6 +59,7 @@ services:
     command: celery -A myapp worker --loglevel=info --concurrency=5
     depends_on:
       - redis-test
+      - pgbouncer-test
     networks:
       - proxy
     env_file:

@@ -1,0 +1,93 @@
+# Docker Compose file for LOCAL DEVELOPMENT ONLY
+# This file includes a local PostgreSQL container for testing pgbouncer locally
+# 
+# ⚠️  IMPORTANT: This is NOT used for staging/production deployments!
+# ⚠️  Staging uses docker-compose.staging.yml with REMOTE PostgreSQL server
+
+version: '3.8'
+
+services:
+  postgres-local:
+    image: postgres:16-alpine
+    container_name: postgres-local
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: myapp
+      POSTGRES_PASSWORD: myapp
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pgbouncer-net
+
+  pgbouncer-local:
+    build:
+      context: ./pgbouncer
+      dockerfile: Dockerfile
+    container_name: pgbouncer-local
+    environment:
+      DB_HOST: postgres-local
+      DB_NAME: myapp
+      DB_USER: myapp
+      DB_PASSWORD: myapp
+      DB_PORT: 5432
+    ports:
+      - "6432:6432"
+    depends_on:
+      - postgres-local
+    networks:
+      - pgbouncer-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "6432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  redis-local:
+    image: redis:alpine
+    container_name: redis-local
+    ports:
+      - "6379:6379"
+    networks:
+      - pgbouncer-net
+
+  web-local:
+    build: .
+    container_name: web-local
+    command: >
+      sh -c "redis-server --daemonize yes && 
+              poetry run python manage.py migrate && 
+              poetry run python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DEBUG: "True"
+      USE_PGBOUNCER: "True"
+      PGBOUNCER_HOST: pgbouncer-local
+      PGBOUNCER_PORT: 6432
+      DB_NAME: myapp
+      DB_USER: myapp
+      DB_PASSWORD: myapp
+      DB_HOST: postgres-local
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis-local:6379/0
+      CELERY_RESULT_BACKEND: redis://redis-local:6379/0
+      REDIS_HOST_URL: redis://redis-local:6379/1
+      SECRET_KEY: "your-secret-key-for-development"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres-local
+      - pgbouncer-local
+      - redis-local
+    networks:
+      - pgbouncer-net
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
+
+networks:
+  pgbouncer-net:
+    driver: bridge

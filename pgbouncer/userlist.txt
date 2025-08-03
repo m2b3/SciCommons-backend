@@ -1,0 +1,4 @@
+;; PgBouncer userlist file for staging deployment
+;; This file will be populated with database credentials via environment variables
+;; Format: "username" "password_hash"
+;; Note: Actual credentials will be injected during container startup
