@@ -198,16 +198,13 @@ if not DEBUG:
             "PASSWORD": config("DB_PASSWORD"),
             "HOST": config("PGBOUNCER_HOST", default="pgbouncer-test"),
             "PORT": config("PGBOUNCER_PORT", default="6432"),
+            # Disable server-side cursors for pgbouncer compatibility
+            "DISABLE_SERVER_SIDE_CURSORS": True,
+            # Don't persist connections with pgbouncer
+            "CONN_MAX_AGE": 0,
             "OPTIONS": {
-                # Disable server-side cursors for pgbouncer compatibility
-                "DISABLE_SERVER_SIDE_CURSORS": True,
-                # Connection options optimized for pgbouncer
-                "CONN_MAX_AGE": 0,  # Don't persist connections
-                "AUTOCOMMIT": True,
                 # Application name for monitoring
-                "OPTIONS": {
-                    "application_name": f"scicommons_backend_{ENVIRONMENT}",
-                },
+                "application_name": f"scicommons_backend_{ENVIRONMENT}",
             },
         }
     else:
