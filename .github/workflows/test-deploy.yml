@@ -72,6 +72,11 @@ jobs:
             # Add PgBouncer target variables (where PgBouncer connects to)
             echo "PGBOUNCER_TARGET_HOST=${{ secrets.DB_HOST_TEST }}" >> .env.test
             echo "PGBOUNCER_TARGET_PORT=${{ secrets.DB_PORT_TEST }}" >> .env.test
+            
+            # Extract Neon endpoint ID for SNI support (first part of hostname)
+            NEON_ENDPOINT_ID=$(echo "${{ secrets.DB_HOST_TEST }}" | cut -d'.' -f1)
+            echo "NEON_ENDPOINT_ID=${NEON_ENDPOINT_ID}" >> .env.test
+            echo "✅ Extracted Neon endpoint ID: ${NEON_ENDPOINT_ID}"
 
             echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL_TEST }}" >> .env.test
             echo "CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND_TEST }}" >> .env.test

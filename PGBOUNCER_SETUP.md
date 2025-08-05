@@ -29,6 +29,7 @@ The deployment automatically configures:
 - ✅ Connection pooling (transaction mode, 20 connections default)
 - ✅ Authentication via environment variables
 - ✅ Separate variables for PgBouncer target (`PGBOUNCER_TARGET_HOST`) vs Django connection (`DB_HOST`)
+- ✅ Automatic Neon endpoint ID extraction for SNI support
 
 ### Step 2: Update Environment for PgBouncer
 
@@ -173,29 +174,36 @@ SciCommons-backend/
 
 ### Common Issues
 
-1. **Environment Variable Timing Issues**
+1. **Neon Database SNI (Server Name Indication) Error**
+   - **Problem**: "Endpoint ID is not specified" in PgBouncer logs
+   - **Symptoms**: PgBouncer connects to Neon but authentication fails with SNI error
+   - **Solution**: Automatically extracts endpoint ID from hostname and adds it as connection option
+   - **How it works**: `NEON_ENDPOINT_ID` extracted from hostname, added as `options=endpoint%3D<id>`
+   - **Check**: PgBouncer logs should show successful authentication without SNI errors
+
+2. **Environment Variable Timing Issues**
    - **Problem**: "The \"DB_HOST\" variable is not set. Defaulting to a blank string" in deployment
    - **Symptoms**: PgBouncer can't connect to backend, Django gets "Connection refused"
    - **Solution**: Uses separate `PGBOUNCER_TARGET_HOST/PORT` variables to avoid conflicts
    - **How it works**: PgBouncer uses target variables, Django uses regular `DB_HOST/PORT`
    - **Check**: PgBouncer logs should show successful connection to PostgreSQL backend
 
-2. **Django Still Connects to Original Database (Not PgBouncer)**
+3. **Django Still Connects to Original Database (Not PgBouncer)**
    - **Problem**: Django settings.py uses `DATABASE_URL` when `DEBUG=False`, ignoring `DB_HOST`/`DB_PORT`
    - **Solution**: The deployment script automatically updates both `DB_HOST`/`DB_PORT` AND `DATABASE_URL`
    - **Check**: Look in container logs for connection attempts to verify PgBouncer is being used
 
-3. **Connection Refused**
+4. **Connection Refused**
    - Check if PgBouncer container is running
    - Verify port 6432 is accessible
    - Check PgBouncer logs for errors
 
-4. **Authentication Failed**
+5. **Authentication Failed**
    - Verify userlist.txt has correct username/password hash
    - Ensure MD5 hash is generated correctly
    - Check if database user has proper permissions
 
-5. **SSL/TLS Issues**
+6. **SSL/TLS Issues**
    - If your database doesn't support SSL, change `server_tls_sslmode = disable` in the config
    - For development, you might need to adjust SSL settings
 
