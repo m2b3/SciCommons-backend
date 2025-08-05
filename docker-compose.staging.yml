@@ -52,8 +52,8 @@ services:
     image: bitnami/pgbouncer:latest
     restart: unless-stopped
     environment:
-      - POSTGRESQL_HOST=${DB_HOST}
-      - POSTGRESQL_PORT=${DB_PORT}
+      - POSTGRESQL_HOST=${PGBOUNCER_TARGET_HOST}
+      - POSTGRESQL_PORT=${PGBOUNCER_TARGET_PORT}
       - POSTGRESQL_DATABASE=${DB_NAME}
       - POSTGRESQL_USERNAME=${DB_USER}
       - POSTGRESQL_PASSWORD=${DB_PASSWORD}
