@@ -68,6 +68,10 @@ jobs:
             echo "DB_HOST=${{ secrets.DB_HOST_TEST }}" >> .env.test
             echo "DB_PORT=${{ secrets.DB_PORT_TEST }}" >> .env.test
             echo "DATABASE_URL=${{ secrets.DATABASE_URL_TEST }}" >> .env.test
+            
+            # Add PgBouncer target variables (where PgBouncer connects to)
+            echo "PGBOUNCER_TARGET_HOST=${{ secrets.DB_HOST_TEST }}" >> .env.test
+            echo "PGBOUNCER_TARGET_PORT=${{ secrets.DB_PORT_TEST }}" >> .env.test
 
             echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL_TEST }}" >> .env.test
             echo "CELERY_RESULT_BACKEND=${{ secrets.CELERY_RESULT_BACKEND_TEST }}" >> .env.test
@@ -81,6 +85,8 @@ jobs:
             echo ".env.test file created with environment variables."
 
             # PgBouncer setup with Bitnami image (uses environment variables, no config files needed)
+            # PgBouncer uses PGBOUNCER_TARGET_HOST/PORT to connect to real database
+            # Django will use DB_HOST/PORT to connect to PgBouncer (updated below)
             echo "✅ PgBouncer configured via environment variables"
 
             # Update .env.test to route Django/Celery through PgBouncer
