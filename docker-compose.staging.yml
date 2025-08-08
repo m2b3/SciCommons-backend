@@ -25,7 +25,6 @@ services:
     depends_on:
       - redis-test
       - celery-test
-      - pgbouncer-test
     env_file:
       - .env.test
 
@@ -47,32 +46,6 @@ services:
       - .env.test
     volumes:
       - /home/ubuntu/logs:/logs
-
-  pgbouncer-test:
-    image: bitnami/pgbouncer:latest
-    restart: unless-stopped
-    environment:
-      - POSTGRESQL_HOST=${PGBOUNCER_TARGET_HOST}
-      - POSTGRESQL_PORT=${PGBOUNCER_TARGET_PORT}
-      - POSTGRESQL_DATABASE=${DB_NAME}
-      - POSTGRESQL_USERNAME=${DB_USER}
-      - POSTGRESQL_PASSWORD=${DB_PASSWORD}
-      - POSTGRESQL_CONNECT_OPTIONS=options=endpoint%3D${NEON_ENDPOINT_ID}
-      - PGBOUNCER_DATABASE=${DB_NAME}
-      - PGBOUNCER_PORT=6432
-      - PGBOUNCER_POOL_MODE=transaction
-      - PGBOUNCER_MAX_CLIENT_CONN=100
-      - PGBOUNCER_DEFAULT_POOL_SIZE=20
-      - PGBOUNCER_SERVER_TLS_SSLMODE=require
-      - PGBOUNCER_CLIENT_TLS_SSLMODE=disable
-    env_file:
-      - .env.test
-    networks:
-      - proxy
-    ports:
-      - "6432:6432"
-    depends_on:
-      - redis-test
 
 networks:
   proxy:

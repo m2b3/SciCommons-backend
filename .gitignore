@@ -66,12 +66,3 @@ static/
 
 # Cursor
 .cursor/
-
-# PgBouncer configuration files (contains sensitive credentials)
-pgbouncer-*.ini
-userlist-*.txt
-# Keep template files in git
-!*.template
-
-# Environment files (may contain sensitive data)
-.env.*
