@@ -49,7 +49,7 @@ services:
       - /home/ubuntu/logs:/logs
 
   pgbouncer-test:
-    image: bitnami/pgbouncer:latest
+    image: edoburu/pgbouncer
     restart: unless-stopped
     env_file:
       - .env.test
@@ -58,8 +58,8 @@ services:
     ports:
       - "6432:6432"
     volumes:
-      - ./pgbouncer-staging.ini:/opt/bitnami/pgbouncer/conf/pgbouncer.ini
-      - ./userlist-staging.txt:/opt/bitnami/pgbouncer/conf/userlist.txt
+      - ./pgbouncer-staging.ini:/etc/pgbouncer/pgbouncer.ini
+      - ./userlist-staging.txt:/etc/pgbouncer/userlist.txt
     depends_on:
       - redis-test
 

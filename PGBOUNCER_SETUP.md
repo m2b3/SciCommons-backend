@@ -140,7 +140,7 @@ Add PgBouncer service to `docker-compose.prod.yml`:
 
 ```yaml
   pgbouncer-prod:
-    image: bitnami/pgbouncer:latest
+    image: edoburu/pgbouncer
     restart: unless-stopped
     env_file:
       - .env.prod
