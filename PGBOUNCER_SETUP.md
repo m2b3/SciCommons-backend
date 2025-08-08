@@ -28,7 +28,6 @@ The deployment automatically configures:
 - ✅ SSL settings (server SSL required, client SSL disabled)
 - ✅ Connection pooling (transaction mode, 20 connections default)
 - ✅ Authentication via environment variables
-- ✅ Separate variables for PgBouncer target (`PGBOUNCER_TARGET_HOST`) vs Django connection (`DB_HOST`)
 
 ### Step 2: Update Environment for PgBouncer
 
@@ -173,12 +172,12 @@ SciCommons-backend/
 
 ### Common Issues
 
-1. **Environment Variable Timing Issues**
-   - **Problem**: "The \"DB_HOST\" variable is not set. Defaulting to a blank string" in deployment
-   - **Symptoms**: PgBouncer can't connect to backend, Django gets "Connection refused"
-   - **Solution**: Uses separate `PGBOUNCER_TARGET_HOST/PORT` variables to avoid conflicts
-   - **How it works**: PgBouncer uses target variables, Django uses regular `DB_HOST/PORT`
-   - **Check**: PgBouncer logs should show successful connection to PostgreSQL backend
+1. **PgBouncer Container Failing to Start (Bitnami Image)**
+   - **Problem**: Container shows "ERROR ==> POSTGRESQL_PASSWORD must be set"
+   - **Symptoms**: Container status shows "Restarting" instead of "Up"
+   - **Solution**: Ensure all required environment variables are set in `.env.test`
+   - **Required vars**: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+   - **Check**: `docker logs <pgbouncer_container_id>` should show successful startup
 
 2. **Django Still Connects to Original Database (Not PgBouncer)**
    - **Problem**: Django settings.py uses `DATABASE_URL` when `DEBUG=False`, ignoring `DB_HOST`/`DB_PORT`
