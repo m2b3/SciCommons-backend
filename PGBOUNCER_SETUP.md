@@ -19,15 +19,19 @@ PgBouncer is integrated to improve database connection handling and performance 
    DB_PASSWORD=<your_db_password>
    ```
 
-### Step 1: PgBouncer Configuration (Automatic)
+### Step 1: Generate PgBouncer Configuration
 
-With the Bitnami PgBouncer image, configuration is handled automatically via environment variables from your `.env.test` file. No manual setup required!
+Run the setup script to generate the required configuration files:
 
-The deployment automatically configures:
-- ✅ Database connection details from your `.env.test`
-- ✅ SSL settings (server SSL required, client SSL disabled)
-- ✅ Connection pooling (transaction mode, 20 connections default)
-- ✅ Authentication via environment variables
+```bash
+./scripts/setup_pgbouncer_staging.sh
+```
+
+This script will:
+- ✅ Validate your `.env.test` file
+- ✅ Generate `pgbouncer-staging.ini` with your database settings
+- ✅ Create `userlist-staging.txt` with hashed credentials
+- ✅ Set appropriate file permissions
 
 ### Step 2: Update Environment for PgBouncer
 
@@ -163,8 +167,12 @@ DB_PORT=6432
 
 ```
 SciCommons-backend/
-├── .gitignore                          # Excludes environment files
-├── docker-compose.staging.yml         # Includes pgbouncer-test service with env vars
+├── .gitignore                          # Excludes PgBouncer config files
+├── docker-compose.staging.yml         # Includes pgbouncer-test service
+├── pgbouncer-staging.ini.template      # PgBouncer config template
+├── userlist-staging.txt.template       # User credentials template
+├── scripts/
+│   └── setup_pgbouncer_staging.sh     # Setup script
 └── PGBOUNCER_SETUP.md                 # This documentation
 ```
 
@@ -172,12 +180,11 @@ SciCommons-backend/
 
 ### Common Issues
 
-1. **PgBouncer Container Failing to Start (Bitnami Image)**
-   - **Problem**: Container shows "ERROR ==> POSTGRESQL_PASSWORD must be set"
-   - **Symptoms**: Container status shows "Restarting" instead of "Up"
-   - **Solution**: Ensure all required environment variables are set in `.env.test`
-   - **Required vars**: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-   - **Check**: `docker logs <pgbouncer_container_id>` should show successful startup
+1. **PgBouncer Container Restarting with Permission Errors**
+   - **Problem**: `Permission denied` errors when accessing `/etc/pgbouncer/userlist.txt`
+   - **Symptoms**: Container status shows "Restarting (1)" instead of "Up"
+   - **Solution**: Files are mounted without `:ro` flag and have 644 permissions for container access
+   - **Check**: `docker logs <pgbouncer_container_id>` should not show permission errors
 
 2. **Django Still Connects to Original Database (Not PgBouncer)**
    - **Problem**: Django settings.py uses `DATABASE_URL` when `DEBUG=False`, ignoring `DB_HOST`/`DB_PORT`

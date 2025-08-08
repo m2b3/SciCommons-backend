@@ -51,25 +51,15 @@ services:
   pgbouncer-test:
     image: bitnami/pgbouncer:latest
     restart: unless-stopped
-    environment:
-      - POSTGRESQL_HOST=${DB_HOST}
-      - POSTGRESQL_PORT=${DB_PORT}
-      - POSTGRESQL_DATABASE=${DB_NAME}
-      - POSTGRESQL_USERNAME=${DB_USER}
-      - POSTGRESQL_PASSWORD=${DB_PASSWORD}
-      - PGBOUNCER_DATABASE=${DB_NAME}
-      - PGBOUNCER_PORT=6432
-      - PGBOUNCER_POOL_MODE=transaction
-      - PGBOUNCER_MAX_CLIENT_CONN=100
-      - PGBOUNCER_DEFAULT_POOL_SIZE=20
-      - PGBOUNCER_SERVER_TLS_SSLMODE=require
-      - PGBOUNCER_CLIENT_TLS_SSLMODE=disable
     env_file:
       - .env.test
     networks:
       - proxy
     ports:
       - "6432:6432"
+    volumes:
+      - ./pgbouncer-staging.ini:/opt/bitnami/pgbouncer/conf/pgbouncer.ini
+      - ./userlist-staging.txt:/opt/bitnami/pgbouncer/conf/userlist.txt
     depends_on:
       - redis-test
 
