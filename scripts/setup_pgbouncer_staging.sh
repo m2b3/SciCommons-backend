@@ -51,8 +51,8 @@ echo -e "${YELLOW}Creating userlist-staging.txt...${NC}"
 export DB_PASSWORD_HASH
 envsubst < userlist-staging.txt.template > userlist-staging.txt
 
-# Set appropriate permissions (readable by container user)
-chmod 644 pgbouncer-staging.ini userlist-staging.txt
+# Set appropriate permissions
+chmod 600 pgbouncer-staging.ini userlist-staging.txt
 
 echo -e "${GREEN}✅ PgBouncer configuration files created successfully!${NC}"
 echo -e "${GREEN}Generated files:${NC}"
@@ -61,7 +61,7 @@ echo -e "  📄 userlist-staging.txt"
 echo ""
 echo -e "${YELLOW}⚠️  Important:${NC}"
 echo -e "  • These files contain sensitive credentials and are excluded from Git"
-echo -e "  • After generating config, update your .env.test to use:"
+echo -e "  • Make sure to update your .env.test to use:"
 echo -e "    DB_HOST=pgbouncer-test"
 echo -e "    DB_PORT=6432"
 echo -e "  • Run 'docker-compose -f docker-compose.staging.yml up -d' to start with PgBouncer"

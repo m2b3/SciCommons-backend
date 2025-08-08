@@ -58,8 +58,8 @@ services:
     ports:
       - "6432:6432"
     volumes:
-      - ./pgbouncer-staging.ini:/etc/pgbouncer/pgbouncer.ini
-      - ./userlist-staging.txt:/etc/pgbouncer/userlist.txt
+      - ./pgbouncer-staging.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist-staging.txt:/etc/pgbouncer/userlist.txt:ro
     depends_on:
       - redis-test
 

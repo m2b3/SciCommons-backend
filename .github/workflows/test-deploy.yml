@@ -80,60 +80,6 @@ jobs:
             # Ensure the environment variables are written before proceeding
             echo ".env.test file created with environment variables."
 
-            # Setup PgBouncer configuration
-            # Note: At this point DB_HOST/DB_PORT still point to real database
-            # The setup script uses these to configure PgBouncer's target
-            echo "Setting up PgBouncer configuration..."
-            chmod +x scripts/setup_pgbouncer_staging.sh
-            ./scripts/setup_pgbouncer_staging.sh
-
-            # Clean up any existing directories with config names (fix for mount issues)
-            if [ -d "pgbouncer-staging.ini" ]; then
-                echo "Removing incorrect pgbouncer-staging.ini directory..."
-                rm -rf pgbouncer-staging.ini
-            fi
-            if [ -d "userlist-staging.txt" ]; then
-                echo "Removing incorrect userlist-staging.txt directory..."
-                rm -rf userlist-staging.txt
-            fi
-
-            # Verify PgBouncer config files were created correctly
-            if [ -f "pgbouncer-staging.ini" ] && [ -f "userlist-staging.txt" ]; then
-                echo "✅ PgBouncer configuration files created successfully"
-                ls -la pgbouncer-staging.ini userlist-staging.txt
-                
-                # Ensure proper permissions for container access
-                chmod 644 pgbouncer-staging.ini userlist-staging.txt
-                echo "✅ File permissions set for container access"
-            else
-                echo "❌ Failed to create PgBouncer configuration files"
-                exit 1
-            fi
-
-            # Update .env.test to route Django/Celery through PgBouncer
-            # Now that PgBouncer config is generated (pointing to real DB),
-            # we change DB_HOST/DB_PORT and DATABASE_URL so Django/Celery connect to PgBouncer
-            echo "Updating .env.test to use PgBouncer..."
-            
-            # Extract current DB credentials for reconstructing DATABASE_URL
-            DB_NAME_VAL=$(grep "^DB_NAME=" .env.test | cut -d'=' -f2)
-            DB_USER_VAL=$(grep "^DB_USER=" .env.test | cut -d'=' -f2)
-            DB_PASSWORD_VAL=$(grep "^DB_PASSWORD=" .env.test | cut -d'=' -f2)
-            
-            # Remove existing DB connection lines
-            sed -i '/^DB_HOST=/d' .env.test
-            sed -i '/^DB_PORT=/d' .env.test
-            sed -i '/^DATABASE_URL=/d' .env.test
-            
-            # Add PgBouncer connection settings for Django/Celery
-            echo "DB_HOST=pgbouncer-test" >> .env.test
-            echo "DB_PORT=6432" >> .env.test
-            
-            # Reconstruct DATABASE_URL to point to PgBouncer
-            echo "DATABASE_URL=postgresql://${DB_USER_VAL}:${DB_PASSWORD_VAL}@pgbouncer-test:6432/${DB_NAME_VAL}" >> .env.test
-            
-            echo "✅ Environment updated to use PgBouncer (including DATABASE_URL)"
-
             # Stop the current containers
             echo "Stopping the current containers..."
             docker compose -f docker-compose.staging.yml down || true

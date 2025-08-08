@@ -42,15 +42,13 @@ Update your `.env.test` file to route traffic through PgBouncer:
 DB_HOST=pgbouncer-test
 DB_PORT=6432
 
-# Keep these as they are
-DB_NAME=<your_db_name>
-DB_USER=<your_db_user>
-DB_PASSWORD=<your_db_password>
+# Keep these as they are (for PgBouncer to connect to actual DB)
+# PGBOUNCER_TARGET_HOST=<your_original_db_host>
+# PGBOUNCER_TARGET_PORT=<your_original_db_port>
+# DB_NAME=<your_db_name>
+# DB_USER=<your_db_user>
+# DB_PASSWORD=<your_db_password>
 ```
-
-**Note:** The GitHub Actions workflow automatically handles this step during deployment.
-
-**Important:** Since `DEBUG=False` in staging, Django uses `DATABASE_URL` instead of individual `DB_HOST`/`DB_PORT` variables. The deployment script automatically reconstructs `DATABASE_URL` to point to PgBouncer.
 
 ### Step 3: Start the Services
 
@@ -180,28 +178,17 @@ SciCommons-backend/
 
 ### Common Issues
 
-1. **PgBouncer Container Restarting with Permission Errors**
-   - **Problem**: `Permission denied` errors when accessing `/etc/pgbouncer/userlist.txt`
-   - **Symptoms**: Container status shows "Restarting (1)" instead of "Up"
-   - **Solution**: Files are mounted without `:ro` flag and have 644 permissions for container access
-   - **Check**: `docker logs <pgbouncer_container_id>` should not show permission errors
-
-2. **Django Still Connects to Original Database (Not PgBouncer)**
-   - **Problem**: Django settings.py uses `DATABASE_URL` when `DEBUG=False`, ignoring `DB_HOST`/`DB_PORT`
-   - **Solution**: The deployment script automatically updates both `DB_HOST`/`DB_PORT` AND `DATABASE_URL`
-   - **Check**: Look in container logs for connection attempts to verify PgBouncer is being used
-
-3. **Connection Refused**
+1. **Connection Refused**
    - Check if PgBouncer container is running
    - Verify port 6432 is accessible
    - Check PgBouncer logs for errors
 
-4. **Authentication Failed**
+2. **Authentication Failed**
    - Verify userlist.txt has correct username/password hash
    - Ensure MD5 hash is generated correctly
    - Check if database user has proper permissions
 
-5. **SSL/TLS Issues**
+3. **SSL/TLS Issues**
    - If your database doesn't support SSL, change `server_tls_sslmode = disable` in the config
    - For development, you might need to adjust SSL settings
 
