@@ -25,7 +25,6 @@ services:
     depends_on:
       - redis-test
       - celery-test
-      - pgbouncer-test
     env_file:
       - .env.test
 
@@ -47,21 +46,6 @@ services:
       - .env.test
     volumes:
       - /home/ubuntu/logs:/logs
-
-  pgbouncer-test:
-    image: edoburu/pgbouncer
-    restart: unless-stopped
-    env_file:
-      - .env.test
-    networks:
-      - proxy
-    ports:
-      - "6432:6432"
-    volumes:
-      - ./pgbouncer-staging.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./userlist-staging.txt:/etc/pgbouncer/userlist.txt:ro
-    depends_on:
-      - redis-test
 
 networks:
   proxy:
