@@ -218,7 +218,12 @@ def create_article(
     response={200: ArticleOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def get_article(request, article_slug: str, community_name: Optional[str] = None):
+def get_article(
+    request,
+    article_slug: str,
+    community_name: Optional[str] = None,
+    community_id: Optional[int] = None,
+):
     try:
         try:
             # article = Article.objects.get(slug=article_slug)
@@ -232,13 +237,16 @@ def get_article(request, article_slug: str, community_name: Optional[str] = None
         community = None
         community_article = None
 
-        if community_name:
+        # Prefer community_id over community_name, but don't consider both at same time
+        if community_id or community_name:
             try:
-                community_name = unquote(community_name)
-                try:
+                if community_id:
+                    community = Community.objects.get(id=community_id)
+                else:
+                    community_name = unquote(community_name)
                     community = Community.objects.get(name=community_name)
-                except Community.DoesNotExist:
-                    return 404, {"message": "Community not found."}
+            except Community.DoesNotExist:
+                return 404, {"message": "Community not found."}
             except Exception as e:
                 logger.error(f"Error processing community information: {e}")
                 return 500, {
