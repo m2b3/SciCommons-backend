@@ -25,6 +25,13 @@ import tornado.websocket
 from decouple import config
 from tornado.log import enable_pretty_logging
 
+from myapp.feature_flags import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    MAX_EVENTS_PER_QUEUE,
+    POLL_TIMEOUT_SECONDS,
+    QUEUE_TTL_MINUTES,
+)
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -34,12 +41,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 REDIS_URL = config("REALTIME_REDIS_URL", default="redis://localhost:6379/3")
 TORNADO_PORT = int(config("TORNADO_PORT", default="8888"))
-QUEUE_TTL_MINUTES = int(
-    config("QUEUE_TTL_MINUTES", default="10")
-)  # Increased to 10 minutes for active users with auto-heartbeat
-MAX_EVENTS_PER_QUEUE = int(config("MAX_EVENTS_PER_QUEUE", default="1000"))
-POLL_TIMEOUT_SECONDS = int(config("POLL_TIMEOUT_SECONDS", default="60"))
-HEARTBEAT_INTERVAL_SECONDS = int(config("HEARTBEAT_INTERVAL_SECONDS", default="60"))
 
 # Global state
 user_queues: Dict[str, Dict] = {}  # queue_id -> queue_data
