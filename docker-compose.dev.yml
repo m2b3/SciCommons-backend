@@ -5,11 +5,18 @@ services:
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
               poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers"
+    ports:
+      - "8000:8000"
     volumes:
       - .:/app
     depends_on:
       - redis
       - celery
+      - tornado
+    env_file:
+      - .env.local
+    environment:
+      - TORNADO_URL=http://tornado:8888
 
   redis:
     image: redis:alpine
@@ -23,3 +30,28 @@ services:
       - .:/app
     depends_on:
       - redis
+    env_file:
+      - .env.local
+    environment:
+      - TORNADO_URL=http://tornado:8888
+
+  tornado:
+    build:
+      context: .
+      dockerfile: Dockerfile.tornado
+    command: python tornado_server.py
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    env_file:
+      - .env.local
+    environment:
+      - REALTIME_REDIS_URL=redis://redis:6379/3
+      - TORNADO_PORT=8888
+      - QUEUE_TTL_MINUTES=2
+      - MAX_EVENTS_PER_QUEUE=1000
+      - POLL_TIMEOUT_SECONDS=60
+      - HEARTBEAT_INTERVAL_SECONDS=60

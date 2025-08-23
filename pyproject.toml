@@ -33,6 +33,7 @@ channels = "^4.0.0"
 uvicorn = {extras = ["standard"], version = "^0.27.1"}
 daphne = "^4.1.0"
 channels-redis = "^4.2.0"
+tornado = "^6.4"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
