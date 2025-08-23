@@ -103,3 +103,21 @@ class DateCount(Schema):
 
 class PermissionCheckOut(Schema):
     has_permission: bool
+
+
+# Real-time system schemas
+class RealtimeRegisterOut(Schema):
+    queue_id: str
+    last_event_id: int
+    communities: list[int]
+
+
+class RealtimeStatusOut(Schema):
+    user_id: int
+    communities: list[int]
+    realtime_enabled: bool
+    tornado_url: str
+
+
+class RealtimeHeartbeatOut(Schema):
+    message: str

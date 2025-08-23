@@ -23,6 +23,7 @@ from articles.schemas import (
     PaginatedDiscussionSchema,
 )
 from communities.models import Community, CommunityArticle
+from myapp.realtime import RealtimeEventPublisher
 from myapp.schemas import Message, UserStats
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Reputation, User
@@ -110,6 +111,17 @@ def create_discussion(
                         "Error creating anonymous name for discussion", exc_info=True
                     )
                     # Continue even if anonymous name creation fails
+
+            # Publish real-time event for private communities only
+            try:
+                if discussion.community and discussion.community.type == "private":
+                    community_ids = {discussion.community.id}
+                    RealtimeEventPublisher.publish_discussion_created(
+                        discussion, community_ids
+                    )
+            except Exception as e:
+                logger.error(f"Failed to publish discussion created event: {e}")
+                # Continue even if event publishing fails
 
         try:
             return 201, DiscussionOut.from_orm(discussion, user)
@@ -453,6 +465,15 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             except Exception as e:
                 logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
+
+        # Publish real-time event for private communities only
+        try:
+            if comment.community and comment.community.type == "private":
+                community_ids = {comment.community.id}
+                RealtimeEventPublisher.publish_comment_created(comment, community_ids)
+        except Exception as e:
+            logger.error(f"Failed to publish comment created event: {e}")
+            # Continue even if event publishing fails
 
         # Return comment with replies
         try:

@@ -37,7 +37,8 @@ db.sqlite3-journal
 .ipynb_checkpoints
 
 # virtual environments
-.env
+.env*
+!.env.example
 .venv/
 venv/
 ENV/
