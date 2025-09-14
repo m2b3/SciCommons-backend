@@ -556,12 +556,12 @@ def get_articles(
         )
 
         # Try to get data from cache first
-        cached_data = get_cache(cache_key)
-        if cached_data is not None:
-            logger.debug(f"Returning cached data for key: {cache_key}")
-            return 200, cached_data
+        # cached_data = get_cache(cache_key)
+        # if cached_data is not None:
+        #     logger.debug(f"Returning cached data for key: {cache_key}")
+        #     return 200, cached_data
 
-        logger.debug(f"Cache miss for key: {cache_key}, fetching from database")
+        # logger.debug(f"Cache miss for key: {cache_key}, fetching from database")
         try:
             articles = Article.objects.select_related("submitter")
 
@@ -689,13 +689,13 @@ def get_articles(
             )
 
             # Cache the response data for 15 minutes
-            try:
-                set_cache(
-                    cache_key, response_data, timeout=FIFTEEN_MINUTES
-                )  # 15 minutes
-                logger.debug(f"Cached response data for key: {cache_key}")
-            except Exception as e:
-                logger.warning(f"Failed to cache data for key {cache_key}: {e}")
+            # try:
+            #     set_cache(
+            #         cache_key, response_data, timeout=FIFTEEN_MINUTES
+            #     )  # 15 minutes
+            #     logger.debug(f"Cached response data for key: {cache_key}")
+            # except Exception as e:
+            #     logger.warning(f"Failed to cache data for key {cache_key}: {e}")
 
             return 200, response_data
         except Exception as e:

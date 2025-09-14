@@ -643,6 +643,14 @@ def delete_comment(request, comment_id: int):
             }
 
         try:
+            # Store parent info before deletion for real-time event
+            parent_id = comment.parent.id if comment.parent else None
+            reply_depth = 0
+            current_comment = comment
+            while current_comment.parent:
+                reply_depth += 1
+                current_comment = current_comment.parent
+
             # Delete reactions associated with the comment
             Reaction.objects.filter(
                 content_type__model="discussioncomment", object_id=comment.id
@@ -652,6 +660,24 @@ def delete_comment(request, comment_id: int):
             comment.content = "[deleted]"
             comment.is_deleted = True
             comment.save()
+
+            # Publish real-time event for private communities only
+            try:
+                if comment.community and comment.community.type == "private":
+                    community_ids = {comment.community.id}
+                    RealtimeEventPublisher.publish_comment_deleted(
+                        comment_id=comment.id,
+                        discussion_id=comment.discussion.id,
+                        article_id=comment.discussion.article.id,
+                        community_ids=community_ids,
+                        author_id=comment.author.id,
+                        parent_id=parent_id,
+                        reply_depth=reply_depth,
+                    )
+            except Exception as e:
+                logger.error(f"Failed to publish comment deleted event: {e}")
+                # Continue even if event publishing fails
+
         except Exception as e:
             logger.error(f"Error deleting comment: {e}")
             return 500, {"message": "Error deleting comment. Please try again."}

@@ -120,6 +120,13 @@ class RealtimeEventPublisher:
         # Create comment output schema - pass None as current_user for real-time events
         comment_data = DiscussionCommentOut.from_orm_with_replies(comment, None).dict()
 
+        # Calculate reply depth for nested comments
+        reply_depth = 0
+        current_comment = comment
+        while current_comment.parent:
+            reply_depth += 1
+            current_comment = current_comment.parent
+
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.NEW_COMMENT,
             data={
@@ -127,6 +134,10 @@ class RealtimeEventPublisher:
                 "discussion_id": comment.discussion.id,
                 "article_id": comment.discussion.article.id,
                 "community_id": comment.community.id if comment.community else None,
+                # Add nested reply metadata for frontend tree handling
+                "parent_id": comment.parent.id if comment.parent else None,
+                "is_reply": comment.parent is not None,
+                "reply_depth": reply_depth,
             },
             community_ids=community_ids,
             exclude_user_id=comment.author.id,  # Exclude the comment author
@@ -159,6 +170,13 @@ class RealtimeEventPublisher:
 
         comment_data = DiscussionCommentOut.from_orm_with_replies(comment, None).dict()
 
+        # Calculate reply depth for nested comments
+        reply_depth = 0
+        current_comment = comment
+        while current_comment.parent:
+            reply_depth += 1
+            current_comment = current_comment.parent
+
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.UPDATED_COMMENT,
             data={
@@ -166,6 +184,10 @@ class RealtimeEventPublisher:
                 "discussion_id": comment.discussion.id,
                 "article_id": comment.discussion.article.id,
                 "community_id": comment.community.id if comment.community else None,
+                # Add nested reply metadata for frontend tree handling
+                "parent_id": comment.parent.id if comment.parent else None,
+                "is_reply": comment.parent is not None,
+                "reply_depth": reply_depth,
             },
             community_ids=community_ids,
             exclude_user_id=comment.author.id,  # Exclude the comment author
@@ -196,6 +218,8 @@ class RealtimeEventPublisher:
         article_id: int,
         community_ids: Set[int],
         author_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
+        reply_depth: int = 0,
     ):
         """Publish event when a comment is deleted"""
         RealtimeEventPublisher.publish_event(
@@ -204,6 +228,10 @@ class RealtimeEventPublisher:
                 "comment_id": comment_id,
                 "discussion_id": discussion_id,
                 "article_id": article_id,
+                # Add nested reply metadata for frontend tree handling
+                "parent_id": parent_id,
+                "is_reply": parent_id is not None,
+                "reply_depth": reply_depth,
             },
             community_ids=community_ids,
             exclude_user_id=author_id,  # Exclude the comment author if provided
