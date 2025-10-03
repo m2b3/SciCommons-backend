@@ -12,6 +12,7 @@ from articles.models import (
     ArticlePDF,
     Discussion,
     DiscussionComment,
+    DiscussionSubscription,
     Review,
     ReviewComment,
     ReviewCommentRating,
@@ -723,6 +724,57 @@ class DiscussionCommentCreateSchema(Schema):
 
 class DiscussionCommentUpdateSchema(Schema):
     content: str | None
+
+
+class DiscussionSubscriptionSchema(Schema):
+    community_article_id: int
+    community_id: int
+
+
+class DiscussionSubscriptionOut(ModelSchema):
+    community_article_id: int
+    community_id: int
+    article_id: int
+    subscribed_at: datetime
+    is_active: bool
+
+    class Config:
+        model = DiscussionSubscription
+        model_fields = [
+            "id",
+            "subscribed_at",
+            "is_active",
+        ]
+
+    @classmethod
+    def from_orm(cls, subscription):
+        return cls(
+            id=subscription.id,
+            community_article_id=subscription.community_article.id,
+            community_id=subscription.community.id,
+            article_id=subscription.article.id,
+            subscribed_at=subscription.subscribed_at,
+            is_active=subscription.is_active,
+        )
+
+
+class DiscussionSubscriptionUpdateSchema(Schema):
+    is_active: bool | None = None
+
+
+class SubscriptionStatusSchema(Schema):
+    is_subscribed: bool
+    subscription: Optional[DiscussionSubscriptionOut] = None
+
+
+class CommunitySubscriptionOut(Schema):
+    community_id: int
+    community_name: str
+    articles: List[dict]  # List of article info user is subscribed to
+
+
+class UserSubscriptionsOut(Schema):
+    communities: List[CommunitySubscriptionOut]
 
 
 """

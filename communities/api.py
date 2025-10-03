@@ -341,6 +341,7 @@ def update_community(
 
             try:
                 # Update fields
+                old_type = community.type  # Store old type to check for changes
                 community.description = payload.details.description
                 community.type = payload.details.type
                 community.rules = payload.details.rules
@@ -369,6 +370,38 @@ def update_community(
                     community.profile_pic_url = profile_pic_file
 
                 community.save()
+
+                # Create auto-subscriptions if community type changed to private/hidden
+                if old_type == Community.PUBLIC and community.type in [
+                    Community.PRIVATE,
+                    Community.HIDDEN,
+                ]:
+                    try:
+                        from articles.models import DiscussionSubscription
+                        from communities.models import CommunityArticle
+
+                        # Get all published articles in this community
+                        community_articles = CommunityArticle.objects.filter(
+                            community=community, status="published"
+                        ).select_related("article")
+
+                        subscription_count = 0
+                        for community_article in community_articles:
+                            subscriptions_created = DiscussionSubscription.create_auto_subscriptions_for_new_article(
+                                community_article
+                            )
+                            subscription_count += len(subscriptions_created)
+
+                        if subscription_count > 0:
+                            logger.info(
+                                f"Created {subscription_count} auto-subscriptions for community '{community.name}' after type change to {community.type}"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to create auto-subscriptions after community type change: {e}"
+                        )
+                        # Continue - subscription failure shouldn't break community update
+
             except Exception as e:
                 logger.error(f"Error updating community: {e}")
                 return 500, {"message": "Error updating community. Please try again."}

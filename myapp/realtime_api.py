@@ -9,7 +9,11 @@ from typing import List, Optional
 from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 
-from myapp.realtime import RealtimeQueueManager, get_user_community_ids
+from myapp.realtime import (
+    RealtimeQueueManager,
+    get_user_community_ids,
+    get_user_subscribed_community_articles,
+)
 from myapp.schemas import (
     Message,
     RealtimeHeartbeatOut,
@@ -105,7 +109,7 @@ def get_realtime_status(request):
     """
     Get real-time system status for the current user
 
-    Returns status information about the real-time system
+    Returns status information about the real-time system including subscriptions
     """
     try:
         user = request.auth
@@ -113,10 +117,14 @@ def get_realtime_status(request):
         # Get user's community memberships
         community_ids = list(get_user_community_ids(user))
 
+        # Get user's subscribed community articles
+        subscribed_articles = list(get_user_subscribed_community_articles(user))
+
         return {
             "user_id": user.id,
             "communities": community_ids,
-            "realtime_enabled": len(community_ids) > 0,
+            "subscribed_articles": subscribed_articles,
+            "realtime_enabled": len(community_ids) > 0 or len(subscribed_articles) > 0,
             "tornado_url": "/realtime",  # Frontend will use relative URL
         }
 

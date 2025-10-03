@@ -141,6 +141,21 @@ def create_article(
                         status=community_article_status,
                     )
 
+                    # Auto-subscribe admins and the submitter when article is immediately published
+                    # Only for private/hidden communities as enforced in the model method
+                    try:
+                        if community_article_status == CommunityArticle.PUBLISHED:
+                            from articles.models import DiscussionSubscription
+
+                            DiscussionSubscription.create_auto_subscriptions_for_new_article(
+                                community_article
+                            )
+                    except Exception as e:
+                        # Log and continue; auto-subscription failure should not block article creation
+                        logger.warning(
+                            f"Auto-subscription creation failed for article {article.id} in community {community.id}: {e}"
+                        )
+
                     # Send notification to the community admin
                     try:
                         Notification.objects.create(
