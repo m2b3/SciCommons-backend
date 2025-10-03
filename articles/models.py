@@ -377,6 +377,7 @@ class DiscussionComment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation("Reaction")
     is_pseudonymous = models.BooleanField(default=False)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
         return (
@@ -390,6 +391,193 @@ class DiscussionComment(models.Model):
         return AnonymousIdentity.get_or_create_fake_name(
             self.author, self.discussion.article, self.discussion.community
         )
+
+
+class DiscussionSubscription(models.Model):
+    """
+    Model to track user subscriptions to discussions for real-time updates
+    Only applies to private/hidden community articles
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscriptions",
+        db_index=True,
+    )
+    community_article = models.ForeignKey(
+        "communities.CommunityArticle",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    community = models.ForeignKey(
+        "communities.Community",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    article = models.ForeignKey(
+        Article,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    subscribed_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("user", "community_article", "community")
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["community_article", "is_active"]),
+            models.Index(fields=["community", "is_active"]),
+            models.Index(fields=["article", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} subscribed to discussions in {self.community.name} for article {self.article.title}"
+
+    @classmethod
+    def create_auto_subscriptions_for_new_article(cls, community_article):
+        """
+        Create auto-subscriptions when a new article is published to a community
+        - All community admins get subscribed
+        - Article submitter gets subscribed (if they're a member)
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Only work with private/hidden communities
+        if community_article.community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all potential subscribers in one query
+                admin_ids = set(
+                    community_article.community.admins.values_list("id", flat=True)
+                )
+
+                # Check if submitter is a member
+                submitter = community_article.article.submitter
+                is_member = community_article.community.members.filter(
+                    id=submitter.id
+                ).exists()
+
+                user_ids_to_subscribe = admin_ids.copy()
+                if is_member:
+                    user_ids_to_subscribe.add(submitter.id)
+
+                # Get existing subscriptions to avoid duplicates
+                existing_subscriptions = set(
+                    cls.objects.filter(
+                        community_article=community_article,
+                        community=community_article.community,
+                        user_id__in=user_ids_to_subscribe,
+                    ).values_list("user_id", flat=True)
+                )
+
+                # Create subscriptions for users who don't already have them
+                new_user_ids = user_ids_to_subscribe - existing_subscriptions
+
+                if new_user_ids:
+                    # Bulk create subscriptions
+                    new_subscriptions = [
+                        cls(
+                            user_id=user_id,
+                            community_article=community_article,
+                            community=community_article.community,
+                            article=community_article.article,
+                            is_active=True,
+                        )
+                        for user_id in new_user_ids
+                    ]
+
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for article '{community_article.article.title}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for article '{community_article.article.title}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
+
+    @classmethod
+    def create_auto_subscriptions_for_new_admin(cls, user, community):
+        """
+        Create auto-subscriptions when a user becomes an admin of a community
+        Subscribe them to all existing articles in the community
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Get all community articles for private/hidden communities only
+        if community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all published/accepted articles in this community
+                community_articles = community.communityarticle_set.filter(
+                    status="published"
+                ).select_related("article")
+
+                if not community_articles.exists():
+                    return subscriptions_created
+
+                # Get existing subscriptions to avoid duplicates
+                existing_community_article_ids = set(
+                    cls.objects.filter(
+                        user=user,
+                        community=community,
+                        community_article__in=community_articles,
+                    ).values_list("community_article_id", flat=True)
+                )
+
+                # Create subscriptions for articles that don't already have them
+                new_subscriptions = []
+                for community_article in community_articles:
+                    if community_article.id not in existing_community_article_ids:
+                        new_subscriptions.append(
+                            cls(
+                                user=user,
+                                community_article=community_article,
+                                community=community,
+                                article=community_article.article,
+                                is_active=True,
+                            )
+                        )
+
+                if new_subscriptions:
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for new admin '{user.username}' in community '{community.name}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for new admin '{user.username}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
 
 
 # # Delete review history when a review is deleted

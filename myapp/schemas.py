@@ -115,6 +115,7 @@ class RealtimeRegisterOut(Schema):
 class RealtimeStatusOut(Schema):
     user_id: int
     communities: list[int]
+    subscribed_articles: list[int] = []
     realtime_enabled: bool
     tornado_url: str
 

@@ -231,6 +231,21 @@ def manage_community_member(
             with transaction.atomic():
                 try:
                     getattr(getattr(community, role_group), method)(user)
+
+                    # Create auto-subscriptions if user is promoted to admin
+                    if action == "promote_admin" and method == "add":
+                        try:
+                            from articles.models import DiscussionSubscription
+
+                            DiscussionSubscription.create_auto_subscriptions_for_new_admin(
+                                user, community
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to create auto-subscriptions for new admin '{user.username}': {e}"
+                            )
+                            # Continue - subscription failure shouldn't break role change
+
                 except Exception as e:
                     logger.error(f"Error updating user's role: {e}")
                     return 500, {

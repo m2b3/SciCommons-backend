@@ -12,15 +12,22 @@ from articles.models import (
     Article,
     Discussion,
     DiscussionComment,
+    DiscussionSubscription,
     Reaction,
 )
 from articles.schemas import (
+    CommunitySubscriptionOut,
     CreateDiscussionSchema,
     DiscussionCommentCreateSchema,
     DiscussionCommentOut,
     DiscussionCommentUpdateSchema,
     DiscussionOut,
+    DiscussionSubscriptionOut,
+    DiscussionSubscriptionSchema,
+    DiscussionSubscriptionUpdateSchema,
     PaginatedDiscussionSchema,
+    SubscriptionStatusSchema,
+    UserSubscriptionsOut,
 )
 from communities.models import Community, CommunityArticle
 from myapp.realtime import RealtimeEventPublisher
@@ -258,6 +265,240 @@ def list_discussions(
             return 500, {
                 "message": "Error formatting discussion data. Please try again."
             }
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/discussions/my-subscriptions/",
+    response={
+        200: UserSubscriptionsOut,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def get_user_subscriptions(request):
+    """
+    Get all active subscriptions for the current user grouped by community
+    Returns:
+    {
+        "communities": [
+            {
+                "community_id": 1,
+                "community_name": "AI Research",
+                "articles": [
+                    {
+                        "article_id": 123,
+                        "article_title": "Deep Learning Paper",
+                        "article_slug": "deep-learning-paper"
+                    }
+                ]
+            }
+        ]
+    }
+    """
+    try:
+        user = request.auth
+
+        try:
+            # Get all active subscriptions with related data
+            subscriptions = (
+                DiscussionSubscription.objects.filter(user=user, is_active=True)
+                .select_related("community_article", "community", "article")
+                .order_by("community__name", "-subscribed_at")
+            )
+
+            # Group subscriptions by community
+            communities_dict = {}
+            for subscription in subscriptions:
+                community_id = subscription.community.id
+
+                if community_id not in communities_dict:
+                    communities_dict[community_id] = {
+                        "community_id": community_id,
+                        "community_name": subscription.community.name,
+                        "articles": [],
+                    }
+
+                # Add article info to the community
+                communities_dict[community_id]["articles"].append(
+                    {
+                        "article_id": subscription.article.id,
+                        "article_title": subscription.article.title,
+                        "article_slug": subscription.article.slug,
+                        "article_abstract": subscription.article.abstract,
+                    }
+                )
+
+            # Convert dict to list of CommunitySubscriptionOut objects
+            communities_list = [
+                CommunitySubscriptionOut(**community_data)
+                for community_data in communities_dict.values()
+            ]
+
+            return 200, UserSubscriptionsOut(communities=communities_list)
+
+        except Exception as e:
+            logger.error(f"Error retrieving user subscriptions: {e}", exc_info=True)
+            return 500, {"message": "Error retrieving subscriptions. Please try again."}
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/discussions/subscription-status/",
+    response={200: SubscriptionStatusSchema, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def get_subscription_status(request, community_article_id: int, community_id: int):
+    """
+    Check if user is subscribed to discussions for a specific community article
+    """
+    try:
+        user = request.auth
+
+        # Validate community article exists
+        try:
+            community_article = CommunityArticle.objects.select_related(
+                "community", "article"
+            ).get(id=community_article_id, community_id=community_id)
+        except CommunityArticle.DoesNotExist:
+            return 404, {"message": "Community article not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving community article: {e}")
+            return 500, {
+                "message": "Error retrieving community article. Please try again."
+            }
+
+        # Check if user is a member of the community
+        if not community_article.community.is_member(user):
+            return 403, {
+                "message": "You must be a member of this community to check subscription status."
+            }
+
+        try:
+            subscription = DiscussionSubscription.objects.get(
+                user=user,
+                community_article=community_article,
+                community=community_article.community,
+                is_active=True,
+            )
+
+            return 200, SubscriptionStatusSchema(
+                is_subscribed=True,
+                subscription=DiscussionSubscriptionOut.from_orm(subscription),
+            )
+        except DiscussionSubscription.DoesNotExist:
+            return 200, SubscriptionStatusSchema(is_subscribed=False, subscription=None)
+        except Exception as e:
+            logger.error(f"Error checking subscription status: {e}")
+            return 500, {
+                "message": "Error checking subscription status. Please try again."
+            }
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.post(
+    "/discussions/subscribe/",
+    response={
+        201: DiscussionSubscriptionOut,
+        200: DiscussionSubscriptionOut,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def subscribe_to_discussion(request, subscription_data: DiscussionSubscriptionSchema):
+    """
+    Subscribe to discussions in a specific community article for real-time updates
+    Only works for articles in private/hidden communities
+
+    Args:
+        subscription_data: Contains community_article_id and community_id
+    """
+    try:
+        user = request.auth
+
+        # Validate community article exists
+        try:
+            community_article = CommunityArticle.objects.select_related(
+                "community", "article"
+            ).get(id=subscription_data.community_article_id)
+        except CommunityArticle.DoesNotExist:
+            return 404, {"message": "Community article not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving community article: {e}")
+            return 500, {
+                "message": "Error retrieving community article. Please try again."
+            }
+
+        # Validate community matches
+        if community_article.community.id != subscription_data.community_id:
+            return 400, {
+                "message": "Community ID does not match the community article."
+            }
+
+        # Only allow subscriptions for private/hidden communities
+        if community_article.community.type not in ["private", "hidden"]:
+            return 400, {
+                "message": "Subscriptions are only available for private and hidden communities."
+            }
+
+        # Check if user is a member of the community
+        if not community_article.community.is_member(user):
+            return 403, {
+                "message": "You must be a member of this community to subscribe to discussions."
+            }
+
+        try:
+            # Create or update subscription
+            subscription, created = DiscussionSubscription.objects.update_or_create(
+                user=user,
+                community_article=community_article,
+                community=community_article.community,
+                defaults={
+                    "article": community_article.article,
+                    "is_active": True,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error creating/updating subscription: {e}")
+            return 500, {"message": "Error creating subscription. Please try again."}
+
+        status_code = 201 if created else 200
+        action = "subscribed to" if created else "reactivated subscription for"
+
+        logger.info(
+            f"User {user.id} {action} discussions in community {community_article.community.id} for article {community_article.article.id}"
+        )
+
+        # Notify Tornado server about subscription change for immediate real-time updates
+        try:
+            from myapp.realtime import RealtimeQueueManager, get_user_community_ids
+
+            community_ids = list(get_user_community_ids(user))
+            RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
+        except Exception as e:
+            logger.warning(
+                f"Failed to update real-time subscriptions for user {user.id}: {e}"
+            )
+            # Continue - real-time update failure shouldn't break subscription
+
+        try:
+            return status_code, DiscussionSubscriptionOut.from_orm(subscription)
+        except Exception as e:
+            logger.error(f"Error formatting subscription data: {e}")
+            return 500, {
+                "message": "Subscription created but error retrieving subscription data."
+            }
+
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -683,6 +924,123 @@ def delete_comment(request, comment_id: int):
             return 500, {"message": "Error deleting comment. Please try again."}
 
         return 204, None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+"""
+Subscription endpoints for discussion real-time updates
+"""
+
+
+@router.put(
+    "/discussions/subscriptions/{subscription_id}/",
+    response={200: DiscussionSubscriptionOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def update_discussion_subscription(
+    request, subscription_id: int, update_data: DiscussionSubscriptionUpdateSchema
+):
+    """
+    Update discussion subscription (mainly to activate/deactivate)
+    """
+    try:
+        user = request.auth
+
+        try:
+            subscription = DiscussionSubscription.objects.select_related(
+                "community_article", "community", "article"
+            ).get(id=subscription_id, user=user)
+        except DiscussionSubscription.DoesNotExist:
+            return 404, {"message": "Subscription not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving subscription: {e}")
+            return 500, {"message": "Error retrieving subscription. Please try again."}
+
+        try:
+            # Update subscription active status
+            if update_data.is_active is not None:
+                subscription.is_active = update_data.is_active
+
+            subscription.save()
+        except Exception as e:
+            logger.error(f"Error updating subscription: {e}")
+            return 500, {"message": "Error updating subscription. Please try again."}
+
+        logger.info(f"User {user.id} updated subscription {subscription_id}")
+
+        # Notify Tornado server about subscription change for immediate real-time updates
+        try:
+            from myapp.realtime import RealtimeQueueManager, get_user_community_ids
+
+            community_ids = list(get_user_community_ids(user))
+            RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
+        except Exception as e:
+            logger.warning(
+                f"Failed to update real-time subscriptions for user {user.id}: {e}"
+            )
+            # Continue - real-time update failure shouldn't break subscription update
+
+        try:
+            return 200, DiscussionSubscriptionOut.from_orm(subscription)
+        except Exception as e:
+            logger.error(f"Error formatting subscription data: {e}")
+            return 500, {
+                "message": "Subscription updated but error retrieving subscription data."
+            }
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.delete(
+    "/discussions/subscriptions/{subscription_id}/",
+    response={204: None, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def unsubscribe_from_discussion(request, subscription_id: int):
+    """
+    Unsubscribe from discussion updates (soft delete by setting is_active to False)
+    """
+    try:
+        user = request.auth
+
+        try:
+            subscription = DiscussionSubscription.objects.get(
+                id=subscription_id, user=user
+            )
+        except DiscussionSubscription.DoesNotExist:
+            return 404, {"message": "Subscription not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving subscription: {e}")
+            return 500, {"message": "Error retrieving subscription. Please try again."}
+
+        try:
+            # Soft delete by setting is_active to False
+            subscription.is_active = False
+            subscription.save()
+        except Exception as e:
+            logger.error(f"Error deactivating subscription: {e}")
+            return 500, {"message": "Error unsubscribing. Please try again."}
+
+        logger.info(f"User {user.id} unsubscribed from subscription {subscription_id}")
+
+        # Notify Tornado server about subscription change for immediate real-time updates
+        try:
+            from myapp.realtime import RealtimeQueueManager, get_user_community_ids
+
+            community_ids = list(get_user_community_ids(user))
+            RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
+        except Exception as e:
+            logger.warning(
+                f"Failed to update real-time subscriptions for user {user.id}: {e}"
+            )
+            # Continue - real-time update failure shouldn't break unsubscription
+
+        return 204, None
+
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

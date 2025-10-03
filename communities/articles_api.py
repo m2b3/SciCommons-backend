@@ -84,9 +84,24 @@ def submit_article(request, community_name: str, article_slug: str):
                 else CommunityArticle.SUBMITTED
             )
 
-            CommunityArticle.objects.create(
+            community_article = CommunityArticle.objects.create(
                 article=article, community=community, status=community_article_status
             )
+
+            # Create auto-subscriptions if article is published to private/hidden community
+            if community_article_status == CommunityArticle.PUBLISHED:
+                try:
+                    from articles.models import DiscussionSubscription
+
+                    DiscussionSubscription.create_auto_subscriptions_for_new_article(
+                        community_article
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create auto-subscriptions for article '{article.title}': {e}"
+                    )
+                    # Continue - subscription failure shouldn't break article submission
+
         except Exception as e:
             logger.error(f"Error submitting article to community: {e}")
             return 500, {
@@ -429,6 +444,7 @@ def manage_article(
                                 # accept the article immediately
                                 community_article.status = CommunityArticle.ACCEPTED
                                 community_article.save()
+
                                 # TODO: Send notification to the article submitter about
                                 # immediate acceptance
                                 return 200, {
@@ -490,6 +506,7 @@ def manage_article(
                                 # If no reviewers or moderators were assigned, accept the article
                                 community_article.status = CommunityArticle.ACCEPTED
                                 community_article.save()
+
                                 # TODO: Send notification to the article submitter about
                                 # immediate acceptance
                                 return 200, {
@@ -568,6 +585,19 @@ def manage_article(
                             return 500, {
                                 "message": "Error updating article status. Please try again."
                             }
+
+                        # Create auto-subscriptions for published article
+                        try:
+                            from articles.models import DiscussionSubscription
+
+                            DiscussionSubscription.create_auto_subscriptions_for_new_article(
+                                community_article
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to create auto-subscriptions for published article '{community_article.article.title}': {e}"
+                            )
+                            # Continue - subscription failure shouldn't break publication
 
                         # TODO: Send notifications to relevant parties
                         # (submitter, community members, etc.)
@@ -747,6 +777,7 @@ def approve_article(request, community_article_id: int):
                             try:
                                 community_article.status = CommunityArticle.ACCEPTED
                                 community_article.save()
+
                                 # TODO: Notify author of acceptance
                                 return 200, {
                                     "message": "Article approved and accepted by moderator."
@@ -776,6 +807,7 @@ def approve_article(request, community_article_id: int):
                                 try:
                                     community_article.status = CommunityArticle.ACCEPTED
                                     community_article.save()
+
                                 except Exception as e:
                                     logger.error(f"Error updating article status: {e}")
                                     return 500, {
@@ -825,6 +857,7 @@ def approve_article(request, community_article_id: int):
                                 try:
                                     community_article.status = CommunityArticle.ACCEPTED
                                     community_article.save()
+
                                 except Exception as e:
                                     logger.error(f"Error updating article status: {e}")
                                     return 500, {
