@@ -552,20 +552,50 @@ def update_article(
 )
 def get_articles(
     request,
-    community_id: Optional[int] = None,
+    community_id: Optional[str] = None,
     search: Optional[str] = None,
     sort: Optional[str] = None,
-    rating: Optional[int] = None,
+    rating: Optional[str] = None,
     page: int = 1,
     per_page: int = 10,
 ):
     try:
+        # Normalize query params to handle empty strings/'null'/'undefined' sent by some clients
+        def _to_optional_int(value):
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                v = value.strip()
+                if v == "" or v.lower() in {"null", "undefined"}:
+                    return None
+                try:
+                    return int(v)
+                except ValueError:
+                    return None
+            return None
+
+        def _to_optional_str(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                v = value.strip()
+                if v == "" or v.lower() in {"null", "undefined"}:
+                    return None
+                return v
+            return str(value)
+
+        normalized_community_id = _to_optional_int(community_id)
+        normalized_rating = _to_optional_int(rating)
+        normalized_sort = _to_optional_str(sort)
+
         # Generate cache key based on parameters
         cache_key = generate_articles_cache_key(
-            community_id=community_id,
+            community_id=normalized_community_id,
             search=search,
-            sort=sort,
-            rating=rating,
+            sort=normalized_sort,
+            rating=normalized_rating,
             page=page,
             per_page=per_page,
         )
@@ -580,7 +610,7 @@ def get_articles(
         try:
             articles = Article.objects.select_related("submitter")
 
-            if not community_id:
+            if not normalized_community_id:
                 articles = articles.filter(submission_type="Public")
             articles = articles.order_by("-created_at")
 
@@ -591,10 +621,10 @@ def get_articles(
         community = None
         current_user: Optional[User] = None if not request.auth else request.auth
 
-        if community_id:
+        if normalized_community_id:
             try:
                 try:
-                    community = Community.objects.get(id=community_id)
+                    community = Community.objects.get(id=normalized_community_id)
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
 
@@ -637,10 +667,10 @@ def get_articles(
             if search:
                 articles = articles.filter(title__icontains=search)
 
-            if sort:
-                if sort == "latest":
+            if normalized_sort:
+                if normalized_sort == "latest":
                     articles = articles.order_by("-created_at")
-                elif sort == "older":
+                elif normalized_sort == "older":
                     articles = articles.order_by("created_at")
                 else:
                     articles = articles.order_by(
