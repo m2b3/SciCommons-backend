@@ -591,14 +591,14 @@ def get_articles(
         normalized_sort = _to_optional_str(sort)
 
         # Generate cache key based on parameters
-        cache_key = generate_articles_cache_key(
-            community_id=normalized_community_id,
-            search=search,
-            sort=normalized_sort,
-            rating=normalized_rating,
-            page=page,
-            per_page=per_page,
-        )
+        # cache_key = generate_articles_cache_key(
+        #     community_id=normalized_community_id,
+        #     search=search,
+        #     sort=normalized_sort,
+        #     rating=normalized_rating,
+        #     page=page,
+        #     per_page=per_page,
+        # )
 
         # Try to get data from cache first
         # cached_data = get_cache(cache_key)
