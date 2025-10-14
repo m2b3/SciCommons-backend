@@ -9,6 +9,7 @@ services:
       - proxy
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-test.entrypoints=http"
@@ -43,6 +44,36 @@ services:
       - proxy
     env_file:
       - .env.test
+    volumes:
+      - /home/ubuntu/logs:/logs
+
+  tornado-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.tornado
+    command: python tornado_server.py
+    ports:
+      - "8888:8888"
+    depends_on:
+      - redis-test
+    networks:
+      - proxy
+    env_file:
+      - .env.test
+    volumes:
+      - /home/ubuntu/logs:/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tornado-test.entrypoints=http"
+      - "traefik.http.routers.tornado-test.rule=Host(`backendtest.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.middlewares.tornado-test-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tornado-test.middlewares=tornado-test-https-redirect"
+      - "traefik.http.routers.tornado-test-secure.entrypoints=https"
+      - "traefik.http.routers.tornado-test-secure.rule=Host(`backendtest.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.routers.tornado-test-secure.tls=true"
+      - "traefik.http.routers.tornado-test-secure.service=tornado-test"
+      - "traefik.http.services.tornado-test.loadbalancer.server.port=8888"
+      - "traefik.docker.network=proxy"
 
 networks:
   proxy:

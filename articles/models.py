@@ -19,11 +19,14 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
+
     def get_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"article_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     article_image_url = models.ImageField(
@@ -45,8 +48,10 @@ class Article(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['submitter', 'created_at']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=["submitter", "created_at"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["submission_type"]),
+            models.Index(fields=["submission_type", "created_at"]),
         ]
 
     def save(self, *args, **kwargs):
@@ -65,19 +70,23 @@ class Article(models.Model):
 class ArticlePDF(models.Model):
     def get_pdf_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"article_pdfs/{settings.ENVIRONMENT}/{unique_filename}"
 
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to=get_pdf_upload_path, null=True, blank=True)
+    pdf_file_url = models.FileField(
+        upload_to=get_pdf_upload_path, null=True, blank=True
+    )
     external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.article.title} - PDF {self.id}"
-    
+
     def get_url(self):
         """Return either the local file URL or external URL"""
         if self.pdf_file_url:
@@ -117,7 +126,7 @@ class AnonymousIdentity(models.Model):
             lambda: f"{cap_word()}{random.choice(['', '_'])}{random.randint(10, 99)}",
             lambda: f"{low_word()}_{cap_word()}{random.choice(['.', '-', '_'])}{uuid.uuid4().hex[:5]}",
             lambda: f"{cap_word()}.{low_word()}{random.randint(100, 999)}{cap_word()}",
-            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}"
+            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}",
         ]
         fake_name = random.choice(patterns)()
         return fake_name
@@ -151,7 +160,11 @@ class Review(models.Model):
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
     community = models.ForeignKey(
-        "communities.Community", null=True, blank=True, on_delete=models.CASCADE, db_index=True
+        "communities.Community",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        db_index=True,
     )
     community_article = models.ForeignKey(
         "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
@@ -192,7 +205,9 @@ class Review(models.Model):
         super().save(*args, **kwargs)
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.user, self.article, self.community
+        )
 
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
@@ -201,10 +216,10 @@ class Review(models.Model):
     class Meta:
         unique_together = ("article", "user", "community")
         indexes = [
-            models.Index(fields=['article', 'created_at']),
-            models.Index(fields=['community', 'article']),
-            models.Index(fields=['user', 'article']),
-            models.Index(fields=['community_article']),
+            models.Index(fields=["article", "created_at"]),
+            models.Index(fields=["community", "article"]),
+            models.Index(fields=["user", "article"]),
+            models.Index(fields=["community_article"]),
         ]
 
 
@@ -272,6 +287,7 @@ class ReviewComment(models.Model):
     class Meta:
         ordering = ["created_at"]
 
+
 class ReviewCommentRating(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     review = models.ForeignKey(Review, on_delete=models.CASCADE)
@@ -338,7 +354,9 @@ class Discussion(models.Model):
         ordering = ["-created_at"]
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.author, self.article, self.community
+        )
 
 
 class DiscussionComment(models.Model):
@@ -359,6 +377,7 @@ class DiscussionComment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation("Reaction")
     is_pseudonymous = models.BooleanField(default=False)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
         return (
@@ -372,6 +391,193 @@ class DiscussionComment(models.Model):
         return AnonymousIdentity.get_or_create_fake_name(
             self.author, self.discussion.article, self.discussion.community
         )
+
+
+class DiscussionSubscription(models.Model):
+    """
+    Model to track user subscriptions to discussions for real-time updates
+    Only applies to private/hidden community articles
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscriptions",
+        db_index=True,
+    )
+    community_article = models.ForeignKey(
+        "communities.CommunityArticle",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    community = models.ForeignKey(
+        "communities.Community",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    article = models.ForeignKey(
+        Article,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    subscribed_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("user", "community_article", "community")
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["community_article", "is_active"]),
+            models.Index(fields=["community", "is_active"]),
+            models.Index(fields=["article", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} subscribed to discussions in {self.community.name} for article {self.article.title}"
+
+    @classmethod
+    def create_auto_subscriptions_for_new_article(cls, community_article):
+        """
+        Create auto-subscriptions when a new article is published to a community
+        - All community admins get subscribed
+        - Article submitter gets subscribed (if they're a member)
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Only work with private/hidden communities
+        if community_article.community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all potential subscribers in one query
+                admin_ids = set(
+                    community_article.community.admins.values_list("id", flat=True)
+                )
+
+                # Check if submitter is a member
+                submitter = community_article.article.submitter
+                is_member = community_article.community.members.filter(
+                    id=submitter.id
+                ).exists()
+
+                user_ids_to_subscribe = admin_ids.copy()
+                if is_member:
+                    user_ids_to_subscribe.add(submitter.id)
+
+                # Get existing subscriptions to avoid duplicates
+                existing_subscriptions = set(
+                    cls.objects.filter(
+                        community_article=community_article,
+                        community=community_article.community,
+                        user_id__in=user_ids_to_subscribe,
+                    ).values_list("user_id", flat=True)
+                )
+
+                # Create subscriptions for users who don't already have them
+                new_user_ids = user_ids_to_subscribe - existing_subscriptions
+
+                if new_user_ids:
+                    # Bulk create subscriptions
+                    new_subscriptions = [
+                        cls(
+                            user_id=user_id,
+                            community_article=community_article,
+                            community=community_article.community,
+                            article=community_article.article,
+                            is_active=True,
+                        )
+                        for user_id in new_user_ids
+                    ]
+
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for article '{community_article.article.title}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for article '{community_article.article.title}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
+
+    @classmethod
+    def create_auto_subscriptions_for_new_admin(cls, user, community):
+        """
+        Create auto-subscriptions when a user becomes an admin of a community
+        Subscribe them to all existing articles in the community
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Get all community articles for private/hidden communities only
+        if community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all published/accepted articles in this community
+                community_articles = community.communityarticle_set.filter(
+                    status="published"
+                ).select_related("article")
+
+                if not community_articles.exists():
+                    return subscriptions_created
+
+                # Get existing subscriptions to avoid duplicates
+                existing_community_article_ids = set(
+                    cls.objects.filter(
+                        user=user,
+                        community=community,
+                        community_article__in=community_articles,
+                    ).values_list("community_article_id", flat=True)
+                )
+
+                # Create subscriptions for articles that don't already have them
+                new_subscriptions = []
+                for community_article in community_articles:
+                    if community_article.id not in existing_community_article_ids:
+                        new_subscriptions.append(
+                            cls(
+                                user=user,
+                                community_article=community_article,
+                                community=community,
+                                article=community_article.article,
+                                is_active=True,
+                            )
+                        )
+
+                if new_subscriptions:
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for new admin '{user.username}' in community '{community.name}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for new admin '{user.username}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
 
 
 # # Delete review history when a review is deleted

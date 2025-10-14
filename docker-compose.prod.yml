@@ -43,6 +43,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web.entrypoints=http"
@@ -77,6 +78,8 @@ services:
       - proxy
     env_file:
       - .env.prod
+    volumes:
+      - /home/ubuntu/logs:/logs
 
 networks:
   proxy:
