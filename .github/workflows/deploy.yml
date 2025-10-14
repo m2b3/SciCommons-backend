@@ -77,6 +77,10 @@ jobs:
             echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.prod
             echo "CF_DNS_API_TOKEN=${{ secrets.CF_DNS_API_TOKEN }}" >> .env.prod
 
+            echo "REALTIME_REDIS_URL=${{ secrets.REALTIME_REDIS_URL }}" >> .env.test
+            echo "TORNADO_URL=${{ secrets.TORNADO_URL }}" >> .env.test
+            echo "TORNADO_PORT=${{ secrets.TORNADO_PORT }}" >> .env.test
+
             # Ensure the environment variables are written before proceeding
             echo ".env.prod file created with environment variables."
 
