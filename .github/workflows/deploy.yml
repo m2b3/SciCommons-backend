@@ -77,7 +77,7 @@ jobs:
             echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.prod
             echo "CF_DNS_API_TOKEN=${{ secrets.CF_DNS_API_TOKEN }}" >> .env.prod
 
-            echo "REALTIME_REDIS_URL=${{ secrets.REALTIME_REDIS_URL }}" >> .env.test
+            echo "REALTIME_REDIS_URL=${{ secrets.REALTIME_REDIS_URL }}" >> .env.prod
 
             # Ensure the environment variables are written before proceeding
             echo ".env.prod file created with environment variables."
@@ -92,4 +92,3 @@ jobs:
 
             echo "Deployment complete."
           EOF
-          
