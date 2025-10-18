@@ -90,12 +90,16 @@ services:
       context: .
       dockerfile: Dockerfile.tornado
     command: python tornado_server.py
+    ports:
+      - "8888:8888"
     depends_on:
       - redis
     networks:
       - proxy
     env_file:
       - .env.prod
+    volumes:
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tornado.entrypoints=http"
