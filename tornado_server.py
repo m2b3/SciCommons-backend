@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 REDIS_URL = config("REALTIME_REDIS_URL", default="redis://localhost:6379/3")
-TORNADO_PORT = int(config("TORNADO_PORT", default="8888"))
+# Determine default port from ENVIRONMENT, allow explicit override via TORNADO_PORT
+ENVIRONMENT = config("ENVIRONMENT", default="dev").lower()
+SERVER_PORT = 8887 if ENVIRONMENT == "staging" else 8888
 
 # Global state
 user_queues: Dict[str, Dict] = {}  # queue_id -> queue_data
@@ -520,9 +522,9 @@ if __name__ == "__main__":
 
     # Create and start the application
     app = make_app()
-    app.listen(TORNADO_PORT, "0.0.0.0")
+    app.listen(SERVER_PORT, "0.0.0.0")
 
-    logger.info(f"Tornado server starting on port {TORNADO_PORT}")
+    logger.info(f"Tornado server starting on port {SERVER_PORT}")
     logger.info(f"Redis URL: {REDIS_URL}")
     logger.info(f"Queue TTL: {QUEUE_TTL_MINUTES} minutes")
 

@@ -16,9 +16,19 @@ from django.db import models
 
 logger = logging.getLogger(__name__)
 
-# Redis connection for real-time events
-REDIS_URL = config("REALTIME_REDIS_URL", default="redis://localhost:6379/3")
-TORNADO_URL = config("TORNADO_URL", default="http://localhost:8888")
+# Environment-driven defaults so compose can pass only ENVIRONMENT
+ENVIRONMENT = config("ENVIRONMENT", default="dev").lower()
+if ENVIRONMENT == "staging":
+    _default_tornado_url = "http://tornado-test:8887"
+    _default_redis_url = "redis://redis-test:6379/3"
+else:
+    _default_tornado_url = "http://tornado:8888"
+    _default_redis_url = "redis://redis:6379/3"
+
+# Redis and Tornado configuration (can still be overridden via env vars)
+REDIS_URL = config("REALTIME_REDIS_URL", default=_default_redis_url)
+TORNADO_URL = config("TORNADO_URL", default=_default_tornado_url)
+TORNADO_PATH_PREFIX = config("TORNADO_PATH_PREFIX", default="/realtime")
 
 # Global Redis connection
 _redis_client: Optional[redis.Redis] = None
@@ -302,7 +312,7 @@ class RealtimeQueueManager:
 
         try:
             response = requests.post(
-                f"{TORNADO_URL}/realtime/register",
+                f"{TORNADO_URL}{TORNADO_PATH_PREFIX}/register",
                 json={"user_id": user_id, "community_ids": community_ids},
                 timeout=10,
             )
@@ -334,7 +344,7 @@ class RealtimeQueueManager:
 
         try:
             response = requests.post(
-                f"{TORNADO_URL}/realtime/heartbeat",
+                f"{TORNADO_URL}{TORNADO_PATH_PREFIX}/heartbeat",
                 json={"queue_id": queue_id},
                 timeout=5,
             )
@@ -363,7 +373,7 @@ class RealtimeQueueManager:
 
         try:
             response = requests.post(
-                f"{TORNADO_URL}/realtime/update-subscriptions",
+                f"{TORNADO_URL}{TORNADO_PATH_PREFIX}/update-subscriptions",
                 json={"user_id": user_id, "community_ids": community_ids},
                 timeout=5,
             )

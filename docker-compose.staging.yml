@@ -27,6 +27,8 @@ services:
       - celery-test
     env_file:
       - .env.test
+    environment:
+      - ENVIRONMENT=staging
 
   redis-test:
     image: redis:alpine
@@ -46,6 +48,8 @@ services:
       - .env.test
     volumes:
       - /home/ubuntu/logs:/logs
+    environment:
+      - ENVIRONMENT=staging
 
   tornado-test:
     build:
@@ -53,7 +57,7 @@ services:
       dockerfile: Dockerfile.tornado
     command: python tornado_server.py
     ports:
-      - "8888:8888"
+      - "8887:8887"
     depends_on:
       - redis-test
     networks:
@@ -72,8 +76,10 @@ services:
       - "traefik.http.routers.tornado-test-secure.rule=Host(`backendtest.scicommons.org`) && PathPrefix(`/realtime`)"
       - "traefik.http.routers.tornado-test-secure.tls=true"
       - "traefik.http.routers.tornado-test-secure.service=tornado-test"
-      - "traefik.http.services.tornado-test.loadbalancer.server.port=8888"
+      - "traefik.http.services.tornado-test.loadbalancer.server.port=8887"
       - "traefik.docker.network=proxy"
+    environment:
+      - ENVIRONMENT=staging
 
 networks:
   proxy:

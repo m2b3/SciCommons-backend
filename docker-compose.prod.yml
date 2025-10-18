@@ -61,6 +61,8 @@ services:
       - celery
     env_file:
       - .env.prod
+    environment:
+      - ENVIRONMENT=prod
 
   redis:
     image: redis:alpine
@@ -80,6 +82,34 @@ services:
       - .env.prod
     volumes:
       - /home/ubuntu/logs:/logs
+    environment:
+      - ENVIRONMENT=prod
+
+  tornado:
+    build:
+      context: .
+      dockerfile: Dockerfile.tornado
+    command: python tornado_server.py
+    depends_on:
+      - redis
+    networks:
+      - proxy
+    env_file:
+      - .env.prod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tornado.entrypoints=http"
+      - "traefik.http.routers.tornado.rule=Host(`backend.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.middlewares.tornado-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tornado.middlewares=tornado-https-redirect"
+      - "traefik.http.routers.tornado-secure.entrypoints=https"
+      - "traefik.http.routers.tornado-secure.rule=Host(`backend.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.routers.tornado-secure.tls=true"
+      - "traefik.http.routers.tornado-secure.service=tornado"
+      - "traefik.http.services.tornado.loadbalancer.server.port=8888"
+      - "traefik.docker.network=proxy"
+    environment:
+      - ENVIRONMENT=prod
 
 networks:
   proxy:

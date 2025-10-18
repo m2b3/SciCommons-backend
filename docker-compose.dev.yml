@@ -15,8 +15,6 @@ services:
       - tornado
     env_file:
       - .env.local
-    environment:
-      - TORNADO_URL=http://tornado:8888
 
   redis:
     image: redis:alpine
@@ -32,8 +30,6 @@ services:
       - redis
     env_file:
       - .env.local
-    environment:
-      - TORNADO_URL=http://tornado:8888
 
   tornado:
     build:
@@ -49,8 +45,8 @@ services:
     env_file:
       - .env.local
     environment:
+      - ENVIRONMENT=dev
       - REALTIME_REDIS_URL=redis://redis:6379/3
-      - TORNADO_PORT=8888
       - QUEUE_TTL_MINUTES=2
       - MAX_EVENTS_PER_QUEUE=1000
       - POLL_TIMEOUT_SECONDS=60
