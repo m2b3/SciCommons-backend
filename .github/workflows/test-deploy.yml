@@ -78,8 +78,6 @@ jobs:
             echo "CF_DNS_API_TOKEN=${{ secrets.CF_DNS_API_TOKEN }}" >> .env.test
 
             echo "REALTIME_REDIS_URL=${{ secrets.REALTIME_REDIS_URL_TEST }}" >> .env.test
-            echo "TORNADO_URL=${{ secrets.TORNADO_URL_TEST }}" >> .env.test
-            echo "TORNADO_PORT=${{ secrets.TORNADO_PORT_TEST }}" >> .env.test
 
             # Ensure the environment variables are written before proceeding
             echo ".env.test file created with environment variables."
@@ -94,3 +92,4 @@ jobs:
 
             echo "Deployment complete."
           EOF
+          

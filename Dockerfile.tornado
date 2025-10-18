@@ -1,4 +1,4 @@
-# Dockerfile for Tornado Real-time Server
+# Dockerfile for Tornado Real-time Server (single-file for all environments)
 FROM python:3.12-slim
 
 # Set working directory
@@ -27,16 +27,13 @@ COPY . .
 # Install the package in development mode
 RUN poetry install --no-dev
 
-# Expose the Tornado port
-EXPOSE 8888
-
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV TORNADO_PORT=8888
 
-# Health check (using python instead of curl)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8888/health')" || exit 1
+# Health check that derives port from ENVIRONMENT (staging=8887, else=8888)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python -c "import os,urllib.request;port=8887 if os.environ.get('ENVIRONMENT','dev').lower()=='staging' else 8888;urllib.request.urlopen('http://localhost:%s/health' % port)" || exit 1
 
 # Run the Tornado server
 CMD ["python", "tornado_server.py"]
+
+
