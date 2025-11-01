@@ -91,6 +91,15 @@ def update_user(
                 "message": "Error updating profile information. Please try again."
             }
 
+        if profile_image:
+            try:
+                user.profile_pic_url = profile_image
+            except Exception as e:
+                logger.error(f"Error updating profile image: {e}")
+                return 500, {
+                    "message": "Error updating profile image. Please try again."
+                }
+
         if payload.details.research_interests:
             try:
                 # Use hashtags to store research interests
