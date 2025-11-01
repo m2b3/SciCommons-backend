@@ -206,18 +206,42 @@ FRONTEND_URL = config("FRONTEND_URL")
 # MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # MEDIA_URL = "/media/"
 
+# Arbutus Object Storage Configuration (S3-compatible)
 AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
-AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME")
-AWS_S3_CUSTOM_DOMAIN = config("AWS_S3_CUSTOM_DOMAIN")
+AWS_S3_ENDPOINT_URL = config(
+    "AWS_S3_ENDPOINT_URL", default="https://object-arbutus.cloud.computecanada.ca"
+)
+AWS_S3_REGION_NAME = config(
+    "AWS_S3_REGION_NAME", default=""
+)  # Arbutus doesn't require region
+AWS_S3_CUSTOM_DOMAIN = config(
+    "AWS_S3_CUSTOM_DOMAIN",
+    default=f"{config('AWS_STORAGE_BUCKET_NAME', default='cdn.scicommons.org')}",
+)
 AWS_S3_FILE_OVERWRITE = False
+AWS_S3_SIGNATURE_VERSION = "s3"  # Required for Arbutus Object Storage
+AWS_S3_USE_SSL = True
+AWS_S3_VERIFY = True  # Verify SSL certificates
+AWS_S3_ADDRESSING_STYLE = "path"  # Use path-style addressing for compatibility
+
+# Object Parameters - Cache and Content Type settings
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=86400",  # Cache for 24 hours
+}
+
+# Default ACL for uploaded files (public-read for CDN access)
+AWS_DEFAULT_ACL = config("AWS_DEFAULT_ACL", default="public-read")
+
+# Querystring Auth - Set to False if files should be publicly accessible
+AWS_QUERYSTRING_AUTH = config("AWS_QUERYSTRING_AUTH", default=False, cast=bool)
 
 
 STORAGES = {
     # Media File (PDFs, images, etc.) Management
     "default": {
-        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "BACKEND": "myapp.storage.ArbutusMediaStorage",
     },
     "staticfiles": {
         # use default storage for static files
