@@ -1,15 +1,25 @@
 ## Set up Guide
 
-### 1. Create a Conda Environment
+### 1. Create a Virtual Environment
 
 ```bash
-conda create -n <env_name> python=3.12.3
+python -m venv venv
 ```
 
-### 2. Activate the Conda Environment
+*Note:* Make sure you have Python 3.12.3 or compatible version installed.
+
+### 2. Activate the Virtual Environment
+
+#### Mac/Linux:
 
 ```bash
-conda activate <env_name>
+source venv/bin/activate
+```
+
+#### Windows:
+
+```bash
+venv\Scripts\activate
 ```
 
 ### 3. Install the Required Libraries using poetry
@@ -36,9 +46,19 @@ poetry run python manage.py migrate
 
 ### 6. Run the Server
 
+#### Using Uvicorn (Recommended for ASGI support)
+
+```bash
+poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --reload
+```
+
+#### Using Django Development Server (Alternative)
+
 ```bash
 poetry run python manage.py runserver
 ```
+
+*Note:* Uvicorn is recommended as it provides ASGI support for async features and WebSockets.
 
 ### 7. Install Redis
 
@@ -82,13 +102,26 @@ After installation, start Redis using:
 redis-server
 ```
 
-### 9. Run Docker locally
+### 9. Run Tornado Server (For Realtime Features)
+
+If you need realtime features like WebSocket support, run the Tornado server:
 
 ```bash
-docker compose -f docker-composse.dev.yml up
+poetry run python tornado_server.py
+```
+
+*Note:* The Tornado server runs on port 8888 by default and handles realtime subscriptions and events.
+
+### 10. Run Docker locally
+
+```bash
+# Copy .env.example to .env.local
+cp .env.example .env.local
+
+docker compose -f docker-compose.dev.yml --env-file .env.local up
 
 # To run in detached mode:
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --env-file .env.local up -d
 ```
 
 You can now access the server at [http://localhost:8000/](http://localhost:8000/) and API documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/).
