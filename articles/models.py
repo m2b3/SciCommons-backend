@@ -72,9 +72,7 @@ class ArticlePDF(models.Model):
         # Get file extension
         ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = (
-            f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
-        )
+        unique_filename = f"{instance.article.slug}_pdf_{instance.article.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
         return f"article_pdfs/{settings.ENVIRONMENT}/{unique_filename}"
 
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
