@@ -1,6 +1,7 @@
 services:
   web-test:
     build: .
+    restart: unless-stopped
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -32,6 +33,7 @@ services:
 
   redis-test:
     image: redis:alpine
+    restart: unless-stopped
     ports:
       - "6300:6379"
     networks:
@@ -39,6 +41,7 @@ services:
 
   celery-test:
     build: .
+    restart: unless-stopped
     command: celery -A myapp worker --loglevel=info --concurrency=5
     depends_on:
       - redis-test
@@ -55,6 +58,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tornado
+    restart: unless-stopped
     command: python tornado_server.py
     ports:
       - "8887:8887"
