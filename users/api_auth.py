@@ -170,15 +170,21 @@ def activate(request: HttpRequest, token: str):
 
 
 @router.post(
-    "/resend-activation/{email}",
+    "/resend-activation/{identifier}",
     response={200: Message, codes_4xx: Message, codes_5xx: Message},
 )
-def resend_activation(request: HttpRequest, email: str):
+def resend_activation(request: HttpRequest, identifier: str):
     try:
         try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return 404, {"message": "No account associated with this email was found."}
+            # Attempt to retrieve user by username or email
+            user = (
+                User.objects.filter(username=identifier).first()
+                or User.objects.filter(email=identifier).first()
+            )
+            if not user:
+                return 404, {
+                    "message": "No account associated with this username/email was found."
+                }
         except Exception as e:
             logger.error(f"Error retrieving user account: {e}")
             return 500, {"message": "Error retrieving user account. Please try again."}
@@ -199,18 +205,20 @@ def resend_activation(request: HttpRequest, email: str):
                 "activation_link": link,
             }
 
-            # Send email
+            # Send email to the user's email address
             send_email_task.delay(
                 subject="Activate your account",
                 html_template_name="resend_activation_email.html",
                 context=html_content,
-                recipient_list=[email],
+                recipient_list=[user.email],
             )
         except Exception as e:
             logger.error(f"Error sending activation email: {e}")
             return 500, {"message": "Error sending activation email. Please try again."}
 
-        return 200, {"message": "Activation link sent. Please check your email."}
+        return 200, {
+            "message": f"Verification link sent. Please check your email ({user.email})."
+        }
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -238,7 +246,7 @@ def login_user(request, payload: LogInSchemaIn):
         # Check if the user's account is active
         if not user.is_active:
             return 403, {
-                "message": "This account is inactive. Please activate your account first."
+                "message": f"This account is inactive. Please activate your account ({user.email}) first."
             }
 
         try:
