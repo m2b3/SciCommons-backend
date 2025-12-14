@@ -43,6 +43,7 @@ class CommunityListOut(ModelSchema):
     created_at: Optional[datetime] = None
     num_members: int
     num_published_articles: int
+    org: Optional[str] = None
     # is_admin: bool = False
     # is_member: bool = False
     # is_request_sent: bool = False
@@ -60,7 +61,9 @@ class CommunityListOut(ModelSchema):
         ]
 
     @staticmethod
-    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+    def from_orm_with_custom_fields(
+        community: Community, user: Optional[User] = None, org: Optional[str] = None
+    ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
@@ -74,6 +77,7 @@ class CommunityListOut(ModelSchema):
             "created_at": community.created_at,
             "num_members": num_members,
             "num_published_articles": num_published_articles,
+            "org": org,
         }
 
         # if user and not isinstance(user, bool):

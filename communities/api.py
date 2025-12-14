@@ -26,7 +26,11 @@ from communities.schemas import (
     CommunityUpdateSchema,
     PaginatedCommunities,
 )
-from myapp.constants import COMMUNITY_SETTINGS, COMMUNITY_TYPES_LIST
+from myapp.constants import (
+    COMMUNITY_SETTINGS,
+    COMMUNITY_TYPES_LIST,
+    EMAIL_DOMAIN_TO_ORG,
+)
 from myapp.feature_flags import MAX_COMMUNITIES_PER_USER
 from myapp.schemas import DateCount, Message
 from myapp.utils import validate_tags
@@ -36,6 +40,14 @@ router = Router(tags=["Communities"])
 
 # Module-level logger
 logger = logging.getLogger(__name__)
+
+
+def get_org_from_email(email: str) -> str | None:
+    """Determine organization from email domain."""
+    if not email:
+        return None
+    domain = email.split("@")[-1].lower()
+    return EMAIL_DOMAIN_TO_ORG.get(domain)
 
 
 """
@@ -228,6 +240,23 @@ def list_communities(
             )
             members_map = {c["id"]: c["num_members"] for c in members_counts}
 
+            # Bulk fetch admin emails to determine org (single query for all communities)
+            admin_emails = (
+                Community.objects.filter(id__in=community_ids)
+                .prefetch_related("admins")
+                .values("id", "admins__email")
+            )
+            # Build org map: community_id -> org (based on first matching admin email)
+            org_map = {}
+            for entry in admin_emails:
+                community_id = entry["id"]
+                if community_id not in org_map:
+                    admin_email = entry.get("admins__email")
+                    if admin_email:
+                        org = get_org_from_email(admin_email)
+                        if org:
+                            org_map[community_id] = org
+
             # Build Response
             results = []
             for community in paginated_communities.object_list:
@@ -240,6 +269,7 @@ def list_communities(
                     "created_at": community.created_at,
                     "num_members": members_map.get(community.id, 0),
                     "num_published_articles": published_map.get(community.id, 0),
+                    "org": org_map.get(community.id),
                 }
 
                 # Optional user-specific flags (minimal perf impact here)
