@@ -23,3 +23,11 @@ TEN_MINUTES = 600
 FIFTEEN_MINUTES = 900
 THIRTY_MINUTES = 1800
 SIXTY_MINUTES = 3600
+
+
+# Email domain to organization mapping (extensible for future orgs)
+EMAIL_DOMAIN_TO_ORG = {
+    "ashoka.edu.in": "ashoka",
+    # Add more mappings here as needed, e.g.:
+    # "stanford.edu": "stanford",
+}
