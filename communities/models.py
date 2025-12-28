@@ -119,6 +119,7 @@ class CommunityArticle(models.Model):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     PUBLISHED = "published"
+    UNPUBLISHED = "unpublished"
 
     SUBMISSION_STATUS = [
         (SUBMITTED, "Submitted"),
@@ -127,6 +128,7 @@ class CommunityArticle(models.Model):
         (ACCEPTED, "Accepted"),
         (REJECTED, "Rejected"),
         (PUBLISHED, "Published"),
+        (UNPUBLISHED, "Unpublished"),
     ]
 
     article = models.ForeignKey(

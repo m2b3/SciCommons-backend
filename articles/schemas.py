@@ -81,6 +81,7 @@ class CommunityArticleOut(ModelSchema):
         "accepted",
         "rejected",
         "published",
+        "unpublished",
     ]
     submitted_at: datetime
     published_at: Optional[datetime]

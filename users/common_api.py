@@ -8,6 +8,7 @@ from urllib.parse import unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from ninja import Query, Router
 from ninja.errors import HttpRequest
@@ -212,26 +213,32 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
 
         # Use select_for_update to prevent race conditions
         try:
-            bookmark = Bookmark.objects.filter(
-                user=user, content_type=content_type, object_id=data.object_id
-            ).first()
-
-            if bookmark:
-                # Remove existing bookmark
-                bookmark.delete()
-                return 200, {
-                    "message": "Bookmark removed successfully",
-                    "is_bookmarked": False,
-                }
-            else:
-                # Create new bookmark
-                Bookmark.objects.create(
-                    user=user, content_type=content_type, object_id=data.object_id
+            with transaction.atomic():
+                # Lock the row to prevent concurrent modifications
+                bookmark = (
+                    Bookmark.objects.filter(
+                        user=user, content_type=content_type, object_id=data.object_id
+                    )
+                    .select_for_update()
+                    .first()
                 )
-                return 200, {
-                    "message": "Bookmark added successfully",
-                    "is_bookmarked": True,
-                }
+
+                if bookmark:
+                    # Remove existing bookmark
+                    bookmark.delete()
+                    return 200, {
+                        "message": "Bookmark removed successfully",
+                        "is_bookmarked": False,
+                    }
+                else:
+                    # Create new bookmark
+                    Bookmark.objects.create(
+                        user=user, content_type=content_type, object_id=data.object_id
+                    )
+                    return 200, {
+                        "message": "Bookmark added successfully",
+                        "is_bookmarked": True,
+                    }
         except Exception as e:
             logger.error(f"Error processing bookmark operation: {e}")
             return 500, {

@@ -263,6 +263,7 @@ class ArticleStatus(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     PUBLISHED = "published"
+    UNPUBLISHED = "unpublished"
 
 
 class Filters(Schema):

@@ -617,6 +617,7 @@ def get_articles(
                     return 403, {"message": "You don't have access to this community."}
 
                 # Only display articles that are published or accepted in the community
+                # Note: UNPUBLISHED articles are intentionally excluded (they were published but are now hidden)
                 try:
                     articles = articles.filter(
                         Q(
