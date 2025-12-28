@@ -585,6 +585,7 @@ def manage_article(
                 if community_article.status not in [
                     CommunityArticle.ACCEPTED,
                     CommunityArticle.UNPUBLISHED,
+                    CommunityArticle.UNDER_REVIEW,
                 ]:
                     return 400, {
                         "message": "This article must be in accepted or unpublished state to publish."
