@@ -44,6 +44,7 @@ class CommunityListOut(ModelSchema):
     num_members: int
     num_published_articles: int
     org: Optional[str] = None
+    is_bookmarked: Optional[bool] = None
     # is_admin: bool = False
     # is_member: bool = False
     # is_request_sent: bool = False
@@ -62,7 +63,10 @@ class CommunityListOut(ModelSchema):
 
     @staticmethod
     def from_orm_with_custom_fields(
-        community: Community, user: Optional[User] = None, org: Optional[str] = None
+        community: Community,
+        user: Optional[User] = None,
+        org: Optional[str] = None,
+        is_bookmarked: Optional[bool] = None,
     ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
@@ -78,6 +82,7 @@ class CommunityListOut(ModelSchema):
             "num_members": num_members,
             "num_published_articles": num_published_articles,
             "org": org,
+            "is_bookmarked": is_bookmarked,
         }
 
         # if user and not isinstance(user, bool):
@@ -119,6 +124,7 @@ class CommunityOut(ModelSchema):
     is_moderator: Optional[bool] = None
     is_reviewer: Optional[bool] = None
     is_admin: Optional[bool] = None
+    is_bookmarked: Optional[bool] = None
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
 
@@ -138,7 +144,11 @@ class CommunityOut(ModelSchema):
         ]
 
     @staticmethod
-    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+    def from_orm_with_custom_fields(
+        community: Community,
+        user: Optional[User] = None,
+        is_bookmarked: Optional[bool] = None,
+    ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
@@ -156,6 +166,7 @@ class CommunityOut(ModelSchema):
             "num_published_articles": num_published_articles,
             "num_articles": num_articles,
             "community_settings": community.community_settings,
+            "is_bookmarked": is_bookmarked,
         }
 
         if community.created_at:

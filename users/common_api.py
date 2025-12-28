@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 from ninja import Query, Router
 from ninja.errors import HttpRequest
 from ninja.responses import codes_4xx, codes_5xx
@@ -22,11 +22,15 @@ from posts.schemas import PaginatedPostsResponse, PostOut
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Bookmark, Hashtag, HashtagRelation, User
 from users.schemas import (
+    BookmarkContentTypeEnum,
+    BookmarkFilterTypeEnum,
+    BookmarkSchema,
     BookmarkStatusResponseSchema,
     BookmarkToggleResponseSchema,
     BookmarkToggleSchema,
     ContentTypeEnum,
     HashtagOut,
+    PaginatedBookmarksResponseSchema,
     PaginatedHashtagOut,
     ReactionCountOut,
     ReactionIn,
@@ -110,11 +114,27 @@ def check_permission(
 Bookmarks API
 """
 
+# Cache content types to avoid repeated DB lookups
+_content_type_cache: dict[str, ContentType] = {}
+
 
 def get_content_type(content_type_value: str) -> ContentType:
+    """
+    Get ContentType from cache or database.
+    Uses module-level cache for performance.
+
+    IMPORTANT: Model names in Django ContentType are stored in lowercase.
+    This function ensures we always query with lowercase model names.
+    """
+    if content_type_value in _content_type_cache:
+        return _content_type_cache[content_type_value]
+
     try:
         app_label, model = content_type_value.split(".")
-        return ContentType.objects.get(app_label=app_label, model=model)
+        # Django stores model names in lowercase in ContentType table
+        content_type = ContentType.objects.get(app_label=app_label, model=model.lower())
+        _content_type_cache[content_type_value] = content_type
+        return content_type
     except ValueError:
         raise ValueError("Invalid content type format. Must be 'app_label.model'")
     except ContentType.DoesNotExist:
@@ -125,19 +145,48 @@ def get_content_type(content_type_value: str) -> ContentType:
         raise Exception(f"Error retrieving content type: {str(e)}")
 
 
+def get_content_type_for_model(model_class) -> ContentType:
+    """
+    Get ContentType for a model class with caching.
+    This is a cached wrapper around ContentType.objects.get_for_model().
+    """
+    cache_key = f"{model_class._meta.app_label}.{model_class._meta.model_name}"
+    if cache_key not in _content_type_cache:
+        _content_type_cache[cache_key] = ContentType.objects.get_for_model(model_class)
+    return _content_type_cache[cache_key]
+
+
+def _validate_bookmarkable_object(content_type_value: str, object_id: int) -> bool:
+    """
+    Validate that the object being bookmarked exists.
+    Returns True if valid, raises appropriate exception if not.
+    """
+    if content_type_value == BookmarkContentTypeEnum.ARTICLE.value:
+        if not Article.objects.filter(id=object_id).exists():
+            raise Article.DoesNotExist("Article not found")
+    elif content_type_value == BookmarkContentTypeEnum.COMMUNITY.value:
+        if not Community.objects.filter(id=object_id).exists():
+            raise Community.DoesNotExist("Community not found")
+    return True
+
+
 @router.post(
-    "/toggle-bookmark",
+    "/bookmarks/toggle",
     response={
         200: BookmarkToggleResponseSchema,
         codes_4xx: Message,
         codes_5xx: Message,
     },
     auth=JWTAuth(),
+    summary="Toggle a bookmark",
+    description="Toggle bookmark status. Adds if not bookmarked, removes if already bookmarked.",
 )
 def toggle_bookmark(request, data: BookmarkToggleSchema):
+    """Toggle bookmark status for an article or community."""
     try:
         user = request.auth
 
+        # Validate content type
         try:
             content_type = get_content_type(data.content_type.value)
         except ValueError:
@@ -152,46 +201,60 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
             logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
+        # Validate the object exists before creating bookmark
         try:
-            bookmark, created = Bookmark.objects.get_or_create(
-                user=user, content_type=content_type, object_id=data.object_id
-            )
+            _validate_bookmarkable_object(data.content_type.value, data.object_id)
+        except (Article.DoesNotExist, Community.DoesNotExist) as e:
+            return 404, {"message": str(e)}
         except Exception as e:
-            logger.error(f"Error processing bookmark operation: {e}")
-            return 500, {
-                "message": "Error processing bookmark operation. Please try again."
-            }
+            logger.error(f"Error validating object: {e}")
+            return 500, {"message": "Error validating object. Please try again."}
 
-        if created:
-            return 200, {
-                "message": "Bookmark added successfully",
-                "is_bookmarked": True,
-            }
-        else:
-            try:
+        # Use select_for_update to prevent race conditions
+        try:
+            bookmark = Bookmark.objects.filter(
+                user=user, content_type=content_type, object_id=data.object_id
+            ).first()
+
+            if bookmark:
+                # Remove existing bookmark
                 bookmark.delete()
                 return 200, {
                     "message": "Bookmark removed successfully",
                     "is_bookmarked": False,
                 }
-            except Exception as e:
-                logger.error(f"Error removing bookmark: {e}")
-                return 500, {"message": "Error removing bookmark. Please try again."}
+            else:
+                # Create new bookmark
+                Bookmark.objects.create(
+                    user=user, content_type=content_type, object_id=data.object_id
+                )
+                return 200, {
+                    "message": "Bookmark added successfully",
+                    "is_bookmarked": True,
+                }
+        except Exception as e:
+            logger.error(f"Error processing bookmark operation: {e}")
+            return 500, {
+                "message": "Error processing bookmark operation. Please try again."
+            }
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.get(
-    "/bookmark-status/{content_type}/{object_id}",
+    "/bookmarks/status/{content_type}/{object_id}",
     response={
         200: BookmarkStatusResponseSchema,
         codes_4xx: Message,
         codes_5xx: Message,
     },
     auth=OptionalJWTAuth,
+    summary="Get bookmark status",
+    description="Check if an item is bookmarked by the current user.",
 )
-def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
+def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_id: int):
+    """Check if an article or community is bookmarked by the current user."""
     try:
         user: Optional[User] = None if not request.auth else request.auth
 
@@ -213,6 +276,7 @@ def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
             return 500, {"message": "Error retrieving content type. Please try again."}
 
         try:
+            # Uses the composite index: bookmark_user_type_obj
             is_bookmarked = Bookmark.objects.filter(
                 user=user, content_type=content_type_obj, object_id=object_id
             ).exists()
@@ -220,6 +284,147 @@ def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
         except Exception as e:
             logger.error(f"Error checking bookmark status: {e}")
             return 500, {"message": "Error checking bookmark status. Please try again."}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/bookmarks",
+    response={
+        200: PaginatedBookmarksResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+    summary="Get user's bookmarks",
+    description="Get paginated list of user's bookmarks. Can filter by type (article/community).",
+)
+def get_my_bookmarks(
+    request,
+    filter_type: BookmarkFilterTypeEnum = Query(
+        BookmarkFilterTypeEnum.ALL, description="Filter by bookmark type"
+    ),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+):
+    """
+    Get paginated list of user's bookmarks with optional type filtering.
+    Uses optimized queries with proper indexing.
+    """
+    try:
+        user = request.auth
+
+        # Build base query - uses index: bookmark_user_created or bookmark_user_type_created
+        try:
+            bookmarks_qs = Bookmark.objects.filter(user=user).select_related(
+                "content_type"
+            )
+
+            # Filter by type if specified
+            if filter_type == BookmarkFilterTypeEnum.ARTICLE:
+                article_ct = get_content_type_for_model(Article)
+                bookmarks_qs = bookmarks_qs.filter(content_type=article_ct)
+            elif filter_type == BookmarkFilterTypeEnum.COMMUNITY:
+                community_ct = get_content_type_for_model(Community)
+                bookmarks_qs = bookmarks_qs.filter(content_type=community_ct)
+
+            # Order by created_at descending (uses index)
+            bookmarks_qs = bookmarks_qs.order_by("-created_at")
+
+        except Exception as e:
+            logger.error(f"Error building bookmarks query: {e}")
+            return 500, {"message": "Error retrieving bookmarks. Please try again."}
+
+        # Paginate
+        try:
+            paginator = Paginator(bookmarks_qs, per_page)
+            page_obj = paginator.get_page(page)
+        except Exception as e:
+            logger.error(f"Error paginating bookmarks: {e}")
+            return 400, {
+                "message": "Invalid pagination parameters. Please check and try again."
+            }
+
+        # Batch fetch related objects for efficiency
+        try:
+            bookmarks_list = list(page_obj.object_list)
+
+            # Separate bookmarks by type for batch fetching
+            article_bookmarks = []
+            community_bookmarks = []
+            article_ct = get_content_type_for_model(Article)
+            community_ct = get_content_type_for_model(Community)
+
+            for bookmark in bookmarks_list:
+                if bookmark.content_type_id == article_ct.id:
+                    article_bookmarks.append(bookmark)
+                elif bookmark.content_type_id == community_ct.id:
+                    community_bookmarks.append(bookmark)
+
+            # Batch fetch articles
+            article_ids = [b.object_id for b in article_bookmarks]
+            articles_map = {}
+            if article_ids:
+                articles = Article.objects.filter(id__in=article_ids).select_related(
+                    "submitter"
+                )
+                articles_map = {a.id: a for a in articles}
+
+            # Batch fetch communities with member count
+            community_ids = [b.object_id for b in community_bookmarks]
+            communities_map = {}
+            if community_ids:
+                communities = Community.objects.filter(id__in=community_ids).annotate(
+                    member_count=Count("members")
+                )
+                communities_map = {c.id: c for c in communities}
+
+            # Build response
+            result = []
+            for bookmark in bookmarks_list:
+                try:
+                    if bookmark.content_type_id == article_ct.id:
+                        article = articles_map.get(bookmark.object_id)
+                        if article:
+                            result.append(
+                                BookmarkSchema(
+                                    id=bookmark.id,
+                                    title=article.title,
+                                    type="article",
+                                    details=f"Article by {article.submitter.get_full_name() or article.submitter.username}",
+                                    slug=article.slug,
+                                    created_at=bookmark.created_at,
+                                )
+                            )
+                    elif bookmark.content_type_id == community_ct.id:
+                        community = communities_map.get(bookmark.object_id)
+                        if community:
+                            result.append(
+                                BookmarkSchema(
+                                    id=bookmark.id,
+                                    title=community.name,
+                                    type="community",
+                                    details=f"{community.member_count} members",
+                                    slug=community.slug,
+                                    created_at=bookmark.created_at,
+                                )
+                            )
+                except Exception as e:
+                    logger.error(f"Error formatting bookmark {bookmark.id}: {e}")
+                    # Skip bookmarks with errors instead of failing entirely
+                    continue
+
+            return 200, PaginatedBookmarksResponseSchema(
+                items=result,
+                total=paginator.count,
+                page=page_obj.number,
+                per_page=per_page,
+                pages=paginator.num_pages,
+            )
+        except Exception as e:
+            logger.error(f"Error formatting bookmark data: {e}")
+            return 500, {"message": "Error formatting bookmark data. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

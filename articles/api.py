@@ -43,7 +43,8 @@ from myapp.constants import FIFTEEN_MINUTES
 from myapp.schemas import FilterType
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Hashtag, HashtagRelation, Notification, User
+from users.common_api import get_content_type_for_model
+from users.models import Bookmark, Hashtag, HashtagRelation, Notification, User
 
 router = Router(tags=["Articles"])
 
@@ -352,6 +353,15 @@ def get_article(
                 pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
             ]
 
+            # Check bookmark status
+            is_bookmarked = None
+            current_user = request.auth
+            if current_user and not isinstance(current_user, bool):
+                article_ct = get_content_type_for_model(Article)
+                is_bookmarked = Bookmark.objects.filter(
+                    user=current_user, content_type=article_ct, object_id=article.id
+                ).exists()
+
             # Prepare output
             article_data = ArticleOut.from_orm_with_custom_fields(
                 article=article,
@@ -362,6 +372,7 @@ def get_article(
                 total_comments=total_comments,
                 community_article=community_article,
                 current_user=request.auth,
+                is_bookmarked=is_bookmarked,
             )
             return 200, article_data
         except Exception as e:
@@ -688,12 +699,29 @@ def get_articles(
                 for ca in ca_qs:
                     community_articles[ca.article.id] = ca
 
+            # Bulk fetch bookmark status for authenticated users
+            bookmarked_ids = set()
+            if current_user and not isinstance(current_user, bool):
+                article_ct = get_content_type_for_model(Article)
+                bookmarked_ids = set(
+                    Bookmark.objects.filter(
+                        user=current_user,
+                        content_type=article_ct,
+                        object_id__in=article_ids,
+                    ).values_list("object_id", flat=True)
+                )
+
             response_data = PaginatedArticlesListResponse(
                 items=[
                     ArticlesListOut.from_orm_with_fields(
                         article=article,
                         total_ratings=review_ratings.get(article.id, 0),
                         community_article=community_articles.get(article.id),
+                        is_bookmarked=(
+                            article.id in bookmarked_ids
+                            if current_user and not isinstance(current_user, bool)
+                            else None
+                        ),
                     )
                     for article in paginated_articles
                 ],
