@@ -248,12 +248,20 @@ Reaction Schemas
 
 class ContentTypeEnum(str, Enum):
     ARTICLE = "articles.article"
+    COMMUNITY = "communities.community"
     POST = "posts.post"
     COMMENT = "posts.comment"
     REVIEWCOMMENT = "articles.reviewcomment"
     REVIEW = "articles.review"
     DISCUSSION = "articles.discussion"
     DISCUSSIONCOMMENT = "articles.discussioncomment"
+
+
+class BookmarkContentTypeEnum(str, Enum):
+    """Enum for content types that can be bookmarked."""
+
+    ARTICLE = "articles.article"
+    COMMUNITY = "communities.community"
 
 
 class VoteEnum(int, Enum):
@@ -316,10 +324,11 @@ class BookmarkSchema(Schema):
     type: str
     details: str
     slug: str
+    created_at: datetime
 
 
 class BookmarkToggleSchema(Schema):
-    content_type: ContentTypeEnum
+    content_type: BookmarkContentTypeEnum
     object_id: int
 
 
@@ -329,4 +338,20 @@ class BookmarkToggleResponseSchema(Schema):
 
 
 class BookmarkStatusResponseSchema(Schema):
-    is_bookmarked: bool
+    is_bookmarked: Optional[bool]
+
+
+class BookmarkFilterTypeEnum(str, Enum):
+    """Enum for filtering bookmarks by type."""
+
+    ARTICLE = "article"
+    COMMUNITY = "community"
+    ALL = "all"
+
+
+class PaginatedBookmarksResponseSchema(Schema):
+    items: List[BookmarkSchema]
+    total: int
+    page: int
+    per_page: int
+    pages: int

@@ -17,9 +17,8 @@ from communities.schemas import CommunityListOut, PaginatedCommunities
 from myapp.schemas import Message, UserStats
 from posts.models import Post
 from users.auth import JWTAuth
-from users.models import Bookmark, Hashtag, HashtagRelation, Notification, User
+from users.models import Hashtag, HashtagRelation, Notification, User
 from users.schemas import (
-    BookmarkSchema,
     FavoriteItemSchema,
     NotificationSchema,
     UserArticleSchema,
@@ -602,72 +601,6 @@ def get_my_favorites(request):
                 continue
 
         return 200, favorites
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        return 500, {"message": "An unexpected error occurred. Please try again later."}
-
-
-@router.get(
-    "/bookmarks",
-    response={200: List[BookmarkSchema], codes_4xx: Message, codes_5xx: Message},
-    auth=JWTAuth(),
-)
-def get_my_bookmarks(request):
-    try:
-        user = request.auth
-        try:
-            bookmarks = Bookmark.objects.filter(user=user).select_related(
-                "content_type"
-            )
-        except Exception as e:
-            logger.error(f"Error retrieving your bookmarks: {e}")
-            return 500, {
-                "message": "Error retrieving your bookmarks. Please try again."
-            }
-
-        result = []
-        for bookmark in bookmarks:
-            try:
-                obj = bookmark.content_object
-                if isinstance(obj, Article):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.title,
-                            "type": "Article",
-                            "details": f"Article by {obj.author.get_full_name()}",
-                            "slug": obj.slug,
-                        }
-                    )
-                elif isinstance(obj, Community):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.name,
-                            "type": "Community",
-                            "details": f"{obj.members.count()} members",
-                            "slug": obj.slug,
-                        }
-                    )
-                elif isinstance(obj, Post):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.title,
-                            "type": "Post",
-                            "details": (
-                                f"Post by {obj.author.username} · "
-                                f"{obj.reactions.filter(vote=1).count()} likes"
-                            ),
-                            "slug": str(obj.id),
-                        }
-                    )
-            except Exception as e:
-                logger.error(f"Error formatting bookmark data: {e}")
-                # Skip bookmarks with errors instead of failing entirely
-                continue
-
-        return 200, result
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

@@ -4,6 +4,7 @@ from typing import List, Literal, Optional
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Avg, Exists, OuterRef, Q
+from django.utils import timezone
 from ninja import Query, Router
 from ninja.responses import codes_4xx, codes_5xx
 
@@ -387,8 +388,19 @@ def list_community_articles_by_status(
 def manage_article(
     request,
     community_article_id: int,
-    action: Literal["approve", "reject", "publish"],
+    action: Literal["approve", "reject", "publish", "unpublish"],
 ):
+    """
+    Manage article status in a community. Only community admins can perform these actions.
+
+    Actions:
+    - approve: Move article from SUBMITTED to UNDER_REVIEW (assigns reviewers/moderators)
+    - reject: Move article from SUBMITTED/UNDER_REVIEW to REJECTED
+    - publish: Move article from ACCEPTED/UNPUBLISHED to PUBLISHED (creates discussion subscriptions)
+    - unpublish: Move article from PUBLISHED to UNPUBLISHED (deactivates discussion subscriptions)
+
+    Note: To completely remove an article from a community, use the DELETE /{community_article_id}/remove/ endpoint.
+    """
     try:
         user = request.auth
 
@@ -409,9 +421,9 @@ def manage_article(
                 "message": "Error checking administrative privileges. Please try again."
             }
 
-        if action not in ["approve", "reject", "publish"]:
+        if action not in ["approve", "reject", "publish", "unpublish"]:
             return 400, {
-                "message": "Invalid action. Must be one of: approve, reject, publish."
+                "message": "Invalid action. Must be one of: approve, reject, publish, unpublish."
             }
 
         if action == "approve":
@@ -570,15 +582,19 @@ def manage_article(
 
         elif action == "publish":
             try:
-                if community_article.status != CommunityArticle.ACCEPTED:
+                if community_article.status not in [
+                    CommunityArticle.ACCEPTED,
+                    CommunityArticle.UNPUBLISHED,
+                ]:
                     return 400, {
-                        "message": "This article is not in the accepted state."
+                        "message": "This article must be in accepted or unpublished state to publish."
                     }
 
                 try:
                     with transaction.atomic():
                         try:
                             community_article.status = CommunityArticle.PUBLISHED
+                            community_article.published_at = timezone.now()
                             community_article.save()
                         except Exception as e:
                             logger.error(f"Error updating article status: {e}")
@@ -586,16 +602,28 @@ def manage_article(
                                 "message": "Error updating article status. Please try again."
                             }
 
-                        # Create auto-subscriptions for published article
+                        # Create or reactivate auto-subscriptions for published article
                         try:
                             from articles.models import DiscussionSubscription
 
-                            DiscussionSubscription.create_auto_subscriptions_for_new_article(
-                                community_article
-                            )
+                            # First, try to reactivate existing subscriptions (for republish case)
+                            reactivated_count = DiscussionSubscription.objects.filter(
+                                community_article=community_article,
+                                is_active=False,
+                            ).update(is_active=True)
+
+                            if reactivated_count > 0:
+                                logger.info(
+                                    f"Reactivated {reactivated_count} discussion subscriptions for republished article '{community_article.article.title}'"
+                                )
+                            else:
+                                # Create new subscriptions if none exist
+                                DiscussionSubscription.create_auto_subscriptions_for_new_article(
+                                    community_article
+                                )
                         except Exception as e:
                             logger.error(
-                                f"Failed to create auto-subscriptions for published article '{community_article.article.title}': {e}"
+                                f"Failed to create/reactivate auto-subscriptions for published article '{community_article.article.title}': {e}"
                             )
                             # Continue - subscription failure shouldn't break publication
 
@@ -611,6 +639,142 @@ def manage_article(
             except Exception as e:
                 logger.error(f"Error publishing article: {e}")
                 return 500, {"message": "Error publishing article. Please try again."}
+
+        elif action == "unpublish":
+            try:
+                if community_article.status != CommunityArticle.PUBLISHED:
+                    return 400, {
+                        "message": "This article is not in the published state."
+                    }
+
+                try:
+                    with transaction.atomic():
+                        try:
+                            # Change status to unpublished
+                            community_article.status = CommunityArticle.UNPUBLISHED
+                            community_article.published_at = None
+                            community_article.save()
+                        except Exception as e:
+                            logger.error(f"Error updating article status: {e}")
+                            return 500, {
+                                "message": "Error updating article status. Please try again."
+                            }
+
+                        # Deactivate discussion subscriptions for this article
+                        try:
+                            from articles.models import DiscussionSubscription
+
+                            deactivated_count = DiscussionSubscription.objects.filter(
+                                community_article=community_article,
+                                is_active=True,
+                            ).update(is_active=False)
+
+                            logger.info(
+                                f"Deactivated {deactivated_count} discussion subscriptions for unpublished article '{community_article.article.title}'"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to deactivate discussion subscriptions for unpublished article '{community_article.article.title}': {e}"
+                            )
+                            # Continue - subscription deactivation failure shouldn't break unpublication
+
+                        # TODO: Send notifications to relevant parties
+                        # (submitter, community members who were subscribed, etc.)
+                except Exception as e:
+                    logger.error(f"Error processing unpublication workflow: {e}")
+                    return 500, {
+                        "message": "Error processing unpublication workflow. Please try again."
+                    }
+
+                return 200, {"message": "Article unpublished successfully."}
+            except Exception as e:
+                logger.error(f"Error unpublishing article: {e}")
+                return 500, {"message": "Error unpublishing article. Please try again."}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.delete(
+    "/{community_article_id}/remove/",
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def remove_article_from_community(request, community_article_id: int):
+    """
+    Remove an article from a community entirely by deleting the CommunityArticle record.
+    This will CASCADE delete:
+    - Reviews associated with this community_article
+    - DiscussionSubscriptions for this community_article
+
+    Note: The Article itself is NOT deleted, only its association with the community.
+    """
+    try:
+        user = request.auth
+
+        try:
+            community_article = CommunityArticle.objects.select_related(
+                "article", "community"
+            ).get(id=community_article_id)
+        except CommunityArticle.DoesNotExist:
+            return 404, {"message": "Article not found in community."}
+        except Exception as e:
+            logger.error(f"Error retrieving article: {e}")
+            return 500, {"message": "Error retrieving article. Please try again."}
+
+        try:
+            if not community_article.community.is_admin(user):
+                return 403, {"message": "You are not an admin of this community."}
+        except Exception as e:
+            logger.error(f"Error checking administrative privileges: {e}")
+            return 500, {
+                "message": "Error checking administrative privileges. Please try again."
+            }
+
+        # Store info for logging before deletion
+        article_title = community_article.article.title
+        community_name = community_article.community.name
+
+        try:
+            with transaction.atomic():
+                # Log what will be cascade deleted
+                try:
+                    from articles.models import DiscussionSubscription, Review
+
+                    reviews_count = Review.objects.filter(
+                        community_article=community_article
+                    ).count()
+                    subscriptions_count = DiscussionSubscription.objects.filter(
+                        community_article=community_article
+                    ).count()
+
+                    logger.info(
+                        f"Removing article '{article_title}' from community '{community_name}'. "
+                        f"This will delete {reviews_count} review(s) and {subscriptions_count} subscription(s)."
+                    )
+                except Exception as e:
+                    logger.warning(f"Error counting related objects: {e}")
+
+                # Delete the CommunityArticle (CASCADE will handle related objects)
+                try:
+                    community_article.delete()
+                    logger.info(
+                        f"Successfully removed article '{article_title}' from community '{community_name}'"
+                    )
+                except Exception as e:
+                    logger.error(f"Error deleting community article: {e}")
+                    return 500, {
+                        "message": "Error removing article from community. Please try again."
+                    }
+
+                # TODO: Send notification to the article submitter
+        except Exception as e:
+            logger.error(f"Error processing article removal: {e}")
+            return 500, {
+                "message": "Error processing article removal. Please try again."
+            }
+
+        return 200, {"message": "Article removed from community successfully."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

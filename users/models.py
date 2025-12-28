@@ -245,14 +245,38 @@ class Reputation(models.Model):
 
 
 class Bookmark(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bookmarks")
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="bookmarks", db_index=True
+    )
+    content_type = models.ForeignKey(
+        ContentType, on_delete=models.CASCADE, db_index=True
+    )
+    object_id = models.PositiveIntegerField(db_index=True)
     content_object = GenericForeignKey("content_type", "object_id")
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        # Unique constraint to prevent duplicate bookmarks
         unique_together = ("user", "content_type", "object_id")
+        # Composite indexes for efficient queries
+        indexes = [
+            # For fetching user's bookmarks filtered by content type (most common query)
+            models.Index(
+                fields=["user", "content_type", "-created_at"],
+                name="bookmark_user_type_created",
+            ),
+            # For fetching all user's bookmarks sorted by date
+            models.Index(
+                fields=["user", "-created_at"],
+                name="bookmark_user_created",
+            ),
+            # For checking if a specific item is bookmarked by user
+            models.Index(
+                fields=["user", "content_type", "object_id"],
+                name="bookmark_user_type_obj",
+            ),
+        ]
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.user.username} - Bookmark for {self.content_object}"

@@ -81,6 +81,7 @@ class CommunityArticleOut(ModelSchema):
         "accepted",
         "rejected",
         "published",
+        "unpublished",
     ]
     submitted_at: datetime
     published_at: Optional[datetime]
@@ -159,6 +160,7 @@ class ArticlesListOut(ModelSchema):
     title: str
     abstract: str
     article_image_url: Optional[str] = None
+    is_bookmarked: Optional[bool] = None
 
     class Config:
         model = Article
@@ -170,6 +172,7 @@ class ArticlesListOut(ModelSchema):
         article: Article,
         total_ratings: float,
         community_article: Optional[CommunityArticle],
+        is_bookmarked: Optional[bool] = None,
     ):
         return cls(
             id=article.id,
@@ -185,6 +188,7 @@ class ArticlesListOut(ModelSchema):
             user=UserStats.from_model(article.submitter, basic_details=True),
             article_image_url=article.article_image_url,
             total_ratings=total_ratings,
+            is_bookmarked=is_bookmarked,
         )
 
 
@@ -201,6 +205,7 @@ class ArticleOut(ModelSchema):
     is_submitter: bool
     submission_type: SubmissionType
     is_pseudonymous: bool = Field(False)
+    is_bookmarked: Optional[bool] = None
 
     class Config:
         model = Article
@@ -226,6 +231,7 @@ class ArticleOut(ModelSchema):
         total_comments: int,
         community_article: Optional[CommunityArticle],
         current_user: Optional[User],
+        is_bookmarked: Optional[bool] = None,
     ):
         is_pseudonymous = False
         community_article_out = None
@@ -258,6 +264,7 @@ class ArticleOut(ModelSchema):
             ),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
+            is_bookmarked=is_bookmarked,
         )
 
 
