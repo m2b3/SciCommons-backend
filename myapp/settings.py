@@ -34,15 +34,7 @@ DEBUG = config("DEBUG", default=False, cast=bool)
 
 ENVIRONMENT = config("ENVIRONMENT", default="local")
 
-ALLOWED_HOSTS = [
-    "scicommons.org",
-    "test.scicommons.org",
-    "alphatest.scicommons.org",
-    "backend.scicommons.org",
-    "backendtest.scicommons.org",
-    "localhost",
-    "127.0.0.1",
-]
+ALLOWED_HOSTS = ["*"]
 
 # Allow all hosts in debug mode for development
 if DEBUG:
@@ -99,7 +91,7 @@ MIDDLEWARE = [
 ]
 
 # CORS Settings
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
     "https://scicommons.org",
     "https://test.scicommons.org",
@@ -109,10 +101,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-
-# CORS_ALLOWED_ORIGIN_REGEXES = [
-#     r"^https://[a-zA-Z0-9-]+\.scicommons\.org$",
-# ]
 
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True
@@ -137,16 +125,16 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # Security Settings
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
 
 # Additional Security Headers
 SECURE_REFERRER_POLICY = "same-origin"
@@ -174,22 +162,21 @@ TEMPLATES = [
 # WSGI_APPLICATION = "myapp.wsgi.application"
 
 
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
+# -----------------------------------------------------------------------------
+# DATABASE CONFIGURATION (FIXED FOR LOCAL MAC DEV)
+# -----------------------------------------------------------------------------
 
+# Default to SQLite (Works instantly on Mac/Local)
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME", default="myapp"),
-        "USER": config("DB_USER", default="myapp"),
-        "PASSWORD": config("DB_PASSWORD", default="myapp"),
-        "HOST": config("DB_HOST", default="localhost"),
-        "PORT": config("DB_PORT", default="5432"),
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
+# Only switch to PostgreSQL if we are in PRODUCTION (DEBUG is False)
 if not DEBUG:
-    print(config("DATABASE_URL"))
+    print(f"Loading Database from URL: {config('DATABASE_URL')}")
     DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 
 
@@ -202,9 +189,6 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 FRONTEND_URL = config("FRONTEND_URL")
-
-# MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-# MEDIA_URL = "/media/"
 
 # Arbutus Object Storage Configuration (S3-compatible)
 AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
@@ -221,39 +205,31 @@ AWS_S3_CUSTOM_DOMAIN = config(
     default=f"{config('AWS_STORAGE_BUCKET_NAME', default='cdn.scicommons.org')}",
 )
 AWS_S3_FILE_OVERWRITE = False
-AWS_S3_SIGNATURE_VERSION = "s3"  # Required for Arbutus Object Storage
+AWS_S3_SIGNATURE_VERSION = "s3"
 AWS_S3_USE_SSL = True
-AWS_S3_VERIFY = True  # Verify SSL certificates
-AWS_S3_ADDRESSING_STYLE = "path"  # Use path-style addressing for compatibility
+AWS_S3_VERIFY = True
+AWS_S3_ADDRESSING_STYLE = "path"
 
-# Object Parameters - Cache and Content Type settings
+# Object Parameters
 AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": "max-age=86400",  # Cache for 24 hours
 }
 
-# Default ACL for uploaded files (public-read for CDN access)
 AWS_DEFAULT_ACL = config("AWS_DEFAULT_ACL", default="public-read")
-
-# Querystring Auth - Set to False if files should be publicly accessible
 AWS_QUERYSTRING_AUTH = config("AWS_QUERYSTRING_AUTH", default=False, cast=bool)
 
 
 STORAGES = {
-    # Media File (PDFs, images, etc.) Management
+    # Media File Management
     "default": {
         "BACKEND": "myapp.storage.ArbutusMediaStorage",
     },
     "staticfiles": {
-        # use default storage for static files
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        # "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-        # "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
     },
 }
 
 # Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": (
@@ -274,25 +250,15 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
+# Static files
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -315,21 +281,18 @@ CACHES = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": config(
             "REDIS_HOST_URL", default="redis://localhost:6379/1"
-        ),  # Use DB 1 for Django cache
+        ),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            # "PARSER_CLASS": "redis.connection.HiredisParser",
-            "SOCKET_CONNECT_TIMEOUT": 5,  # seconds
-            "SOCKET_TIMEOUT": 5,  # seconds
+            "SOCKET_CONNECT_TIMEOUT": 5,
+            "SOCKET_TIMEOUT": 5,
         },
-        "KEY_PREFIX": "sci:",  # Optional, helps prevent key collisions
-        "TIMEOUT": FIFTEEN_MINUTES,  # Default cache timeout (5 minutes)
+        "KEY_PREFIX": "sci:",
+        "TIMEOUT": FIFTEEN_MINUTES,
     }
 }
 
-# Optional: Use cache for session storage
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
-# SESSION_CACHE_ALIAS = "default"
 
 # -------------------- Logging Configuration --------------------
 LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(pathname)s - %(message)s"
@@ -367,8 +330,8 @@ if DEBUG:
         },
     }
 else:
-    # Ensure /logs directory (mounted from host) exists inside container
-    LOG_DIR = Path("/logs")
+    # Ensure logs directory exists inside project (BASE_DIR)
+    LOG_DIR = BASE_DIR / "logs"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
     LOGGING = {
@@ -410,7 +373,7 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             "hosts": [
                 config("REDIS_HOST_URL", default="redis://localhost:6379/2")
-            ],  # Use DB 2 for channels
+            ],
         },
     },
 }

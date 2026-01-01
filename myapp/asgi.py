@@ -1,5 +1,5 @@
 """
-ASGI config for myapp project.
+ASGI Meta for myapp project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 
