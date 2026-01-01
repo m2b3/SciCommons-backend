@@ -20,10 +20,6 @@ class Tag(Schema):
 
 
 # Generic Pagination schema
-# The disadvantage of this approach is that proper response schema is not
-# generated for the paginated response.
-
-
 class Message(Schema):
     message: str
 
@@ -38,9 +34,11 @@ class UserStats(ModelSchema):
     # posts created or commented
     contributed_posts: Optional[int] = None
 
-    class Config:
+    class Meta:
         model = User
-        model_fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
+        # FIX: Explicitly list ONLY safe fields. 
+        # Removed 'fields = "__all__"' to prevent password/permission errors.
+        fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
 
     @staticmethod
     def from_model(
@@ -57,12 +55,15 @@ class UserStats(ModelSchema):
         if basic_details:
             return UserStats(**basic_data)
 
+        # Handle Reputation safely (create if missing)
         reputation, created = Reputation.objects.get_or_create(user=user)
+        
         if basic_details_with_reputation:
             basic_data["reputation_score"] = reputation.score
             basic_data["reputation_level"] = reputation.level
             return UserStats(**basic_data)
 
+        # Calculate stats
         contributed_articles = (
             Article.objects.filter(submitter=user).count()
             + Review.objects.filter(user=user).count()

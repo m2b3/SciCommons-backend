@@ -49,9 +49,9 @@ class CommunityListOut(ModelSchema):
     # is_request_sent: bool = False
     # requested_at: Optional[datetime] = None
 
-    class Config:
+    class Meta:
         model = Community
-        model_fields = [
+        fields = [
             "id",
             "name",
             "description",
@@ -122,9 +122,9 @@ class CommunityOut(ModelSchema):
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
 
-    class Config:
+    class Meta:
         model = Community
-        model_fields = [
+        fields = [
             "id",
             "name",
             "description",
@@ -136,6 +136,7 @@ class CommunityOut(ModelSchema):
             "rules",
             "about",
         ]
+        
 
     @staticmethod
     def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
