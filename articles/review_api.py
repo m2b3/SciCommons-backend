@@ -32,6 +32,10 @@ from articles.schemas import (
 from communities.models import Community, CommunityArticle
 from myapp.feature_flags import MAX_NESTING_LEVEL
 from myapp.schemas import UserStats
+from myapp.services.send_emails import (
+    send_comment_notification_email,
+    send_review_notification_email,
+)
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
@@ -185,6 +189,14 @@ def create_review(
                 logger.error(f"Error creating anonymous name for review: {e}")
                 # Continue even if anonymous name creation fails
                 pass
+
+        # Send email notification to article submitter if review is in a community
+        if community:
+            try:
+                send_review_notification_email(article, review, community)
+            except Exception as e:
+                logger.error(f"Error sending review notification email: {e}")
+                # Continue even if email sending fails
 
         try:
             return 201, ReviewOut.from_orm(review, user)
@@ -587,6 +599,16 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
                 pass
+
+        # Send email notification if comment is in a community
+        if review.community:
+            try:
+                send_comment_notification_email(
+                    comment, review, review.article, review.community
+                )
+            except Exception as e:
+                logger.error(f"Error sending comment notification email: {e}")
+                # Continue even if email sending fails
 
         # Return comment with replies
         try:
