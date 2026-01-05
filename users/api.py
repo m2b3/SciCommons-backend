@@ -17,7 +17,12 @@ from communities.schemas import CommunityListOut, PaginatedCommunities
 from myapp.schemas import Message, UserStats
 from posts.models import Post
 from users.auth import JWTAuth
-from users.models import Hashtag, HashtagRelation, Notification, User
+from users.config_constants import (
+    get_all_config_metadata,
+    get_default_value,
+    validate_config_value,
+)
+from users.models import Hashtag, HashtagRelation, Notification, User, UserSetting
 from users.schemas import (
     FavoriteItemSchema,
     NotificationSchema,
@@ -25,8 +30,13 @@ from users.schemas import (
     UserCommunitySchema,
     UserDetails,
     UserPostSchema,
+    UserSettingsBulkUpdateSchema,
+    UserSettingsResetResponseSchema,
+    UserSettingsResponseSchema,
+    UserSettingsUpdateResponseSchema,
     UserUpdateSchema,
 )
+from users.settings_cache import invalidate_user_settings_cache
 
 router = Router(tags=["Users"])
 
@@ -713,3 +723,138 @@ def mark_notification_as_read(request, notification_id: int):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+"""
+User Settings API
+"""
+
+
+@router.get(
+    "/settings",
+    response={200: UserSettingsResponseSchema, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def get_user_settings(request):
+    """
+    Get all user settings. Returns default values for settings that haven't been set yet.
+    Includes type information for each setting.
+    """
+    try:
+        user = request.auth
+
+        # Get all config metadata
+        config_metadata = get_all_config_metadata()
+
+        # Get user's existing settings
+        user_settings = UserSetting.objects.filter(user=user)
+        user_settings_dict = {
+            setting.config_name: setting.value for setting in user_settings
+        }
+
+        # Merge with defaults (user settings override defaults)
+        all_settings = []
+        for config_name, metadata in config_metadata.items():
+            value = user_settings_dict.get(config_name, metadata["default_value"])
+            all_settings.append(
+                {
+                    "config_name": config_name,
+                    "value": value,
+                    "config_type": metadata["config_type"],
+                }
+            )
+
+        return 200, {"settings": all_settings}
+
+    except Exception as e:
+        logger.error(f"Error retrieving user settings: {e}")
+        return 500, {"message": "Error retrieving settings. Please try again."}
+
+
+@router.put(
+    "/settings",
+    response={
+        200: UserSettingsUpdateResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def update_user_settings(request, payload: UserSettingsBulkUpdateSchema):
+    """
+    Bulk update user settings. Creates or updates settings as needed.
+    """
+    try:
+        user = request.auth
+        updated_count = 0
+
+        for setting_update in payload.settings:
+            config_name = setting_update.config_name
+            value = setting_update.value
+
+            # Validate that the config_name exists in defaults
+            if get_default_value(config_name) is None:
+                return 400, {"message": f"Invalid configuration key: {config_name}"}
+
+            # Validate that the value matches the expected type
+            is_valid, error_message = validate_config_value(config_name, value)
+            if not is_valid:
+                return 400, {"message": error_message}
+
+            # Update or create the setting
+            try:
+                user_setting, created = UserSetting.objects.update_or_create(
+                    user=user,
+                    config_name=config_name,
+                    defaults={"value": value},
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"Error updating setting {config_name}: {e}")
+                return 500, {
+                    "message": f"Error updating setting {config_name}. Please try again."
+                }
+
+        # Invalidate cache immediately so changes take effect right away
+        invalidate_user_settings_cache(user.id)
+
+        return 200, {
+            "message": "Settings updated successfully.",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating user settings: {e}")
+        return 500, {"message": "Error updating settings. Please try again."}
+
+
+@router.post(
+    "/settings/reset",
+    response={
+        200: UserSettingsResetResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def reset_user_settings(request):
+    """
+    Reset all user settings to default values by deleting all custom settings.
+    """
+    try:
+        user = request.auth
+
+        # Delete all user settings (will fall back to defaults when retrieved)
+        deleted_count, _ = UserSetting.objects.filter(user=user).delete()
+
+        # Invalidate cache immediately so changes take effect right away
+        invalidate_user_settings_cache(user.id)
+
+        return 200, {
+            "message": "Settings reset to defaults successfully.",
+            "reset_count": deleted_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting user settings: {e}")
+        return 500, {"message": "Error resetting settings. Please try again."}

@@ -280,3 +280,28 @@ class Bookmark(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - Bookmark for {self.content_object}"
+
+
+class UserSetting(models.Model):
+    """
+    Model to store user-specific configuration settings.
+    Uses a flexible key-value structure to store various types of settings.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="settings", db_index=True
+    )
+    config_name = models.CharField(max_length=100, db_index=True)
+    value = models.JSONField()  # Can store boolean, number, string, etc.
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "config_name")
+        indexes = [
+            models.Index(fields=["user", "config_name"], name="user_setting_lookup"),
+        ]
+        db_table = "user_setting"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.config_name}: {self.value}"

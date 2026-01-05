@@ -1,5 +1,5 @@
 import logging
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 from celery import shared_task
 from decouple import config
@@ -8,6 +8,8 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
+
+from users.settings_cache import is_email_notifications_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ def send_review_notification_email(article, review, community):
     """
     Send email notification to article submitter when a new review is added.
     Only for articles in a community.
+    Respects user's email notification settings.
     """
     if not community:
         return
@@ -93,10 +96,15 @@ def send_review_notification_email(article, review, community):
         if review.user == recipient:
             return
 
+        # Check if recipient has email notifications enabled
+        if not is_email_notifications_enabled(recipient.id):
+            logger.debug(
+                f"Email notifications disabled for user {recipient.id}, skipping review notification"
+            )
+            return
+
         domain = get_frontend_domain()
-        article_link = (
-            f"{domain}/community/{quote_plus(community.name)}/articles/{article.slug}"
-        )
+        article_link = f"{domain}/community/{quote(community.name, safe='')}/articles/{article.slug}"
 
         # Truncate content for preview (first 200 characters)
         content_preview = (
@@ -134,6 +142,7 @@ def send_comment_notification_email(comment, review, article, community):
     - Review author if it's a top-level comment
     - Comment author if it's a reply to a comment
     Only for articles in a community.
+    Respects user's email notification settings.
     """
     if not community:
         return
@@ -167,10 +176,15 @@ def send_comment_notification_email(comment, review, article, community):
             )
             return
 
+        # Check if recipient has email notifications enabled
+        if not is_email_notifications_enabled(recipient.id):
+            logger.debug(
+                f"Email notifications disabled for user {recipient.id}, skipping comment notification"
+            )
+            return
+
         domain = get_frontend_domain()
-        article_link = (
-            f"{domain}/community/{quote_plus(community.name)}/articles/{article.slug}"
-        )
+        article_link = f"{domain}/community/{quote(community.name, safe='')}/articles/{article.slug}"
 
         # Truncate content for preview (first 200 characters)
         content_preview = (

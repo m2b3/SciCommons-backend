@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from ninja import ModelSchema, Schema
 
 from articles.models import Article, Review, ReviewComment
+from users.config_constants import UserConfigKey, UserConfigType
 from users.models import HashtagRelation, Reputation, User
 
 """
@@ -355,3 +356,49 @@ class PaginatedBookmarksResponseSchema(Schema):
     page: int
     per_page: int
     pages: int
+
+
+"""
+User Settings Schemas
+"""
+
+
+class UserSettingSchema(Schema):
+    """Schema for a single user setting."""
+
+    config_name: UserConfigKey
+    value: bool | int | str
+    config_type: UserConfigType
+
+
+class UserSettingsResponseSchema(Schema):
+    """Schema for getting all user settings."""
+
+    settings: List[UserSettingSchema]
+
+
+class UserSettingUpdateSchema(Schema):
+    """Schema for updating a single setting."""
+
+    config_name: UserConfigKey
+    value: bool | int | str
+
+
+class UserSettingsBulkUpdateSchema(Schema):
+    """Schema for bulk updating user settings."""
+
+    settings: List[UserSettingUpdateSchema]
+
+
+class UserSettingsUpdateResponseSchema(Schema):
+    """Response schema for settings update."""
+
+    message: str
+    updated_count: int
+
+
+class UserSettingsResetResponseSchema(Schema):
+    """Response schema for settings reset."""
+
+    message: str
+    reset_count: int
