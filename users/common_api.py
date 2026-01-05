@@ -263,7 +263,13 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
 def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_id: int):
     """Check if an article or community is bookmarked by the current user."""
     try:
-        user: Optional[User] = None if not request.auth else request.auth
+        # OptionalJWTAuth returns True (boolean) when no token is provided,
+        # so we need to check for both falsy values and boolean instances
+        user: Optional[User] = (
+            request.auth
+            if request.auth and not isinstance(request.auth, bool)
+            else None
+        )
 
         if not user:
             return 200, {"is_bookmarked": None}
@@ -570,7 +576,13 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
             return 500, {"message": "Error counting reactions. Please try again."}
 
         # Check if the authenticated user is the author
-        current_user: Optional[User] = None if not request.auth else request.auth
+        # OptionalJWTAuth returns True (boolean) when no token is provided,
+        # so we need to check for both falsy values and boolean instances
+        current_user: Optional[User] = (
+            request.auth
+            if request.auth and not isinstance(request.auth, bool)
+            else None
+        )
         user_reaction = None
 
         if current_user:
