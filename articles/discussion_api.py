@@ -13,6 +13,7 @@ from articles.models import (
     Discussion,
     DiscussionComment,
     DiscussionSubscription,
+    DiscussionSummary,
     Reaction,
 )
 from articles.schemas import (
@@ -25,6 +26,9 @@ from articles.schemas import (
     DiscussionSubscriptionOut,
     DiscussionSubscriptionSchema,
     DiscussionSubscriptionUpdateSchema,
+    DiscussionSummaryCreateSchema,
+    DiscussionSummaryOut,
+    DiscussionSummaryUpdateSchema,
     PaginatedDiscussionSchema,
     SubscriptionStatusSchema,
     UserSubscriptionsOut,
@@ -251,6 +255,7 @@ def list_discussions(
                         article_id=article.id,
                         comments_count=discussion.comments_count,
                         is_pseudonymous=discussion.is_pseudonymous,
+                        is_resolved=discussion.is_resolved,
                     )
                 )
 
@@ -282,22 +287,6 @@ def list_discussions(
 def get_user_subscriptions(request):
     """
     Get all active subscriptions for the current user grouped by community
-    Returns:
-    {
-        "communities": [
-            {
-                "community_id": 1,
-                "community_name": "AI Research",
-                "articles": [
-                    {
-                        "article_id": 123,
-                        "article_title": "Deep Learning Paper",
-                        "article_slug": "deep-learning-paper"
-                    }
-                ]
-            }
-        ]
-    }
     """
     try:
         user = request.auth
@@ -310,25 +299,37 @@ def get_user_subscriptions(request):
                 .order_by("community__name", "-subscribed_at")
             )
 
+            # Get community IDs to check admin status in bulk
+            community_ids = set(s.community_id for s in subscriptions)
+
+            # Bulk check which communities user is admin of
+            admin_community_ids = set(
+                Community.objects.filter(id__in=community_ids, admins=user).values_list(
+                    "id", flat=True
+                )
+            )
+
             # Group subscriptions by community
             communities_dict = {}
             for subscription in subscriptions:
-                community_id = subscription.community.id
+                community_id = subscription.community_id
 
                 if community_id not in communities_dict:
                     communities_dict[community_id] = {
                         "community_id": community_id,
                         "community_name": subscription.community.name,
+                        "is_admin": community_id in admin_community_ids,
                         "articles": [],
                     }
 
                 # Add article info to the community
                 communities_dict[community_id]["articles"].append(
                     {
-                        "article_id": subscription.article.id,
+                        "article_id": subscription.article_id,
                         "article_title": subscription.article.title,
                         "article_slug": subscription.article.slug,
                         "article_abstract": subscription.article.abstract,
+                        "community_article_id": subscription.community_article_id,
                     }
                 )
 
@@ -621,6 +622,74 @@ def delete_discussion(request, discussion_id: int):
             return 500, {"message": "Error deleting discussion. Please try again."}
 
         return 201, {"message": "Discussion deleted successfully."}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.patch(
+    "/discussions/{discussion_id}/resolve/",
+    response={200: DiscussionOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def toggle_discussion_resolved(request, discussion_id: int):
+    """
+    Toggle the resolved status of a discussion.
+    If resolved, it will be unresolved. If unresolved, it will be resolved.
+    Only available for community articles and can only be done by:
+    - Community admin
+    - Discussion author
+
+    Args:
+        discussion_id: The ID of the discussion to toggle resolved status
+    """
+    try:
+        user = request.auth
+
+        try:
+            discussion = Discussion.objects.select_related(
+                "community", "article", "author"
+            ).get(id=discussion_id)
+        except Discussion.DoesNotExist:
+            return 404, {"message": "Discussion not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving discussion: {e}")
+            return 500, {"message": "Error retrieving discussion. Please try again."}
+
+        # Check if this is a community discussion
+        if not discussion.community:
+            return 400, {
+                "message": "Only discussions in communities can be resolved/unresolved."
+            }
+
+        # Check if user is community admin or discussion author
+        is_community_admin = discussion.community.is_admin(user)
+        is_discussion_author = discussion.author == user
+
+        if not is_community_admin and not is_discussion_author:
+            return 403, {
+                "message": "Only community admins or the discussion author can resolve/unresolve discussions."
+            }
+
+        # Toggle the resolved status
+        try:
+            discussion.is_resolved = not discussion.is_resolved
+            discussion.save(update_fields=["is_resolved"])
+        except Exception as e:
+            logger.error(f"Error updating discussion resolved status: {e}")
+            return 500, {
+                "message": "Error updating discussion status. Please try again."
+            }
+
+        # Return the updated discussion
+        try:
+            response_data = DiscussionOut.from_orm(discussion, user)
+            return 200, response_data
+        except Exception as e:
+            logger.error(f"Error formatting discussion data: {e}")
+            return 500, {
+                "message": "Discussion updated but error retrieving discussion data."
+            }
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -1038,6 +1107,246 @@ def unsubscribe_from_discussion(request, subscription_id: int):
                 f"Failed to update real-time subscriptions for user {user.id}: {e}"
             )
             # Continue - real-time update failure shouldn't break unsubscription
+
+        return 204, None
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+"""
+Discussion Summary endpoints for admin notes
+Only community admins can create/update discussion summaries
+"""
+
+
+@router.get(
+    "/discussions/summary/{community_article_id}/",
+    response={200: DiscussionSummaryOut, codes_4xx: Message, codes_5xx: Message},
+    auth=OptionalJWTAuth,
+)
+def get_discussion_summary(request, community_article_id: int):
+    """
+    Get the discussion summary for a community article.
+    Available to all users who can view the article.
+
+    Optimized: Single query with all necessary joins.
+    """
+    try:
+        user = request.auth
+
+        try:
+            summary = DiscussionSummary.objects.select_related(
+                "created_by",
+                "last_updated_by",
+                "community_article__community",
+            ).get(community_article_id=community_article_id)
+        except DiscussionSummary.DoesNotExist:
+            return 404, {"message": "Discussion summary not found for this article."}
+        except Exception as e:
+            logger.error(f"Error retrieving discussion summary: {e}")
+            return 500, {
+                "message": "Error retrieving discussion summary. Please try again."
+            }
+
+        # Check if user can view (hidden communities require membership)
+        community = summary.community_article.community
+        if community.type == "hidden" and not community.is_member(user):
+            return 403, {"message": "You are not a member of this community."}
+
+        try:
+            return 200, DiscussionSummaryOut.from_orm(summary)
+        except Exception as e:
+            logger.error(f"Error formatting discussion summary data: {e}")
+            return 500, {
+                "message": "Error formatting discussion summary data. Please try again."
+            }
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.post(
+    "/discussions/summary/{community_article_id}/",
+    response={201: DiscussionSummaryOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def create_discussion_summary(
+    request, community_article_id: int, payload: DiscussionSummaryCreateSchema
+):
+    """
+    Create a discussion summary for a community article.
+    Only community admins can create summaries.
+
+    Optimized: Uses prefetch for admin check, atomic create with get_or_create pattern.
+    """
+    try:
+        user = request.auth
+
+        try:
+            community_article = CommunityArticle.objects.select_related(
+                "community"
+            ).get(id=community_article_id)
+        except CommunityArticle.DoesNotExist:
+            return 404, {"message": "Community article not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving community article: {e}")
+            return 500, {
+                "message": "Error retrieving community article. Please try again."
+            }
+
+        # Check if user is an admin
+        if not community_article.community.is_admin(user):
+            return 403, {
+                "message": "Only community admins can create discussion summaries."
+            }
+
+        try:
+            with transaction.atomic():
+                # Use get_or_create to handle race conditions
+                summary, created = DiscussionSummary.objects.get_or_create(
+                    community_article=community_article,
+                    defaults={
+                        "content": payload.content,
+                        "created_by": user,
+                        "last_updated_by": user,
+                    },
+                )
+
+                if not created:
+                    return 400, {
+                        "message": "A discussion summary already exists for this article. Use PUT to update it."
+                    }
+
+        except Exception as e:
+            logger.error(f"Error creating discussion summary: {e}")
+            return 500, {
+                "message": "Error creating discussion summary. Please try again."
+            }
+
+        logger.info(
+            f"User {user.id} created discussion summary for community article {community_article_id}"
+        )
+
+        try:
+            return 201, DiscussionSummaryOut.from_orm(summary)
+        except Exception as e:
+            logger.error(f"Error formatting discussion summary data: {e}")
+            return 500, {
+                "message": "Discussion summary created but error retrieving data."
+            }
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.put(
+    "/discussions/summary/{community_article_id}/",
+    response={200: DiscussionSummaryOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def update_discussion_summary(
+    request, community_article_id: int, payload: DiscussionSummaryUpdateSchema
+):
+    """
+    Update the discussion summary for a community article.
+    Only community admins can update summaries.
+    """
+    try:
+        user = request.auth
+
+        try:
+            summary = DiscussionSummary.objects.select_related(
+                "community_article__community",
+            ).get(community_article_id=community_article_id)
+        except DiscussionSummary.DoesNotExist:
+            return 404, {
+                "message": "Discussion summary not found. Use POST to create one."
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving discussion summary: {e}")
+            return 500, {
+                "message": "Error retrieving discussion summary. Please try again."
+            }
+
+        # Check if user is an admin
+        if not summary.community_article.community.is_admin(user):
+            return 403, {
+                "message": "Only community admins can update discussion summaries."
+            }
+
+        try:
+            summary.content = payload.content
+            summary.last_updated_by = user
+            summary.save(update_fields=["content", "last_updated_by", "updated_at"])
+        except Exception as e:
+            logger.error(f"Error updating discussion summary: {e}")
+            return 500, {
+                "message": "Error updating discussion summary. Please try again."
+            }
+
+        logger.info(
+            f"User {user.id} updated discussion summary for community article {community_article_id}"
+        )
+
+        try:
+            return 200, DiscussionSummaryOut.from_orm(summary)
+        except Exception as e:
+            logger.error(f"Error formatting discussion summary data: {e}")
+            return 500, {
+                "message": "Discussion summary updated but error retrieving data."
+            }
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.delete(
+    "/discussions/summary/{community_article_id}/",
+    response={204: None, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def delete_discussion_summary(request, community_article_id: int):
+    """
+    Delete the discussion summary for a community article.
+    Only community admins can delete summaries.
+    """
+    try:
+        user = request.auth
+
+        try:
+            summary = DiscussionSummary.objects.select_related(
+                "community_article__community",
+            ).get(community_article_id=community_article_id)
+        except DiscussionSummary.DoesNotExist:
+            return 404, {"message": "Discussion summary not found."}
+        except Exception as e:
+            logger.error(f"Error retrieving discussion summary: {e}")
+            return 500, {
+                "message": "Error retrieving discussion summary. Please try again."
+            }
+
+        # Check if user is an admin
+        if not summary.community_article.community.is_admin(user):
+            return 403, {
+                "message": "Only community admins can delete discussion summaries."
+            }
+
+        try:
+            summary.delete()
+        except Exception as e:
+            logger.error(f"Error deleting discussion summary: {e}")
+            return 500, {
+                "message": "Error deleting discussion summary. Please try again."
+            }
+
+        logger.info(
+            f"User {user.id} deleted discussion summary for community article {community_article_id}"
+        )
 
         return 204, None
 
