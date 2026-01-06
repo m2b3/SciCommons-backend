@@ -8,6 +8,7 @@ from ninja.responses import codes_4xx, codes_5xx
 
 from communities.models import Community, CommunityArticle, Membership
 from communities.schemas import MembersResponse, Message, UserSchema
+from myapp.feature_flags import MAX_ADMINS_PER_COMMUNITY
 from users.auth import JWTAuth
 from users.models import User
 
@@ -226,6 +227,18 @@ def manage_community_member(
             return 500, {"message": "Error retrieving user. Please try again."}
 
         role_group, method, success_message = role_actions[action]
+
+        # Check admin limit before promoting to admin
+        if action == "promote_admin":
+            try:
+                current_admin_count = community.admins.count()
+                if current_admin_count >= MAX_ADMINS_PER_COMMUNITY:
+                    return 400, {
+                        "message": f"This community already has the maximum number of admins ({MAX_ADMINS_PER_COMMUNITY}). Cannot add more admins."
+                    }
+            except Exception as e:
+                logger.error(f"Error checking admin count: {e}")
+                return 500, {"message": "Error checking admin count. Please try again."}
 
         try:
             with transaction.atomic():

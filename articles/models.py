@@ -344,6 +344,7 @@ class Discussion(models.Model):
     deleted_at = models.DateTimeField(null=True, blank=True)
     reactions = GenericRelation("Reaction")
     is_pseudonymous = models.BooleanField(default=False)
+    is_resolved = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Discussion: {self.title} (Article: {self.article.title})"
@@ -389,6 +390,55 @@ class DiscussionComment(models.Model):
         return AnonymousIdentity.get_or_create_fake_name(
             self.author, self.discussion.article, self.discussion.community
         )
+
+
+class DiscussionSummary(models.Model):
+    """
+    Model to store admin-created summaries for discussions on community articles.
+    Only admins can create/edit these summaries.
+    """
+
+    # OneToOneField ensures one summary per community article
+    # No need for explicit db_index as OneToOneField creates a unique index
+    community_article = models.OneToOneField(
+        "communities.CommunityArticle",
+        on_delete=models.CASCADE,
+        related_name="discussion_summary",
+    )
+    content = models.TextField(help_text="Markdown/text summary of the discussions")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_discussion_summaries",
+    )
+    last_updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_discussion_summaries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Add index on updated_at for potential sorting/filtering by recent updates
+        indexes = [
+            models.Index(fields=["-updated_at"]),
+        ]
+
+    def __str__(self):
+        return f"Discussion Summary for CommunityArticle {self.community_article_id}"
+
+    @property
+    def community(self):
+        """Access community through community_article to avoid denormalization."""
+        return self.community_article.community
+
+    @property
+    def article(self):
+        """Access article through community_article to avoid denormalization."""
+        return self.community_article.article
 
 
 class DiscussionSubscription(models.Model):

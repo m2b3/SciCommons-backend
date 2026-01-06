@@ -13,6 +13,7 @@ from articles.models import (
     Discussion,
     DiscussionComment,
     DiscussionSubscription,
+    DiscussionSummary,
     Review,
     ReviewComment,
     ReviewCommentRating,
@@ -600,6 +601,7 @@ class DiscussionOut(ModelSchema):
     # anonymous_name: str = Field(None)
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
+    is_resolved: bool = Field(False)
 
     class Config:
         model = Discussion
@@ -610,6 +612,7 @@ class DiscussionOut(ModelSchema):
             "created_at",
             "updated_at",
             "deleted_at",
+            "is_resolved",
         ]
 
     @classmethod
@@ -651,6 +654,7 @@ class DiscussionOut(ModelSchema):
             # anonymous_name=anonymous_name,
             # avatar=avatar if avatar else None,
             is_pseudonymous=is_pseudonymous,
+            is_resolved=discussion.is_resolved,
         )
 
 
@@ -774,10 +778,19 @@ class SubscriptionStatusSchema(Schema):
     subscription: Optional[DiscussionSubscriptionOut] = None
 
 
+class SubscriptionArticleOut(Schema):
+    article_id: int
+    article_title: str
+    article_slug: str
+    article_abstract: str
+    community_article_id: int
+
+
 class CommunitySubscriptionOut(Schema):
     community_id: int
     community_name: str
-    articles: List[dict]  # List of article info user is subscribed to
+    is_admin: bool
+    articles: List[SubscriptionArticleOut]
 
 
 class UserSubscriptionsOut(Schema):
@@ -819,3 +832,52 @@ class CommunityArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+
+
+"""
+Discussion Summary Schemas for serialization and validation
+"""
+
+
+class DiscussionSummaryOut(ModelSchema):
+    created_by: Optional[UserStats] = None
+    last_updated_by: Optional[UserStats] = None
+
+    class Config:
+        model = DiscussionSummary
+        model_fields = [
+            "id",
+            "content",
+            "created_at",
+            "updated_at",
+        ]
+
+    @classmethod
+    def from_orm(cls, summary: DiscussionSummary):
+        created_by = None
+        last_updated_by = None
+
+        if summary.created_by_id and hasattr(summary, "created_by"):
+            created_by = UserStats.from_model(summary.created_by, basic_details=True)
+
+        if summary.last_updated_by_id and hasattr(summary, "last_updated_by"):
+            last_updated_by = UserStats.from_model(
+                summary.last_updated_by, basic_details=True
+            )
+
+        return cls(
+            id=summary.id,
+            content=summary.content,
+            created_by=created_by,
+            last_updated_by=last_updated_by,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+        )
+
+
+class DiscussionSummaryCreateSchema(Schema):
+    content: str
+
+
+class DiscussionSummaryUpdateSchema(Schema):
+    content: str
