@@ -87,6 +87,7 @@ class CommunityArticleOut(ModelSchema):
     reviewer_ids: List[int] = Field(default_factory=list)
     moderator_id: Optional[int] = None
     is_pseudonymous: bool
+    has_user_reviewed: bool = False
     is_admin: bool
 
     class Config:
@@ -201,6 +202,7 @@ class ArticleOut(ModelSchema):
     is_submitter: bool
     submission_type: SubmissionType
     is_pseudonymous: bool = Field(False)
+    has_user_reviewed: bool = False
 
     class Config:
         model = Article
@@ -226,6 +228,7 @@ class ArticleOut(ModelSchema):
         total_comments: int,
         community_article: Optional[CommunityArticle],
         current_user: Optional[User],
+        has_user_reviewed: bool = False,
     ):
         is_pseudonymous = False
         community_article_out = None
@@ -258,6 +261,7 @@ class ArticleOut(ModelSchema):
             ),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
+            has_user_reviewed=has_user_reviewed,
         )
 
 
@@ -798,6 +802,7 @@ class OfficialArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+    has_user_reviewed: bool = False
 
 
 class CommunityArticleStatsResponse(Schema):
@@ -812,3 +817,4 @@ class CommunityArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+    has_user_reviewed: bool = False

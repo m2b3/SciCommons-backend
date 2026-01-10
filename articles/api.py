@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from datetime import timedelta
 from typing import Counter, List, Optional
-from urllib.parse import quote_plus, unquote
+from urllib.parse import  unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -351,6 +351,14 @@ def get_article(
             article_pdf_urls = [
                 pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
             ]
+            
+            # reviewed logic
+            has_user_reviewed = False
+            if request.auth:
+                has_user_reviewed = Review.objects.filter(
+                    article=article, 
+                    user=request.auth
+                ).exists()
 
             # Prepare output
             article_data = ArticleOut.from_orm_with_custom_fields(
@@ -361,6 +369,7 @@ def get_article(
                 total_discussions=total_discussions,
                 total_comments=total_comments,
                 community_article=community_article,
+                has_user_reviewed=has_user_reviewed,
                 current_user=request.auth,
             )
             return 200, article_data
@@ -513,6 +522,13 @@ def update_article(
                 total_comments = ReviewComment.objects.filter(
                     review__article=article
                 ).count()
+                
+                has_user_reviewed = False
+                if request.auth:
+                    has_user_reviewed = Review.objects.filter(
+                        article=article, 
+                        user=request.auth
+                    ).exists()
 
                 # Final output
                 response_data = ArticleOut.from_orm_with_custom_fields(
@@ -523,6 +539,7 @@ def update_article(
                     total_discussions=total_discussions,
                     total_comments=total_comments,
                     community_article=article_community,
+                    has_user_reviewed=has_user_reviewed,
                     current_user=request.auth,
                 )
 
@@ -850,6 +867,13 @@ def get_article_official_stats(request, article_slug: str):
             average_rating = Review.objects.filter(article=article).aggregate(
                 Avg("rating")
             )["rating__avg"]
+            
+            has_user_reviewed = False
+            if request.auth:
+                has_user_reviewed = Review.objects.filter(
+                    article=article, 
+                    user=request.auth
+                ).exists()
 
             response_data = OfficialArticleStatsResponse(
                 title=article.title,
@@ -867,6 +891,7 @@ def get_article_official_stats(request, article_slug: str):
                 reviews_over_time=reviews_over_time,
                 likes_over_time=likes_over_time,
                 average_rating=average_rating or 0,
+                has_user_reviewed=has_user_reviewed,
             )
 
             return 200, response_data
@@ -989,6 +1014,13 @@ def get_community_article_stats(request, article_slug: str):
                 reviews.aggregate(Avg("rating"))["rating__avg"] or 0, 1
             )
 
+            has_user_reviewed = False
+            if request.auth:
+                has_user_reviewed = Review.objects.filter(
+                    article=article, 
+                    user=request.auth
+                ).exists()
+            
             response_data = CommunityArticleStatsResponse(
                 title=article.title,
                 submission_date=submission_date.date(),
@@ -1006,6 +1038,7 @@ def get_community_article_stats(request, article_slug: str):
                 reviews_over_time=reviews_over_time,
                 likes_over_time=likes_over_time,
                 average_rating=average_rating or 0,
+                has_user_reviewed=has_user_reviewed,
             )
 
             return 200, response_data
