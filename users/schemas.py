@@ -81,7 +81,7 @@ class UserBasicDetails(Schema):
     id: int
     username: str
     profile_pic_url: str
-    
+
     class Config:
         model = User
         model_fields = ["id", "username", "profile_pic_url"]
