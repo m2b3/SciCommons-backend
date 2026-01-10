@@ -47,9 +47,9 @@ class SubmissionType(str, Enum):
 
 
 class ArticleCommunityDetails(ModelSchema):
-    class Config:
+    class Meta:
         model = Community
-        model_fields = ["id", "name", "description", "profile_pic_url"]
+        fields = ["id", "name", "description", "profile_pic_url"]
 
 
 class CommunityArticleForList(Schema):
@@ -87,11 +87,12 @@ class CommunityArticleOut(ModelSchema):
     reviewer_ids: List[int] = Field(default_factory=list)
     moderator_id: Optional[int] = None
     is_pseudonymous: bool
+    has_user_reviewed: bool = False
     is_admin: bool
 
-    class Config:
+    class Meta:
         model = CommunityArticle
-        model_fields = [
+        fields = [
             "id",
             "community",
             "status",
@@ -160,9 +161,9 @@ class ArticlesListOut(ModelSchema):
     abstract: str
     article_image_url: Optional[str] = None
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = ["id", "slug", "title", "abstract", "article_image_url"]
+        fields = ["id", "slug", "title", "abstract", "article_image_url"]
 
     @classmethod
     def from_orm_with_fields(
@@ -201,10 +202,11 @@ class ArticleOut(ModelSchema):
     is_submitter: bool
     submission_type: SubmissionType
     is_pseudonymous: bool = Field(False)
+    has_user_reviewed: bool = False
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
+        fields = [
             "id",
             "slug",
             "title",
@@ -226,6 +228,7 @@ class ArticleOut(ModelSchema):
         total_comments: int,
         community_article: Optional[CommunityArticle],
         current_user: Optional[User],
+        has_user_reviewed: bool = False,
     ):
         is_pseudonymous = False
         community_article_out = None
@@ -258,6 +261,7 @@ class ArticleOut(ModelSchema):
             ),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
+            has_user_reviewed=has_user_reviewed,
         )
 
 
@@ -267,9 +271,9 @@ class ArticleBasicOut(ModelSchema):
     user: UserStats
     is_submitter: bool
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
+        fields = [
             "id",
             "slug",
             "title",
@@ -299,9 +303,9 @@ class ArticleBasicOut(ModelSchema):
 
 
 class ArticleMetaOut(ModelSchema):
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
+        fields = [
             "title",
             "abstract",
             "article_image_url",
@@ -374,9 +378,9 @@ class CreateReviewSchema(Schema):
 
 
 class ReviewVersionSchema(ModelSchema):
-    class Config:
+    class Meta:
         model = ReviewVersion
-        model_fields = [
+        fields = [
             "id",
             "rating",
             "subject",
@@ -399,9 +403,9 @@ class ReviewOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Review
-        model_fields = [
+        fields = [
             "id",
             "rating",
             "review_type",
@@ -515,9 +519,9 @@ class ReviewCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = ReviewComment
-        model_fields = ["id", "content", "rating", "created_at"]
+        fields = ["id", "content", "rating", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: ReviewComment, current_user: Optional[User]):
@@ -594,9 +598,9 @@ class DiscussionOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Discussion
-        model_fields = [
+        fields = [
             "id",
             "topic",
             "content",
@@ -673,9 +677,9 @@ class DiscussionCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = DiscussionComment
-        model_fields = ["id", "content", "created_at"]
+        fields = ["id", "content", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: DiscussionComment, current_user: Optional[User]):
@@ -738,9 +742,9 @@ class DiscussionSubscriptionOut(ModelSchema):
     subscribed_at: datetime
     is_active: bool
 
-    class Config:
+    class Meta:
         model = DiscussionSubscription
-        model_fields = [
+        fields = [
             "id",
             "subscribed_at",
             "is_active",
@@ -798,6 +802,7 @@ class OfficialArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+    has_user_reviewed: bool = False
 
 
 class CommunityArticleStatsResponse(Schema):
@@ -812,3 +817,4 @@ class CommunityArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+    has_user_reviewed: bool = False
