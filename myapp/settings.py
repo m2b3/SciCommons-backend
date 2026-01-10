@@ -341,7 +341,7 @@ if DEBUG:
         "formatters": {
             "detailed": {
                 "format": LOG_FORMAT,
-                "datefmt": "%Y-%m-%d %H:%M:%S",
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
             },
         },
         "handlers": {
@@ -377,7 +377,7 @@ else:
         "formatters": {
             "detailed": {
                 "format": LOG_FORMAT,
-                "datefmt": "%Y-%m-%d %H:%M:%S",
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
             },
         },
         "handlers": {

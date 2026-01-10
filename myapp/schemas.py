@@ -38,9 +38,9 @@ class UserStats(ModelSchema):
     # posts created or commented
     contributed_posts: Optional[int] = None
 
-    class Meta:
+    class Config:
         model = User
-        fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
+        model_fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
 
     @staticmethod
     def from_model(

@@ -49,9 +49,9 @@ class CommunityListOut(ModelSchema):
     # is_request_sent: bool = False
     # requested_at: Optional[datetime] = None
 
-    class Meta:
+    class Config:
         model = Community
-        fields = [
+        model_fields = [
             "id",
             "name",
             "description",
@@ -122,9 +122,9 @@ class CommunityOut(ModelSchema):
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
 
-    class Meta:
+    class Config:
         model = Community
-        fields = [
+        model_fields = [
             "id",
             "name",
             "description",

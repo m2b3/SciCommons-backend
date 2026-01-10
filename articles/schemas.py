@@ -47,9 +47,9 @@ class SubmissionType(str, Enum):
 
 
 class ArticleCommunityDetails(ModelSchema):
-    class Meta:
+    class Config:
         model = Community
-        fields = ["id", "name", "description", "profile_pic_url"]
+        model_fields = ["id", "name", "description", "profile_pic_url"]
 
 
 class CommunityArticleForList(Schema):
@@ -90,9 +90,9 @@ class CommunityArticleOut(ModelSchema):
     has_user_reviewed: bool = False
     is_admin: bool
 
-    class Meta:
+    class Config:
         model = CommunityArticle
-        fields = [
+        model_fields = [
             "id",
             "community",
             "status",
@@ -161,9 +161,9 @@ class ArticlesListOut(ModelSchema):
     abstract: str
     article_image_url: Optional[str] = None
 
-    class Meta:
+    class Config:
         model = Article
-        fields = ["id", "slug", "title", "abstract", "article_image_url"]
+        model_fields = ["id", "slug", "title", "abstract", "article_image_url"]
 
     @classmethod
     def from_orm_with_fields(
@@ -204,9 +204,9 @@ class ArticleOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     has_user_reviewed: bool = False
 
-    class Meta:
+    class Config:
         model = Article
-        fields = [
+        model_fields = [
             "id",
             "slug",
             "title",
@@ -271,9 +271,9 @@ class ArticleBasicOut(ModelSchema):
     user: UserStats
     is_submitter: bool
 
-    class Meta:
+    class Config:
         model = Article
-        fields = [
+        model_fields = [
             "id",
             "slug",
             "title",
@@ -303,9 +303,9 @@ class ArticleBasicOut(ModelSchema):
 
 
 class ArticleMetaOut(ModelSchema):
-    class Meta:
+    class Config:
         model = Article
-        fields = [
+        model_fields = [
             "title",
             "abstract",
             "article_image_url",
@@ -378,9 +378,9 @@ class CreateReviewSchema(Schema):
 
 
 class ReviewVersionSchema(ModelSchema):
-    class Meta:
+    class Config:
         model = ReviewVersion
-        fields = [
+        model_fields = [
             "id",
             "rating",
             "subject",
@@ -403,9 +403,9 @@ class ReviewOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
 
-    class Meta:
+    class Config:
         model = Review
-        fields = [
+        model_fields = [
             "id",
             "rating",
             "review_type",
@@ -519,9 +519,9 @@ class ReviewCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Meta:
+    class Config:
         model = ReviewComment
-        fields = ["id", "content", "rating", "created_at"]
+        model_fields = ["id", "content", "rating", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: ReviewComment, current_user: Optional[User]):
@@ -598,9 +598,9 @@ class DiscussionOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Meta:
+    class Config:
         model = Discussion
-        fields = [
+        model_fields = [
             "id",
             "topic",
             "content",
@@ -677,9 +677,9 @@ class DiscussionCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Meta:
+    class Config:
         model = DiscussionComment
-        fields = ["id", "content", "created_at"]
+        model_fields = ["id", "content", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: DiscussionComment, current_user: Optional[User]):
@@ -742,9 +742,9 @@ class DiscussionSubscriptionOut(ModelSchema):
     subscribed_at: datetime
     is_active: bool
 
-    class Meta:
+    class Config:
         model = DiscussionSubscription
-        fields = [
+        model_fields = [
             "id",
             "subscribed_at",
             "is_active",
