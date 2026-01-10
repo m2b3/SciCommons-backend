@@ -3,7 +3,6 @@ from collections import defaultdict
 from datetime import timedelta
 from typing import Counter, List, Optional
 from urllib.parse import  unquote
-from urllib.parse import quote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -168,7 +167,7 @@ def create_article(
                                 f"New article submitted in {community.name}"
                                 f" by {request.auth.username}"
                             ),
-                            link=f"/community/{quote(community.name)}/submissions",
+                            link=f"/community/{community.name}/submissions",
                             content=article.title,
                         )
                     except Exception:
