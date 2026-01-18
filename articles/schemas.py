@@ -159,6 +159,7 @@ class ArticlesListOut(ModelSchema):
     title: str
     abstract: str
     article_image_url: Optional[str] = None
+    has_user_reviewed: bool = False
 
     class Config:
         model = Article
@@ -170,6 +171,7 @@ class ArticlesListOut(ModelSchema):
         article: Article,
         total_ratings: float,
         community_article: Optional[CommunityArticle],
+        has_user_reviewed: bool = False,
     ):
         return cls(
             id=article.id,
@@ -185,6 +187,7 @@ class ArticlesListOut(ModelSchema):
             user=UserStats.from_model(article.submitter, basic_details=True),
             article_image_url=article.article_image_url,
             total_ratings=total_ratings,
+            has_user_reviewed=has_user_reviewed,
         )
 
 
@@ -201,6 +204,7 @@ class ArticleOut(ModelSchema):
     is_submitter: bool
     submission_type: SubmissionType
     is_pseudonymous: bool = Field(False)
+    has_user_reviewed: bool = False
 
     class Config:
         model = Article
@@ -226,6 +230,7 @@ class ArticleOut(ModelSchema):
         total_comments: int,
         community_article: Optional[CommunityArticle],
         current_user: Optional[User],
+        has_user_reviewed: bool = False,
     ):
         is_pseudonymous = False
         community_article_out = None
@@ -258,6 +263,7 @@ class ArticleOut(ModelSchema):
             ),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
+            has_user_reviewed=has_user_reviewed,
         )
 
 
@@ -266,6 +272,7 @@ class ArticleBasicOut(ModelSchema):
     total_discussions: int
     user: UserStats
     is_submitter: bool
+    has_user_reviewed: bool = False
 
     class Config:
         model = Article
@@ -285,6 +292,11 @@ class ArticleBasicOut(ModelSchema):
         user = UserStats.from_model(
             article.submitter, basic_details_with_reputation=True
         )
+        has_user_reviewed = (
+            Review.objects.filter(article=article, user=current_user).exists()
+            if current_user and not isinstance(current_user, bool)
+            else False
+        )
 
         return cls(
             id=article.id,
@@ -295,6 +307,7 @@ class ArticleBasicOut(ModelSchema):
             total_discussions=total_discussions,
             user=user,
             is_submitter=(article.submitter == current_user) if current_user else False,
+            has_user_reviewed=has_user_reviewed,
         )
 
 
@@ -492,6 +505,7 @@ class PaginatedReviewSchema(Schema):
     total: int
     page: int
     size: int
+    has_user_reviewed: bool = False
 
 
 class ReviewUpdateSchema(Schema):
