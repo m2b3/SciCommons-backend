@@ -215,12 +215,21 @@ def list_my_articles(
             .annotate(avg_rating=Avg("rating"))
         }
 
+        # Efficient check for user reviews
+        has_user_reviewed_ids = set()
+        if request.auth:
+            has_user_reviewed_ids = set(
+                Review.objects.filter(article_id__in=article_ids, user=request.auth)
+                .values_list("article_id", flat=True)
+            )
+
         response_data = PaginatedArticlesListResponse(
             items=[
                 ArticlesListOut.from_orm_with_fields(
                     article=article,
                     total_ratings=review_ratings.get(article.id, 0),
                     community_article=None,
+                    has_user_reviewed=article.id in has_user_reviewed_ids,
                 )
                 for article in paginated_articles
             ],

@@ -222,11 +222,20 @@ def get_my_articles(
                 if ca.article_id not in community_map:
                     community_map[ca.article_id] = ca  # Pick first occurrence
 
+            # Efficient check for user reviews
+            has_user_reviewed_ids = set()
+            if user:
+                has_user_reviewed_ids = set(
+                    Review.objects.filter(article_id__in=article_ids, user=user)
+                    .values_list("article_id", flat=True)
+                )
+
             response_items = [
                 ArticlesListOut.from_orm_with_fields(
                     article=article,
                     total_ratings=ratings_map.get(article.id, 0),
                     community_article=community_map.get(article.id),
+                    has_user_reviewed=article.id in has_user_reviewed_ids,
                 )
                 for article in paginated_articles
             ]
@@ -355,11 +364,22 @@ def list_community_articles_by_status(
                 r["article_id"]: round(r["avg_rating"] or 0, 1) for r in ratings
             }
 
+            # Efficient check for user reviews
+            current_user = None if not request.auth else request.auth
+            has_user_reviewed_ids = set()
+            if current_user:
+                has_user_reviewed_ids = set(
+                    Review.objects.filter(
+                        article_id__in=article_ids, user=current_user
+                    ).values_list("article_id", flat=True)
+                )
+
             response_items = [
                 ArticlesListOut.from_orm_with_fields(
                     article=article,
                     total_ratings=ratings_map.get(article.id, 0),
                     community_article=community_map.get(article.id),
+                    has_user_reviewed=article.id in has_user_reviewed_ids,
                 )
                 for article in paginated_articles
             ]
@@ -690,11 +710,20 @@ def get_assigned_articles(
                 ).select_related("community", "article")
             }
 
+            # Efficient check for user reviews
+            has_user_reviewed_ids = set()
+            if user:
+                has_user_reviewed_ids = set(
+                    Review.objects.filter(article_id__in=article_ids, user=user)
+                    .values_list("article_id", flat=True)
+                )
+
             response = [
                 ArticlesListOut.from_orm_with_fields(
                     article=article,
                     total_ratings=0.0,  # Optionally fetch rating if needed
                     community_article=community_articles.get(article.id),
+                    has_user_reviewed=article.id in has_user_reviewed_ids,
                 )
                 for article in assigned_articles
             ]

@@ -359,8 +359,18 @@ def list_reviews(
                     )
                 )
 
+            has_user_reviewed = (
+                Review.objects.filter(article=article, user=current_user).exists()
+                if current_user and not isinstance(current_user, bool)
+                else False
+            )
+
             return 200, PaginatedReviewSchema(
-                items=items, total=paginator.count, page=page, size=size
+                items=items,
+                total=paginator.count,
+                page=page,
+                size=size,
+                has_user_reviewed=has_user_reviewed,
             )
         except Exception as e:
             logger.error(f"Error formatting review data: {e}")

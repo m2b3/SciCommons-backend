@@ -211,6 +211,7 @@ def create_article(
                     total_comments=total_comments,
                     community_article=community_article,
                     current_user=user,
+                    has_user_reviewed=False,
                 )
 
                 # Invalidate articles cache since new article was created
@@ -352,6 +353,13 @@ def get_article(
                 pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
             ]
 
+            # Check if user has reviewed
+            has_user_reviewed = (
+                Review.objects.filter(article=article, user=request.auth).exists()
+                if request.auth and not isinstance(request.auth, bool)
+                else False
+            )
+
             # Prepare output
             article_data = ArticleOut.from_orm_with_custom_fields(
                 article=article,
@@ -362,6 +370,7 @@ def get_article(
                 total_comments=total_comments,
                 community_article=community_article,
                 current_user=request.auth,
+                has_user_reviewed=has_user_reviewed,
             )
             return 200, article_data
         except Exception as e:
@@ -524,6 +533,9 @@ def update_article(
                     total_comments=total_comments,
                     community_article=article_community,
                     current_user=request.auth,
+                    has_user_reviewed=Review.objects.filter(
+                        article=article, user=request.auth
+                    ).exists(),
                 )
 
                 # Invalidate articles cache since article was updated
@@ -687,6 +699,14 @@ def get_articles(
                 ).select_related("community", "article")
                 for ca in ca_qs:
                     community_articles[ca.article.id] = ca
+            
+            # Efficient check for user reviews
+            has_user_reviewed_ids = set()
+            if current_user:
+                has_user_reviewed_ids = set(
+                    Review.objects.filter(article_id__in=article_ids, user=current_user)
+                    .values_list("article_id", flat=True)
+                )
 
             response_data = PaginatedArticlesListResponse(
                 items=[
@@ -694,6 +714,7 @@ def get_articles(
                         article=article,
                         total_ratings=review_ratings.get(article.id, 0),
                         community_article=community_articles.get(article.id),
+                        has_user_reviewed=article.id in has_user_reviewed_ids,
                     )
                     for article in paginated_articles
                 ],
