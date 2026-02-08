@@ -82,9 +82,9 @@ class UserBasicDetails(Schema):
     username: str
     profile_pic_url: str
 
-    class Config:
+    class Meta:
         model = User
-        model_fields = ["id", "username", "profile_pic_url"]
+        fields = ["id", "username", "profile_pic_url"]
 
     @staticmethod
     def from_model(user: User):
@@ -101,9 +101,9 @@ class UserDetails(ModelSchema):
     reputation_score: int
     reputation_level: str
 
-    class Config:
+    class Meta:
         model = User
-        model_fields = [
+        fields = [
             "id",
             "username",
             "email",
