@@ -51,3 +51,13 @@ services:
       - MAX_EVENTS_PER_QUEUE=1000
       - POLL_TIMEOUT_SECONDS=60
       - HEARTBEAT_INTERVAL_SECONDS=60
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: scicommons
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+
