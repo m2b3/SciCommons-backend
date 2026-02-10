@@ -67,3 +67,4 @@ static/
 
 # Cursor
 .cursor/staticfiles/
+staticfiles/
