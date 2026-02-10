@@ -66,4 +66,4 @@ poetry.lock
 static/
 
 # Cursor
-.cursor/
+.cursor/staticfiles/
