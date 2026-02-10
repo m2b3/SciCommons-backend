@@ -77,7 +77,7 @@ def get_me(request: HttpRequest):
 def update_user(
     request: HttpRequest,
     payload: UserUpdateSchema,
-    profile_image: File[UploadedFile] = None,
+    profile_image: UploadedFile = File(None),
 ):
     try:
         user: User = request.auth
