@@ -48,9 +48,10 @@ class SubmissionType(str, Enum):
 
 
 class ArticleCommunityDetails(ModelSchema):
-    class Config:
+    class Meta:
         model = Community
-        model_fields = ["id", "name", "description", "profile_pic_url"]
+        # model_fields = ["id", "name", "description", "profile_pic_url"]
+        fields = "__all__"
 
 
 class CommunityArticleForList(Schema):
@@ -91,15 +92,17 @@ class CommunityArticleOut(ModelSchema):
     is_pseudonymous: bool
     is_admin: bool
 
-    class Config:
+    class Meta:
         model = CommunityArticle
-        model_fields = [
-            "id",
-            "community",
-            "status",
-            "submitted_at",
-            "published_at",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "community",
+        #     "status",
+        #     "submitted_at",
+        #     "published_at",
+        # ]
+        fields = "__all__"
+
 
     @classmethod
     def from_orm(
@@ -163,9 +166,11 @@ class ArticlesListOut(ModelSchema):
     article_image_url: Optional[str] = None
     is_bookmarked: Optional[bool] = None
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = ["id", "slug", "title", "abstract", "article_image_url"]
+        # model_fields = ["id", "slug", "title", "abstract", "article_image_url"]
+        fields = "__all__"
+
 
     @classmethod
     def from_orm_with_fields(
@@ -208,18 +213,19 @@ class ArticleOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     is_bookmarked: Optional[bool] = None
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
-            "id",
-            "slug",
-            "title",
-            "abstract",
-            "article_link",
-            "article_image_url",
-            "created_at",
-            "updated_at",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "slug",
+        #     "title",
+        #     "abstract",
+        #     "article_link",
+        #     "article_image_url",
+        #     "created_at",
+        #     "updated_at",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm_with_custom_fields(
@@ -275,14 +281,15 @@ class ArticleBasicOut(ModelSchema):
     user: UserStats
     is_submitter: bool
 
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
-            "id",
-            "slug",
-            "title",
-            "article_image_url",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "slug",
+        #     "title",
+        #     "article_image_url",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm_with_custom_fields(
@@ -307,13 +314,14 @@ class ArticleBasicOut(ModelSchema):
 
 
 class ArticleMetaOut(ModelSchema):
-    class Config:
+    class Meta:
         model = Article
-        model_fields = [
-            "title",
-            "abstract",
-            "article_image_url",
-        ]
+        # model_fields = [
+        #     "title",
+        #     "abstract",
+        #     "article_image_url",
+        # ]
+        fields = "__all__"
 
 
 # Todo: Create a Generic PaginatedResponse Schema
@@ -382,16 +390,17 @@ class CreateReviewSchema(Schema):
 
 
 class ReviewVersionSchema(ModelSchema):
-    class Config:
+    class Meta:
         model = ReviewVersion
-        model_fields = [
-            "id",
-            "rating",
-            "subject",
-            "content",
-            "version",
-            "created_at",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "rating",
+        #     "subject",
+        #     "content",
+        #     "version",
+        #     "created_at",
+        # ]
+        fields = "__all__"
 
 
 class ReviewOut(ModelSchema):
@@ -407,20 +416,21 @@ class ReviewOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Review
-        model_fields = [
-            "id",
-            "rating",
-            "review_type",
-            "subject",
-            "content",
-            "version",
-            "is_approved",
-            "created_at",
-            "updated_at",
-            "deleted_at",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "rating",
+        #     "review_type",
+        #     "subject",
+        #     "content",
+        #     "version",
+        #     "is_approved",
+        #     "created_at",
+        #     "updated_at",
+        #     "deleted_at",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm(cls, review: Review, current_user: Optional[User]):
@@ -523,9 +533,10 @@ class ReviewCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = ReviewComment
-        model_fields = ["id", "content", "rating", "created_at"]
+        # model_fields = ["id", "content", "rating", "created_at"]
+        fields = "__all__"
 
     @staticmethod
     def from_orm_with_replies(comment: ReviewComment, current_user: Optional[User]):
@@ -603,17 +614,18 @@ class DiscussionOut(ModelSchema):
     is_pseudonymous: bool = Field(False)
     is_resolved: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Discussion
-        model_fields = [
-            "id",
-            "topic",
-            "content",
-            "created_at",
-            "updated_at",
-            "deleted_at",
-            "is_resolved",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "topic",
+        #     "content",
+        #     "created_at",
+        #     "updated_at",
+        #     "deleted_at",
+        #     "is_resolved",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm(cls, discussion: Discussion, current_user: Optional[User]):
@@ -684,9 +696,10 @@ class DiscussionCommentOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = DiscussionComment
-        model_fields = ["id", "content", "created_at"]
+        # model_fields = ["id", "content", "created_at"]
+        fields = "__all__"
 
     @staticmethod
     def from_orm_with_replies(comment: DiscussionComment, current_user: Optional[User]):
@@ -749,13 +762,14 @@ class DiscussionSubscriptionOut(ModelSchema):
     subscribed_at: datetime
     is_active: bool
 
-    class Config:
+    class Meta:
         model = DiscussionSubscription
-        model_fields = [
-            "id",
-            "subscribed_at",
-            "is_active",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "subscribed_at",
+        #     "is_active",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm(cls, subscription):
@@ -843,14 +857,15 @@ class DiscussionSummaryOut(ModelSchema):
     created_by: Optional[UserStats] = None
     last_updated_by: Optional[UserStats] = None
 
-    class Config:
+    class Meta:
         model = DiscussionSummary
-        model_fields = [
-            "id",
-            "content",
-            "created_at",
-            "updated_at",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "content",
+        #     "created_at",
+        #     "updated_at",
+        # ]
+        fields = "__all__"
 
     @classmethod
     def from_orm(cls, summary: DiscussionSummary):

@@ -83,9 +83,10 @@ class UserBasicDetails(Schema):
     username: str
     profile_pic_url: str
 
-    class Config:
+    class Meta:
         model = User
-        model_fields = ["id", "username", "profile_pic_url"]
+        # model_fields = ["id", "username", "profile_pic_url"]
+        fields = "__all__"
 
     @staticmethod
     def from_model(user: User):
@@ -102,23 +103,24 @@ class UserDetails(ModelSchema):
     reputation_score: int
     reputation_level: str
 
-    class Config:
+    class Meta:
         model = User
-        model_fields = [
-            "id",
-            "username",
-            "email",
-            "first_name",
-            "last_name",
-            "profile_pic_url",
-            "pubMed_url",
-            "google_scholar_url",
-            "bio",
-            "home_page_url",
-            "linkedin_url",
-            "github_url",
-            "academic_statuses",
-        ]
+        # model_fields = [
+        #     "id",
+        #     "username",
+        #     "email",
+        #     "first_name",
+        #     "last_name",
+        #     "profile_pic_url",
+        #     "pubMed_url",
+        #     "google_scholar_url",
+        #     "bio",
+        #     "home_page_url",
+        #     "linkedin_url",
+        #     "github_url",
+        #     "academic_statuses",
+        # ]
+        fields = "__all__"
 
     @staticmethod
     def resolve_user(user: User):
