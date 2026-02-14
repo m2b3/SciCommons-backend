@@ -40,8 +40,7 @@ class UserStats(ModelSchema):
 
     class Meta:
         model = User
-        # model_fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
-        fields = "__all__"
+        fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
 
     @staticmethod
     def from_model(

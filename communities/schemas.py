@@ -52,15 +52,14 @@ class CommunityListOut(ModelSchema):
 
     class Meta:
         model = Community
-        # model_fields = [
-        #     "id",
-        #     "name",
-        #     "description",
-        #     "type",
-        #     "slug",
-        #     "created_at",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "slug",
+            "created_at",
+        ]
 
     @staticmethod
     def from_orm_with_custom_fields(
@@ -131,19 +130,18 @@ class CommunityOut(ModelSchema):
 
     class Meta:
         model = Community
-        # model_fields = [
-        #     "id",
-        #     "name",
-        #     "description",
-        #     "type",
-        #     "profile_pic_url",
-        #     "banner_pic_url",
-        #     "slug",
-        #     "created_at",
-        #     "rules",
-        #     "about",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "profile_pic_url",
+            "banner_pic_url",
+            "slug",
+            "created_at",
+            "rules",
+            "about",
+        ]
 
     @staticmethod
     def from_orm_with_custom_fields(

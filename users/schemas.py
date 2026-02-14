@@ -85,8 +85,7 @@ class UserBasicDetails(Schema):
 
     class Meta:
         model = User
-        # model_fields = ["id", "username", "profile_pic_url"]
-        fields = "__all__"
+        fields = ["id", "username", "profile_pic_url"]
 
     @staticmethod
     def from_model(user: User):
@@ -105,22 +104,21 @@ class UserDetails(ModelSchema):
 
     class Meta:
         model = User
-        # model_fields = [
-        #     "id",
-        #     "username",
-        #     "email",
-        #     "first_name",
-        #     "last_name",
-        #     "profile_pic_url",
-        #     "pubMed_url",
-        #     "google_scholar_url",
-        #     "bio",
-        #     "home_page_url",
-        #     "linkedin_url",
-        #     "github_url",
-        #     "academic_statuses",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "profile_pic_url",
+            "pubMed_url",
+            "google_scholar_url",
+            "bio",
+            "home_page_url",
+            "linkedin_url",
+            "github_url",
+            "academic_statuses",
+        ]
 
     @staticmethod
     def resolve_user(user: User):

@@ -23,8 +23,7 @@ class PostOut(ModelSchema):
 
     class Meta:
         model = Post
-        # model_fields = ["id", "title", "content", "created_at"]
-        fields = "__all__"
+        fields = ["id", "title", "content", "created_at"]
 
     @staticmethod
     def resolve_post(post: Post, current_user: Optional[User]):
@@ -70,8 +69,7 @@ class CommentOut(ModelSchema):
 
     class Meta:
         model = Comment
-        # model_fields = ["id", "content", "created_at"]
-        fields = "__all__"
+        fields = ["id", "content", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: Comment, current_user: Optional[User]):

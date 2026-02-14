@@ -50,8 +50,7 @@ class SubmissionType(str, Enum):
 class ArticleCommunityDetails(ModelSchema):
     class Meta:
         model = Community
-        # model_fields = ["id", "name", "description", "profile_pic_url"]
-        fields = "__all__"
+        fields = ["id", "name", "description", "profile_pic_url"]
 
 
 class CommunityArticleForList(Schema):
@@ -94,14 +93,13 @@ class CommunityArticleOut(ModelSchema):
 
     class Meta:
         model = CommunityArticle
-        # model_fields = [
-        #     "id",
-        #     "community",
-        #     "status",
-        #     "submitted_at",
-        #     "published_at",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "community",
+            "status",
+            "submitted_at",
+            "published_at",
+        ]
 
 
     @classmethod
@@ -168,8 +166,7 @@ class ArticlesListOut(ModelSchema):
 
     class Meta:
         model = Article
-        # model_fields = ["id", "slug", "title", "abstract", "article_image_url"]
-        fields = "__all__"
+        fields = ["id", "slug", "title", "abstract", "article_image_url"]
 
 
     @classmethod
@@ -215,17 +212,16 @@ class ArticleOut(ModelSchema):
 
     class Meta:
         model = Article
-        # model_fields = [
-        #     "id",
-        #     "slug",
-        #     "title",
-        #     "abstract",
-        #     "article_link",
-        #     "article_image_url",
-        #     "created_at",
-        #     "updated_at",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "slug",
+            "title",
+            "abstract",
+            "article_link",
+            "article_image_url",
+            "created_at",
+            "updated_at",
+        ]
 
     @classmethod
     def from_orm_with_custom_fields(
@@ -283,13 +279,12 @@ class ArticleBasicOut(ModelSchema):
 
     class Meta:
         model = Article
-        # model_fields = [
-        #     "id",
-        #     "slug",
-        #     "title",
-        #     "article_image_url",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "slug",
+            "title",
+            "article_image_url",
+        ]
 
     @classmethod
     def from_orm_with_custom_fields(
@@ -316,12 +311,11 @@ class ArticleBasicOut(ModelSchema):
 class ArticleMetaOut(ModelSchema):
     class Meta:
         model = Article
-        # model_fields = [
-        #     "title",
-        #     "abstract",
-        #     "article_image_url",
-        # ]
-        fields = "__all__"
+        fields = [
+            "title",
+            "abstract",
+            "article_image_url",
+        ]
 
 
 # Todo: Create a Generic PaginatedResponse Schema
@@ -392,15 +386,14 @@ class CreateReviewSchema(Schema):
 class ReviewVersionSchema(ModelSchema):
     class Meta:
         model = ReviewVersion
-        # model_fields = [
-        #     "id",
-        #     "rating",
-        #     "subject",
-        #     "content",
-        #     "version",
-        #     "created_at",
-        # ]
-        fields = "__all__"
+        fields = [
+            "id",
+            "rating",
+            "subject",
+            "content",
+            "version",
+            "created_at",
+        ]
 
 
 class ReviewOut(ModelSchema):
