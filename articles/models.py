@@ -646,3 +646,249 @@ class DiscussionSubscription(models.Model):
 # def handle_reply_delete(sender, instance, **kwargs):
 #     instance.deleted_at = timezone.now()
 #     instance.save()
+
+
+"""
+User Flag System for Generic Entity State Tracking
+
+A presence-based flag system where:
+- Flag row exists = flag is set (e.g., entity is unread)
+- No flag row = flag is not set (e.g., entity is read)
+"""
+
+
+class UserFlagManager(models.Manager):
+    """Manager for efficient bulk operations on UserFlag"""
+
+    def bulk_create_flags(
+        self,
+        user_ids,
+        flag_type: str,
+        entity_type: str,
+        entity_id: int,
+    ):
+        """
+        Create flags for multiple users efficiently.
+        Uses bulk_create with ignore_conflicts to handle race conditions.
+
+        Args:
+            user_ids: Set or list of user IDs to create flags for
+            flag_type: Type of flag ('unread', etc.)
+            entity_type: Type of entity ('discussion', 'comment', 'notification', etc.)
+            entity_id: ID of the entity
+
+        Returns:
+            List of created UserFlag instances
+        """
+        if not user_ids:
+            return []
+
+        flags = [
+            UserFlag(
+                user_id=user_id,
+                flag_type=flag_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+            for user_id in user_ids
+        ]
+        # ignore_conflicts=True handles race conditions where the same flag
+        # might be created twice (e.g., duplicate webhook calls)
+        return self.bulk_create(flags, ignore_conflicts=True)
+
+    def get_flagged_entity_ids(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str,
+        entity_ids: list,
+    ):
+        """
+        Get which entity IDs have a specific flag set.
+        Avoids N+1 queries when fetching entity lists.
+
+        Args:
+            user_id: User ID to check flags for
+            flag_type: Type of flag to check ('unread', etc.)
+            entity_type: Type of entity ('discussion', 'comment', etc.)
+            entity_ids: List of entity IDs to check
+
+        Returns:
+            Set of entity IDs that have the flag set.
+            Entities not in the set do not have the flag (e.g., are read).
+        """
+        if not entity_ids:
+            return set()
+
+        return set(
+            self.filter(
+                user_id=user_id,
+                flag_type=flag_type,
+                entity_type=entity_type,
+                entity_id__in=entity_ids,
+            ).values_list("entity_id", flat=True)
+        )
+
+    def remove_flags(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str = None,
+        entity_ids: list = None,
+    ):
+        """
+        Remove flags (e.g., mark as read by deleting unread flags).
+        Uses select_for_update to handle race conditions.
+
+        Args:
+            user_id: User ID
+            flag_type: Type of flag to remove ('unread', etc.)
+            entity_type: Optional - filter by entity type
+            entity_ids: Optional - filter by specific entity IDs
+
+        Returns:
+            Number of flags removed
+        """
+        from django.db import transaction
+
+        queryset = self.filter(user_id=user_id, flag_type=flag_type)
+
+        if entity_type:
+            queryset = queryset.filter(entity_type=entity_type)
+        if entity_ids:
+            queryset = queryset.filter(entity_id__in=entity_ids)
+
+        # Use select_for_update to prevent race conditions during concurrent deletes
+        with transaction.atomic():
+            # Lock the rows we're about to delete
+            locked_ids = list(queryset.select_for_update().values_list("id", flat=True))
+            if not locked_ids:
+                return 0
+            # Delete only the locked rows
+            deleted_count, _ = self.filter(id__in=locked_ids).delete()
+            return deleted_count
+
+    def has_flag(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str,
+        entity_id: int,
+    ):
+        """
+        Check if a specific entity has a flag set for a user.
+
+        Args:
+            user_id: User ID
+            flag_type: Type of flag ('unread', etc.)
+            entity_type: Type of entity
+            entity_id: ID of the entity
+
+        Returns:
+            True if flag exists, False otherwise
+        """
+        return self.filter(
+            user_id=user_id,
+            flag_type=flag_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        ).exists()
+
+    def get_flags_for_entities(
+        self,
+        user_id: int,
+        entity_type: str,
+        entity_ids: list,
+    ):
+        """
+        Get all flags for multiple entities in a single query.
+        Returns a dict mapping entity_id to list of flag names.
+
+        Args:
+            user_id: User ID to check flags for
+            entity_type: Type of entity ('discussion', 'comment', etc.)
+            entity_ids: List of entity IDs to check
+
+        Returns:
+            Dict mapping entity_id to list of flag names.
+            Format: {entity_id: ["unread", "pinned"], ...}
+            Entities not in the dict have no flags set.
+        """
+        if not entity_ids:
+            return {}
+
+        flags = self.filter(
+            user_id=user_id,
+            entity_type=entity_type,
+            entity_id__in=entity_ids,
+        ).values_list("entity_id", "flag_type")
+
+        # Group flags by entity_id
+        result = {}
+        for entity_id, flag_type in flags:
+            if entity_id not in result:
+                result[entity_id] = []
+            result[entity_id].append(flag_type)
+
+        return result
+
+
+class UserFlag(models.Model):
+    """
+    Generic flag system for tracking user-specific states on any entity.
+
+    Presence-based design:
+    - Flag row exists = flag is set (e.g., unread)
+    - No flag row = flag is not set (e.g., read)
+
+    This allows tracking various states like:
+    - unread: User hasn't read this entity
+    - pinned: User has pinned this entity (future)
+    - starred: User has starred this entity (future)
+    - muted: User has muted this entity (future)
+    """
+
+    # Valid flag and entity types (single source of truth)
+    # These lists are imported by myapp/schemas.py for Literal type generation
+    VALID_FLAG_TYPES = ["unread"]
+    VALID_ENTITY_TYPES = ["discussion", "comment", "notification"]
+
+    # Django model choices format
+    FLAG_TYPE_CHOICES = [(t, t) for t in VALID_FLAG_TYPES]
+    ENTITY_TYPE_CHOICES = [(t, t) for t in VALID_ENTITY_TYPES]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="flags",
+        db_index=True,
+    )
+    flag_type = models.CharField(max_length=50, choices=FLAG_TYPE_CHOICES)
+    entity_type = models.CharField(max_length=50, choices=ENTITY_TYPE_CHOICES)
+    entity_id = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = UserFlagManager()
+
+    class Meta:
+        constraints = [
+            # Prevent duplicate flags for same user + flag_type + entity
+            models.UniqueConstraint(
+                fields=["user", "flag_type", "entity_type", "entity_id"],
+                name="userflag_unique",
+            ),
+        ]
+        indexes = [
+            # Primary lookup: user's flags of a specific type
+            models.Index(fields=["user", "flag_type"], name="userflag_user_flag"),
+            # Filter by entity type (for counting unread by type)
+            models.Index(
+                fields=["user", "flag_type", "entity_type"],
+                name="userflag_user_flag_etype",
+            ),
+            # Lookup flags for a specific entity
+            models.Index(fields=["entity_type", "entity_id"], name="userflag_entity"),
+        ]
+
+    def __str__(self):
+        return f"UserFlag({self.user_id}, {self.flag_type}, {self.entity_type}:{self.entity_id})"

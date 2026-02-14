@@ -12,6 +12,7 @@ from communities.api_invitation import router as communities_invitation_router
 from communities.api_join import router as communities_join_router
 from communities.articles_api import router as communities_posts_router
 from communities.members_api import router as communities_admin_router
+from myapp.flags_api import router as flags_router
 from myapp.realtime_api import router as realtime_router
 from posts.api import router as posts_router
 from users.api import router as users_general_router
@@ -102,4 +103,5 @@ api.add_router("/users", users_parent_router)
 api.add_router("/articles", articles_parent_router)
 api.add_router("/communities", communities_parent_router)
 api.add_router("/realtime", realtime_router)
+api.add_router("/flags", flags_router)
 # api.add_router("/posts", posts_router)
