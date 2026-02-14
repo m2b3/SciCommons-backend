@@ -20,7 +20,7 @@ from articles.models import (
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
-from myapp.schemas import DateCount, FilterType, UserStats
+from myapp.schemas import DateCount, FilterType, FlagType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -602,6 +602,10 @@ class DiscussionOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
     is_resolved: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags set for this entity for the current user (e.g., ['unread']). Empty for unauthenticated users.",
+    )
 
     class Config:
         model = Discussion
@@ -616,7 +620,21 @@ class DiscussionOut(ModelSchema):
         ]
 
     @classmethod
-    def from_orm(cls, discussion: Discussion, current_user: Optional[User]):
+    def from_orm(
+        cls,
+        discussion: Discussion,
+        current_user: Optional[User],
+        flags: Optional[List[str]] = None,
+    ):
+        """
+        Create DiscussionOut from a Discussion instance.
+
+        Args:
+            discussion: The Discussion model instance
+            current_user: The current authenticated user (or None)
+            flags: Pre-fetched list of flag names set for this entity.
+                   Empty list means no flags set. None for unauthenticated users.
+        """
         comments_count = DiscussionComment.objects.filter(discussion=discussion).count()
         is_pseudonymous = discussion.is_pseudonymous
         # if is_pseudonymous:
@@ -640,6 +658,11 @@ class DiscussionOut(ModelSchema):
             user.username = pseudonym.fake_name
             user.profile_pic_url = pseudonym.identicon
 
+        # Determine flags:
+        # - If flags is explicitly provided, use it
+        # - If user is not authenticated, use empty list
+        final_flags = flags if flags is not None else []
+
         return cls(
             id=discussion.id,
             user=user,
@@ -655,6 +678,7 @@ class DiscussionOut(ModelSchema):
             # avatar=avatar if avatar else None,
             is_pseudonymous=is_pseudonymous,
             is_resolved=discussion.is_resolved,
+            flags=final_flags,
         )
 
 
@@ -683,18 +707,41 @@ class DiscussionCommentOut(ModelSchema):
     # anonymous_name: str = Field(None)
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags set for this entity for the current user (e.g., ['unread']). Empty for unauthenticated users.",
+    )
 
     class Config:
         model = DiscussionComment
         model_fields = ["id", "content", "created_at"]
 
     @staticmethod
-    def from_orm_with_replies(comment: DiscussionComment, current_user: Optional[User]):
+    def from_orm_with_replies(
+        comment: DiscussionComment,
+        current_user: Optional[User],
+        flags_by_comment_id: Optional[dict] = None,
+        flags: Optional[List[str]] = None,
+    ):
+        """
+        Create DiscussionCommentOut from a DiscussionComment instance.
+
+        Args:
+            comment: The DiscussionComment model instance
+            current_user: The current authenticated user (or None)
+            flags_by_comment_id: Pre-fetched dict mapping comment_id to list of flag names.
+                                Format: {comment_id: ["unread", "pinned"], ...}
+                                If comment_id not in dict, flags is empty list.
+            flags: Direct list of flags to use (for realtime events where flags are known).
+                   Takes precedence over flags_by_comment_id if provided.
+        """
         author = UserStats.from_model(
             comment.author, basic_details_with_reputation=True
         )
         replies = [
-            DiscussionCommentOut.from_orm_with_replies(reply, current_user)
+            DiscussionCommentOut.from_orm_with_replies(
+                reply, current_user, flags_by_comment_id
+            )
             for reply in DiscussionComment.objects.filter(parent=comment)
         ]
         # pseudonym = AnonymousIdentity.objects.get(
@@ -712,6 +759,14 @@ class DiscussionCommentOut(ModelSchema):
             author.username = pseudonym.fake_name
             author.profile_pic_url = pseudonym.identicon
 
+        # Get flags for this comment
+        # Priority: direct flags param > flags_by_comment_id lookup > empty list
+        final_flags = []
+        if flags is not None:
+            final_flags = flags
+        elif current_user is not None and flags_by_comment_id is not None:
+            final_flags = flags_by_comment_id.get(comment.id, [])
+
         return DiscussionCommentOut(
             id=comment.id,
             author=author,
@@ -723,6 +778,7 @@ class DiscussionCommentOut(ModelSchema):
             is_author=(comment.author == current_user) if current_user else False,
             # avatar=avatar if avatar else None,
             is_pseudonymous=is_pseudonymous,
+            flags=final_flags,
         )
 
 
@@ -784,6 +840,7 @@ class SubscriptionArticleOut(Schema):
     article_slug: str
     article_abstract: str
     community_article_id: int
+    has_unread_event: bool = False
 
 
 class CommunitySubscriptionOut(Schema):

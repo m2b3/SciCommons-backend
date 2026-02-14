@@ -15,6 +15,7 @@ from articles.models import (
     DiscussionSubscription,
     DiscussionSummary,
     Reaction,
+    UserFlag,
 )
 from articles.schemas import (
     CommunitySubscriptionOut,
@@ -216,6 +217,18 @@ def list_discussions(
                     pseudonym_map[(p.user_id, p.article_id, p.community_id)] = p
 
             current_user = request.auth if request.auth else None
+
+            # Prefetch all flags for discussions in one query (avoids N+1)
+            # Returns dict: {discussion_id: ["unread", "pinned"], ...}
+            flags_by_discussion_id = {}
+            if current_user:
+                discussion_ids = [d.id for d in discussions_list]
+                flags_by_discussion_id = UserFlag.objects.get_flags_for_entities(
+                    user_id=current_user.id,
+                    entity_type="discussion",
+                    entity_ids=discussion_ids,
+                )
+
             items = []
             for discussion in discussions_list:
                 reputation = reputations.get(discussion.author_id)
@@ -242,6 +255,9 @@ def list_discussions(
                         user.username = pseudonym.fake_name
                         user.profile_pic_url = pseudonym.identicon
 
+                # Get flags for this discussion (empty list if none)
+                flags = flags_by_discussion_id.get(discussion.id, [])
+
                 items.append(
                     DiscussionOut(
                         id=discussion.id,
@@ -256,6 +272,7 @@ def list_discussions(
                         comments_count=discussion.comments_count,
                         is_pseudonymous=discussion.is_pseudonymous,
                         is_resolved=discussion.is_resolved,
+                        flags=flags,
                     )
                 )
 
@@ -309,6 +326,64 @@ def get_user_subscriptions(request):
                 )
             )
 
+            # Get all discussion/comment IDs from subscriptions to check for unread flags
+            # We need to find articles that have any unread discussions or comments
+            # First get all discussions and comments for these articles
+            from articles.models import Discussion, DiscussionComment
+
+            # Get discussion IDs for subscribed articles
+            discussion_ids = list(
+                Discussion.objects.filter(
+                    article_id__in=[s.article_id for s in subscriptions]
+                ).values_list("id", flat=True)
+            )
+
+            # Get comment IDs for subscribed articles (via discussions)
+            comment_ids = list(
+                DiscussionComment.objects.filter(
+                    discussion__article_id__in=[s.article_id for s in subscriptions]
+                ).values_list("id", flat=True)
+            )
+
+            # Get unread discussion IDs
+            unread_discussion_ids = (
+                UserFlag.objects.get_flagged_entity_ids(
+                    user_id=user.id,
+                    flag_type="unread",
+                    entity_type="discussion",
+                    entity_ids=discussion_ids,
+                )
+                if discussion_ids
+                else set()
+            )
+
+            # Get unread comment IDs
+            unread_comment_ids = (
+                UserFlag.objects.get_flagged_entity_ids(
+                    user_id=user.id,
+                    flag_type="unread",
+                    entity_type="comment",
+                    entity_ids=comment_ids,
+                )
+                if comment_ids
+                else set()
+            )
+
+            # Map unread discussions/comments back to article IDs
+            articles_with_unread = set()
+            if unread_discussion_ids:
+                articles_with_unread.update(
+                    Discussion.objects.filter(id__in=unread_discussion_ids).values_list(
+                        "article_id", flat=True
+                    )
+                )
+            if unread_comment_ids:
+                articles_with_unread.update(
+                    DiscussionComment.objects.filter(
+                        id__in=unread_comment_ids
+                    ).values_list("discussion__article_id", flat=True)
+                )
+
             # Group subscriptions by community
             communities_dict = {}
             for subscription in subscriptions:
@@ -322,7 +397,7 @@ def get_user_subscriptions(request):
                         "articles": [],
                     }
 
-                # Add article info to the community
+                # Add article info to the community with unread status
                 communities_dict[community_id]["articles"].append(
                     {
                         "article_id": subscription.article_id,
@@ -330,6 +405,8 @@ def get_user_subscriptions(request):
                         "article_slug": subscription.article.slug,
                         "article_abstract": subscription.article.abstract,
                         "community_article_id": subscription.community_article_id,
+                        "has_unread_event": subscription.article_id
+                        in articles_with_unread,
                     }
                 )
 
@@ -526,7 +603,17 @@ def get_discussion(request, discussion_id: int):
             return 403, {"message": "You are not a member of this community."}
 
         try:
-            response_data = DiscussionOut.from_orm(discussion, user)
+            # Get all flags for this discussion
+            flags = []
+            if user:
+                flags_dict = UserFlag.objects.get_flags_for_entities(
+                    user_id=user.id,
+                    entity_type="discussion",
+                    entity_ids=[discussion.id],
+                )
+                flags = flags_dict.get(discussion.id, [])
+
+            response_data = DiscussionOut.from_orm(discussion, user, flags=flags)
             return 200, response_data
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
@@ -824,8 +911,23 @@ def get_comment(request, comment_id: int):
             return 403, {"message": "You are not a member of this community."}
 
         try:
+            # Get all flags for this comment and its replies
+            flags_by_comment_id = {}
+            if current_user:
+                # Get all comment IDs including nested replies
+                all_comment_ids = [comment.id] + list(
+                    DiscussionComment.objects.filter(
+                        discussion=comment.discussion
+                    ).values_list("id", flat=True)
+                )
+                flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
+                    user_id=current_user.id,
+                    entity_type="comment",
+                    entity_ids=all_comment_ids,
+                )
+
             return 200, DiscussionCommentOut.from_orm_with_replies(
-                comment, current_user
+                comment, current_user, flags_by_comment_id
             )
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
@@ -872,8 +974,25 @@ def list_discussion_comments(
             return 500, {"message": "Error retrieving comments. Please try again."}
 
         try:
+            # Prefetch all flags for comments (including nested replies) in one query
+            flags_by_comment_id = {}
+            if current_user:
+                # Get all comment IDs including nested replies
+                all_comment_ids = list(
+                    DiscussionComment.objects.filter(discussion=discussion).values_list(
+                        "id", flat=True
+                    )
+                )
+                flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
+                    user_id=current_user.id,
+                    entity_type="comment",
+                    entity_ids=all_comment_ids,
+                )
+
             return 200, [
-                DiscussionCommentOut.from_orm_with_replies(comment, current_user)
+                DiscussionCommentOut.from_orm_with_replies(
+                    comment, current_user, flags_by_comment_id
+                )
                 for comment in comments
             ]
         except Exception as e:
