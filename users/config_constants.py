@@ -1,7 +1,7 @@
 """
 User configuration constants and default values.
 """
-
+from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, TypedDict
 
@@ -26,7 +26,7 @@ class UserConfigType(str, Enum):
     NUMBER = "number"
 
 
-class ConfigMetadata(TypedDict):
+class MetaMetadata(TypedDict):
     """
     Metadata for a configuration setting.
     """

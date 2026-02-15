@@ -137,10 +137,11 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # Security Settings
-SECURE_SSL_REDIRECT = not DEBUG
+# SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=False, cast=bool)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", default=False, cast=bool)
+CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", default=False, cast=bool)
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
@@ -368,7 +369,8 @@ if DEBUG:
     }
 else:
     # Ensure /logs directory (mounted from host) exists inside container
-    LOG_DIR = Path("/logs")
+    # LOG_DIR = Path("/logs")
+    LOG_DIR = BASE_DIR / "logs" 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
     LOGGING = {
