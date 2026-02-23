@@ -49,6 +49,13 @@ class StatusFilter(str, Enum):
     PUBLISHED = "published"
 
 
+class CommunityRoleFilter(str, Enum):
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+    REVIEWER = "reviewer"
+    MEMBER = "member"
+
+
 """
 User's Profile API
 """
@@ -253,19 +260,55 @@ def list_my_articles(
         codes_5xx: Message,
     },
     summary="Get My Communities",
+    description="Get all communities the user is part of. Use the 'role' filter to get communities where the user has a specific role.",
     auth=JWTAuth(),
 )
 def list_my_communities(
     request: HttpRequest,
+    role: Optional[CommunityRoleFilter] = None,
     search: Optional[str] = None,
     sort: Optional[str] = None,
     page: int = 1,
     per_page: int = 10,
 ):
+    """
+    Get communities the authenticated user is part of.
+
+    By default, returns all communities where the user is a member, moderator,
+    reviewer, or admin. Use the 'role' filter to get communities where the user
+    has a specific role.
+
+    Args:
+        role: Filter by user's role in the community (admin, moderator, reviewer, member).
+              Only one role filter can be applied at a time.
+        search: Search communities by name or description.
+        sort: Sort order (latest, oldest, name_asc, name_desc).
+        page: Page number for pagination.
+        per_page: Number of items per page.
+    """
     try:
         user = request.auth
         try:
-            communities = Community.objects.filter(admins__in=[user])
+            # Filter communities based on role parameter
+            if role == CommunityRoleFilter.ADMIN:
+                communities = Community.objects.filter(admins=user)
+            elif role == CommunityRoleFilter.MODERATOR:
+                communities = Community.objects.filter(moderators=user)
+            elif role == CommunityRoleFilter.REVIEWER:
+                communities = Community.objects.filter(reviewers=user)
+            elif role == CommunityRoleFilter.MEMBER:
+                # Member role means user is in the members M2M but not admin/moderator/reviewer
+                communities = Community.objects.filter(members=user).exclude(
+                    Q(admins=user) | Q(moderators=user) | Q(reviewers=user)
+                )
+            else:
+                # Default: return all communities the user is part of
+                communities = Community.objects.filter(
+                    Q(members=user)
+                    | Q(admins=user)
+                    | Q(moderators=user)
+                    | Q(reviewers=user)
+                ).distinct()
         except Exception as e:
             logger.error(f"Error retrieving communities: {e}")
             return 500, {"message": "Error retrieving communities. Please try again."}
@@ -275,7 +318,7 @@ def list_my_communities(
             if search:
                 search = search.strip()
                 if len(search) > 0:
-                    communities = communities.filter(admins__in=[user]).filter(
+                    communities = communities.filter(
                         Q(name__icontains=search) | Q(description__icontains=search)
                     )
         except Exception as e:
@@ -294,7 +337,6 @@ def list_my_communities(
                     communities = communities.order_by("name")
                 elif sort == "name_desc":
                     communities = communities.order_by("-name")
-                # Add more sorting options if needed
             else:
                 # Default sort by latest
                 communities = communities.order_by("-created_at")
@@ -311,18 +353,6 @@ def list_my_communities(
             }
 
         try:
-            # results = [
-            #     CommunityListOut.from_orm_with_custom_fields(community, user=user)
-            #     for community in paginated_communities.object_list
-            # ]
-
-            # return 200, PaginatedCommunities(
-            #     items=results,
-            #     total=paginator.count,
-            #     page=page,
-            #     per_page=per_page,
-            #     num_pages=paginator.num_pages,
-            # )
             community_ids = [
                 community.id for community in paginated_communities.object_list
             ]
