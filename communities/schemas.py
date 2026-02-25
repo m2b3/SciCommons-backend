@@ -127,6 +127,7 @@ class CommunityOut(ModelSchema):
     is_bookmarked: Optional[bool] = None
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
+    members: List[str] = []
 
     class Config:
         model = Community
@@ -148,11 +149,13 @@ class CommunityOut(ModelSchema):
         community: Community,
         user: Optional[User] = None,
         is_bookmarked: Optional[bool] = None,
+        member_usernames: Optional[List[str]] = None,
     ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
         num_articles = CommunityArticle.objects.filter(community=community).count()
+
         response_data = {
             "id": community.id,
             "name": community.name,
@@ -167,6 +170,7 @@ class CommunityOut(ModelSchema):
             "num_articles": num_articles,
             "community_settings": community.community_settings,
             "is_bookmarked": is_bookmarked,
+            "members": member_usernames if member_usernames is not None else [],
         }
 
         if community.created_at:
