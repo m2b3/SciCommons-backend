@@ -357,9 +357,19 @@ def get_community(request, community_name: str):
                 user=user, content_type=community_ct, object_id=community.id
             ).exists()
 
+        # Only return member usernames if user is a member of the community
+        member_usernames = []
+        if community.is_member(user):
+            member_usernames = list(
+                community.members.values_list("username", flat=True)
+            )
+
         try:
             return 200, CommunityOut.from_orm_with_custom_fields(
-                community, user, is_bookmarked=is_bookmarked
+                community,
+                user,
+                is_bookmarked=is_bookmarked,
+                member_usernames=member_usernames,
             )
         except Exception as e:
             logger.error(f"Error formatting community data: {e}")
