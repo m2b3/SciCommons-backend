@@ -850,8 +850,8 @@ class UserFlag(models.Model):
 
     # Valid flag and entity types (single source of truth)
     # These lists are imported by myapp/schemas.py for Literal type generation
-    VALID_FLAG_TYPES = ["unread"]
-    VALID_ENTITY_TYPES = ["discussion", "comment", "notification"]
+    VALID_FLAG_TYPES = ["unread", "pinned"]
+    VALID_ENTITY_TYPES = ["discussion", "comment", "notification", "review"]
 
     # Django model choices format
     FLAG_TYPE_CHOICES = [(t, t) for t in VALID_FLAG_TYPES]

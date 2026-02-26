@@ -15,6 +15,7 @@ from articles.models import (
     ReviewComment,
     ReviewCommentRating,
     ReviewVersion,
+    UserFlag,
 )
 from articles.schemas import (
     CommunityArticleOut,
@@ -320,6 +321,15 @@ def list_reviews(
                 )
             }
 
+            # Prefetch all flags for reviews in one query (avoids N+1)
+            flags_by_review_id = {}
+            if current_user:
+                flags_by_review_id = UserFlag.objects.get_flags_for_entities(
+                    user_id=current_user.id,
+                    entity_type="review",
+                    entity_ids=review_ids,
+                )
+
             # Build the response
             items = []
             for review in reviews_list:
@@ -347,6 +357,9 @@ def list_reviews(
 
                 comments_rating = round(comments_ratings_map.get(review.id, 0) or 0, 1)
 
+                # Get flags for this review (empty list if none)
+                flags = flags_by_review_id.get(review.id, [])
+
                 items.append(
                     ReviewOut(
                         id=review.id,
@@ -368,6 +381,7 @@ def list_reviews(
                         is_pseudonymous=review.is_pseudonymous,
                         community_article=community_article,
                         comments_ratings=comments_rating,
+                        flags=flags,
                     )
                 )
 
@@ -403,7 +417,17 @@ def get_review(request, review_id: int):
             return 403, {"message": "You are not a member of this community."}
 
         try:
-            return 200, ReviewOut.from_orm(review, user)
+            # Get all flags for this review
+            flags = []
+            if user:
+                flags_dict = UserFlag.objects.get_flags_for_entities(
+                    user_id=user.id,
+                    entity_type="review",
+                    entity_ids=[review.id],
+                )
+                flags = flags_dict.get(review.id, [])
+
+            return 200, ReviewOut.from_orm(review, user, flags=flags)
         except Exception as e:
             logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Error formatting review data. Please try again."}

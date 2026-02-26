@@ -406,6 +406,10 @@ class ReviewOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags set for this review for the current user (e.g., ['pinned']). Empty for unauthenticated users.",
+    )
 
     class Config:
         model = Review
@@ -423,7 +427,12 @@ class ReviewOut(ModelSchema):
         ]
 
     @classmethod
-    def from_orm(cls, review: Review, current_user: Optional[User]):
+    def from_orm(
+        cls,
+        review: Review,
+        current_user: Optional[User],
+        flags: Optional[List[str]] = None,
+    ):
         comments_count = ReviewComment.objects.filter(
             review=review, is_deleted=False
         ).count()
@@ -471,6 +480,11 @@ class ReviewOut(ModelSchema):
             1,
         )
 
+        # Determine flags:
+        # - If flags is explicitly provided, use it
+        # - If user is not authenticated, use empty list
+        final_flags = flags if flags is not None else []
+
         return cls(
             id=review.id,
             user=user,
@@ -492,6 +506,7 @@ class ReviewOut(ModelSchema):
             is_pseudonymous=is_pseudonymous,
             community_article=community_article,
             comments_ratings=comments_ratings if comments_ratings else 0,
+            flags=final_flags,
         )
 
 
