@@ -18,7 +18,7 @@ from typing import List
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
-from articles.models import Discussion, DiscussionComment, UserFlag
+from articles.models import Discussion, DiscussionComment, Review, UserFlag
 from myapp.schemas import EntityType, FlagType
 from users.auth import JWTAuth
 
@@ -121,6 +121,17 @@ def authorize_entity_access(user, entity_type: str, entity_ids: List[int]) -> Li
         # (notifications will be user-specific when implemented)
         # For now, allow all - actual filtering happens at flag level (user FK)
         return list(entity_ids)
+
+    elif entity_type == "review":
+        # Get reviews and check community membership
+        reviews = Review.objects.filter(id__in=entity_ids).select_related("community")
+        accessible_ids = []
+        for review in reviews:
+            # If no community or public community, allow access
+            # If private/hidden community, check membership
+            if not review.community or review.community.is_member(user):
+                accessible_ids.append(review.id)
+        return accessible_ids
 
     # Default: return all (for future entity types, add authorization logic)
     return list(entity_ids)
