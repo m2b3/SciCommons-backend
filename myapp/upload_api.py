@@ -152,16 +152,16 @@ def build_public_url(object_key: str) -> str:
     auth=JWTAuth(),
     summary="Upload an image for markdown editor",
 )
-@ratelimit(key="user", rate="30/m", method="POST", block=True)
+@ratelimit(key="user", rate="10/m", method="POST", block=True)
 def upload_image(request, file: NinjaUploadedFile = File(...)):
     """
     Upload an image to S3 for use in markdown editors.
 
     **Size Limit:** 500KB
 
-    **Allowed Types:** image/jpeg, image/png, image/gif, image/webp
+    **Allowed Types:** image/jpeg, image/png, image/gif, image/webp, image/avif
 
-    **Rate Limit:** 30 uploads per minute per user
+    **Rate Limit:** 10 uploads per minute per user
 
     **Origin Restriction:** Only requests from scicommons.org domains are allowed.
 
