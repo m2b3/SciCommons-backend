@@ -305,3 +305,50 @@ class UserSetting(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.config_name}: {self.value}"
+
+
+class UploadedImage(models.Model):
+    """
+    Tracks images uploaded by users for use in markdown content.
+
+    Images start with ref_count=0 when uploaded. When the image is actually
+    used in a comment/review/etc, the ref_count is incremented. This allows
+    us to identify and clean up orphaned images (ref_count=0) that were
+    uploaded but never used.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="uploaded_images"
+    )
+    object_key = models.CharField(
+        max_length=500,
+        unique=True,
+        db_index=True,
+        help_text="S3 object key (path), e.g., user-attachments/prod/filename.jpg",
+    )
+    content_type = models.CharField(
+        max_length=50,
+        help_text="MIME type of the uploaded image",
+    )
+    file_size = models.PositiveIntegerField(
+        help_text="File size in bytes",
+    )
+    ref_count = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text="Reference count - number of times this image is used",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "uploaded_image"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["ref_count", "created_at"],
+                name="uploaded_image_cleanup_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.object_key} (refs: {self.ref_count})"

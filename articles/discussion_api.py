@@ -37,6 +37,7 @@ from articles.schemas import (
 from communities.models import Community, CommunityArticle
 from myapp.realtime import RealtimeEventPublisher
 from myapp.schemas import Message, UserStats
+from myapp.upload_api import process_content_images_async
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Reputation, User
 
@@ -134,6 +135,12 @@ def create_discussion(
             except Exception as e:
                 logger.error(f"Failed to publish discussion created event: {e}")
                 # Continue even if event publishing fails
+
+            # Process image references in the discussion content (async)
+            try:
+                process_content_images_async(discussion.content)
+            except Exception as e:
+                logger.error(f"Failed to queue image reference processing: {e}")
 
         try:
             return 201, DiscussionOut.from_orm(discussion, user)
@@ -871,6 +878,12 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
         except Exception as e:
             logger.error(f"Failed to publish comment created event: {e}")
             # Continue even if event publishing fails
+
+        # Process image references in the comment content (async)
+        try:
+            process_content_images_async(payload.content)
+        except Exception as e:
+            logger.error(f"Failed to queue image reference processing: {e}")
 
         # Return comment with replies
         try:

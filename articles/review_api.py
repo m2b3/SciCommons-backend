@@ -37,6 +37,7 @@ from myapp.services.send_emails import (
     send_comment_notification_email,
     send_review_notification_email,
 )
+from myapp.upload_api import process_content_images_async
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
@@ -198,6 +199,12 @@ def create_review(
             except Exception as e:
                 logger.error(f"Error sending review notification email: {e}")
                 # Continue even if email sending fails
+
+        # Process image references in the review content (async)
+        try:
+            process_content_images_async(review.content)
+        except Exception as e:
+            logger.error(f"Failed to queue image reference processing: {e}")
 
         try:
             return 201, ReviewOut.from_orm(review, user)
@@ -633,6 +640,12 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
             except Exception as e:
                 logger.error(f"Error sending comment notification email: {e}")
                 # Continue even if email sending fails
+
+        # Process image references in the comment content (async)
+        try:
+            process_content_images_async(payload.content)
+        except Exception as e:
+            logger.error(f"Failed to queue image reference processing: {e}")
 
         # Return comment with replies
         try:
