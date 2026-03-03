@@ -1,5 +1,10 @@
 ## Set up Guide
 
+### Compatibility Notes
+
+- This project is currently compatible with `django-ninja==1.4.1`.
+- Running with `django-ninja` 1.5+ may break startup due to `ModelSchema` API changes.
+
 ### 1. Create a Virtual Environment
 
 ```bash
