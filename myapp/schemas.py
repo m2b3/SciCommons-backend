@@ -136,6 +136,7 @@ class FlagType(str, Enum):
 
     - unread: Entity has not been read by the user
     - pinned: Entity is pinned by the user
+    - unread_comment: (Virtual flag) Discussion has unread comments/replies
 
     Future flags (add here and in UserFlag.VALID_FLAG_TYPES when implemented):
     - starred: Entity is starred/favorited by the user
@@ -144,6 +145,7 @@ class FlagType(str, Enum):
 
     UNREAD = "unread"
     PINNED = "pinned"
+    UNREAD_COMMENT = "unread_comment"
     # STARRED = "starred"
     # MUTED = "muted"
 

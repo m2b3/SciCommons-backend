@@ -228,6 +228,7 @@ def list_discussions(
             # Prefetch all flags for discussions in one query (avoids N+1)
             # Returns dict: {discussion_id: ["unread", "pinned"], ...}
             flags_by_discussion_id = {}
+            discussions_with_unread_comments = set()
             if current_user:
                 discussion_ids = [d.id for d in discussions_list]
                 flags_by_discussion_id = UserFlag.objects.get_flags_for_entities(
@@ -235,6 +236,33 @@ def list_discussions(
                     entity_type="discussion",
                     entity_ids=discussion_ids,
                 )
+
+                # Check for unread comments within these discussions
+                # Get all comment IDs for these discussions
+                comment_ids_by_discussion = {}
+                comments = DiscussionComment.objects.filter(
+                    discussion_id__in=discussion_ids
+                ).values_list("id", "discussion_id")
+                all_comment_ids = []
+                for comment_id, disc_id in comments:
+                    all_comment_ids.append(comment_id)
+                    if disc_id not in comment_ids_by_discussion:
+                        comment_ids_by_discussion[disc_id] = []
+                    comment_ids_by_discussion[disc_id].append(comment_id)
+
+                # Get unread comment IDs in one query
+                if all_comment_ids:
+                    unread_comment_ids = UserFlag.objects.get_flagged_entity_ids(
+                        user_id=current_user.id,
+                        flag_type="unread",
+                        entity_type="comment",
+                        entity_ids=all_comment_ids,
+                    )
+
+                    # Map unread comments back to their discussions
+                    for disc_id, comment_ids in comment_ids_by_discussion.items():
+                        if any(cid in unread_comment_ids for cid in comment_ids):
+                            discussions_with_unread_comments.add(disc_id)
 
             items = []
             for discussion in discussions_list:
@@ -263,7 +291,11 @@ def list_discussions(
                         user.profile_pic_url = pseudonym.identicon
 
                 # Get flags for this discussion (empty list if none)
-                flags = flags_by_discussion_id.get(discussion.id, [])
+                flags = list(flags_by_discussion_id.get(discussion.id, []))
+
+                # Add "unread_comment" flag if discussion has unread comments/replies
+                if discussion.id in discussions_with_unread_comments:
+                    flags.append("unread_comment")
 
                 items.append(
                     DiscussionOut(

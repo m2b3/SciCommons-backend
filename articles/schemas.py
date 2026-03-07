@@ -619,7 +619,7 @@ class DiscussionOut(ModelSchema):
     is_resolved: bool = Field(False)
     flags: List[FlagType] = Field(
         default_factory=list,
-        description="List of flags set for this entity for the current user (e.g., ['unread']). Empty for unauthenticated users.",
+        description="List of flags for the current user. 'unread' = discussion itself is unread, 'unread_comment' = has unread comments/replies. Empty for unauthenticated users.",
     )
 
     class Config:
