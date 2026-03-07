@@ -419,7 +419,7 @@ def get_my_bookmarks(
                                     title=community.name,
                                     type="community",
                                     details=f"{community.member_count} members",
-                                    slug=community.slug,
+                                    slug=community.name,
                                     created_at=bookmark.created_at,
                                 )
                             )
