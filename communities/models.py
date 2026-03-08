@@ -59,6 +59,18 @@ class Community(models.Model):
     def is_admin(self, user):
         return self.admins.filter(pk=user.pk).exists()
 
+    def get_user_role(self, user):
+        """Get the user's highest role in this community."""
+        if self.admins.filter(pk=user.pk).exists():
+            return "admin"
+        if self.moderators.filter(pk=user.pk).exists():
+            return "moderator"
+        if self.reviewers.filter(pk=user.pk).exists():
+            return "reviewer"
+        if self.members.filter(pk=user.pk).exists():
+            return "member"
+        return None
+
     def __str__(self):
         return self.name
 

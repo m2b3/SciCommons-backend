@@ -388,6 +388,7 @@ def list_my_communities(
                         created_at=community.created_at,
                         num_members=members_count.get(community.id, 0),
                         num_published_articles=articles_count.get(community.id, 0),
+                        role=community.get_user_role(user),
                     )
                 )
 
