@@ -45,10 +45,7 @@ class CommunityListOut(ModelSchema):
     num_published_articles: int
     org: Optional[str] = None
     is_bookmarked: Optional[bool] = None
-    # is_admin: bool = False
-    # is_member: bool = False
-    # is_request_sent: bool = False
-    # requested_at: Optional[datetime] = None
+    role: Optional[str] = None
 
     class Config:
         model = Community
