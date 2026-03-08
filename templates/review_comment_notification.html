@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html style="padding: 20px;">
+
+<head>
+    <style>
+        body.body {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .heading {
+            font-size: 1em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .message {
+            font-size: 1em;
+            margin-bottom: 12px;
+        }
+
+        .content-box {
+            background-color: rgba(0, 0, 0, 0.03);
+            border-left: 3px solid rgb(64, 183, 94);
+            padding: 1px 10px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .content-text {
+            font-style: italic;
+            color: rgb(60, 60, 60);
+            word-wrap: break-word;
+        }
+
+        .footer {
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: rgb(88, 88, 88);
+        }
+
+        .footer-link {
+            color: rgb(88, 88, 88);
+            word-break: break-all;
+        }
+
+        .footer-separator {
+            background-color: rgb(220, 220, 220);
+            height: 1px;
+            border: none;
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="body">
+    <div>
+        <div>
+            <p class="heading">{{ notification_type }}</p>
+            <p class="message">{{ message_text|safe }}</p>
+            
+            {% if content_preview %}
+            <div class="content-box">
+                <p class="content-text">{{ content_preview }}</p>
+            </div>
+            {% endif %}
+            
+            <div class="footer">
+                <hr class="footer-separator">
+                <a href="{{ article_link }}" class="footer-link">View in SciCommons</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
+

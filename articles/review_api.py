@@ -15,6 +15,7 @@ from articles.models import (
     ReviewComment,
     ReviewCommentRating,
     ReviewVersion,
+    UserFlag,
 )
 from articles.schemas import (
     CommunityArticleOut,
@@ -32,6 +33,11 @@ from articles.schemas import (
 from communities.models import Community, CommunityArticle
 from myapp.feature_flags import MAX_NESTING_LEVEL
 from myapp.schemas import UserStats
+from myapp.services.send_emails import (
+    send_comment_notification_email,
+    send_review_notification_email,
+)
+from myapp.upload_api import process_content_images_async
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import User
 
@@ -186,6 +192,20 @@ def create_review(
                 # Continue even if anonymous name creation fails
                 pass
 
+        # Send email notification to article submitter if review is in a community
+        if community:
+            try:
+                send_review_notification_email(article, review, community)
+            except Exception as e:
+                logger.error(f"Error sending review notification email: {e}")
+                # Continue even if email sending fails
+
+        # Process image references in the review content (async)
+        try:
+            process_content_images_async(review.content)
+        except Exception as e:
+            logger.error(f"Failed to queue image reference processing: {e}")
+
         try:
             return 201, ReviewOut.from_orm(review, user)
         except Exception as e:
@@ -308,6 +328,15 @@ def list_reviews(
                 )
             }
 
+            # Prefetch all flags for reviews in one query (avoids N+1)
+            flags_by_review_id = {}
+            if current_user:
+                flags_by_review_id = UserFlag.objects.get_flags_for_entities(
+                    user_id=current_user.id,
+                    entity_type="review",
+                    entity_ids=review_ids,
+                )
+
             # Build the response
             items = []
             for review in reviews_list:
@@ -335,6 +364,9 @@ def list_reviews(
 
                 comments_rating = round(comments_ratings_map.get(review.id, 0) or 0, 1)
 
+                # Get flags for this review (empty list if none)
+                flags = flags_by_review_id.get(review.id, [])
+
                 items.append(
                     ReviewOut(
                         id=review.id,
@@ -356,6 +388,7 @@ def list_reviews(
                         is_pseudonymous=review.is_pseudonymous,
                         community_article=community_article,
                         comments_ratings=comments_rating,
+                        flags=flags,
                     )
                 )
 
@@ -391,7 +424,17 @@ def get_review(request, review_id: int):
             return 403, {"message": "You are not a member of this community."}
 
         try:
-            return 200, ReviewOut.from_orm(review, user)
+            # Get all flags for this review
+            flags = []
+            if user:
+                flags_dict = UserFlag.objects.get_flags_for_entities(
+                    user_id=user.id,
+                    entity_type="review",
+                    entity_ids=[review.id],
+                )
+                flags = flags_dict.get(review.id, [])
+
+            return 200, ReviewOut.from_orm(review, user, flags=flags)
         except Exception as e:
             logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Error formatting review data. Please try again."}
@@ -587,6 +630,22 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
                 pass
+
+        # Send email notification if comment is in a community
+        if review.community:
+            try:
+                send_comment_notification_email(
+                    comment, review, review.article, review.community
+                )
+            except Exception as e:
+                logger.error(f"Error sending comment notification email: {e}")
+                # Continue even if email sending fails
+
+        # Process image references in the comment content (async)
+        try:
+            process_content_images_async(payload.content)
+        except Exception as e:
+            logger.error(f"Failed to queue image reference processing: {e}")
 
         # Return comment with replies
         try:

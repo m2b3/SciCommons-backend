@@ -13,13 +13,14 @@ from articles.models import (
     Discussion,
     DiscussionComment,
     DiscussionSubscription,
+    DiscussionSummary,
     Review,
     ReviewComment,
     ReviewCommentRating,
     ReviewVersion,
 )
 from communities.models import Community, CommunityArticle
-from myapp.schemas import DateCount, FilterType, UserStats
+from myapp.schemas import DateCount, FilterType, FlagType, UserStats
 from users.models import HashtagRelation, User
 
 """
@@ -81,6 +82,7 @@ class CommunityArticleOut(ModelSchema):
         "accepted",
         "rejected",
         "published",
+        "unpublished",
     ]
     submitted_at: datetime
     published_at: Optional[datetime]
@@ -159,6 +161,7 @@ class ArticlesListOut(ModelSchema):
     title: str
     abstract: str
     article_image_url: Optional[str] = None
+    is_bookmarked: Optional[bool] = None
 
     class Config:
         model = Article
@@ -170,6 +173,7 @@ class ArticlesListOut(ModelSchema):
         article: Article,
         total_ratings: float,
         community_article: Optional[CommunityArticle],
+        is_bookmarked: Optional[bool] = None,
     ):
         return cls(
             id=article.id,
@@ -185,6 +189,7 @@ class ArticlesListOut(ModelSchema):
             user=UserStats.from_model(article.submitter, basic_details=True),
             article_image_url=article.article_image_url,
             total_ratings=total_ratings,
+            is_bookmarked=is_bookmarked,
         )
 
 
@@ -201,6 +206,7 @@ class ArticleOut(ModelSchema):
     is_submitter: bool
     submission_type: SubmissionType
     is_pseudonymous: bool = Field(False)
+    is_bookmarked: Optional[bool] = None
 
     class Config:
         model = Article
@@ -226,6 +232,7 @@ class ArticleOut(ModelSchema):
         total_comments: int,
         community_article: Optional[CommunityArticle],
         current_user: Optional[User],
+        is_bookmarked: Optional[bool] = None,
     ):
         is_pseudonymous = False
         community_article_out = None
@@ -258,6 +265,7 @@ class ArticleOut(ModelSchema):
             ),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
+            is_bookmarked=is_bookmarked,
         )
 
 
@@ -398,6 +406,10 @@ class ReviewOut(ModelSchema):
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
     is_approved: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags set for this review for the current user (e.g., ['pinned']). Empty for unauthenticated users.",
+    )
 
     class Config:
         model = Review
@@ -415,7 +427,12 @@ class ReviewOut(ModelSchema):
         ]
 
     @classmethod
-    def from_orm(cls, review: Review, current_user: Optional[User]):
+    def from_orm(
+        cls,
+        review: Review,
+        current_user: Optional[User],
+        flags: Optional[List[str]] = None,
+    ):
         comments_count = ReviewComment.objects.filter(
             review=review, is_deleted=False
         ).count()
@@ -463,6 +480,11 @@ class ReviewOut(ModelSchema):
             1,
         )
 
+        # Determine flags:
+        # - If flags is explicitly provided, use it
+        # - If user is not authenticated, use empty list
+        final_flags = flags if flags is not None else []
+
         return cls(
             id=review.id,
             user=user,
@@ -484,6 +506,7 @@ class ReviewOut(ModelSchema):
             is_pseudonymous=is_pseudonymous,
             community_article=community_article,
             comments_ratings=comments_ratings if comments_ratings else 0,
+            flags=final_flags,
         )
 
 
@@ -593,6 +616,11 @@ class DiscussionOut(ModelSchema):
     # anonymous_name: str = Field(None)
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
+    is_resolved: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags for the current user. 'unread' = discussion itself is unread, 'unread_comment' = has unread comments/replies. Empty for unauthenticated users.",
+    )
 
     class Config:
         model = Discussion
@@ -603,10 +631,25 @@ class DiscussionOut(ModelSchema):
             "created_at",
             "updated_at",
             "deleted_at",
+            "is_resolved",
         ]
 
     @classmethod
-    def from_orm(cls, discussion: Discussion, current_user: Optional[User]):
+    def from_orm(
+        cls,
+        discussion: Discussion,
+        current_user: Optional[User],
+        flags: Optional[List[str]] = None,
+    ):
+        """
+        Create DiscussionOut from a Discussion instance.
+
+        Args:
+            discussion: The Discussion model instance
+            current_user: The current authenticated user (or None)
+            flags: Pre-fetched list of flag names set for this entity.
+                   Empty list means no flags set. None for unauthenticated users.
+        """
         comments_count = DiscussionComment.objects.filter(discussion=discussion).count()
         is_pseudonymous = discussion.is_pseudonymous
         # if is_pseudonymous:
@@ -630,6 +673,11 @@ class DiscussionOut(ModelSchema):
             user.username = pseudonym.fake_name
             user.profile_pic_url = pseudonym.identicon
 
+        # Determine flags:
+        # - If flags is explicitly provided, use it
+        # - If user is not authenticated, use empty list
+        final_flags = flags if flags is not None else []
+
         return cls(
             id=discussion.id,
             user=user,
@@ -644,6 +692,8 @@ class DiscussionOut(ModelSchema):
             # anonymous_name=anonymous_name,
             # avatar=avatar if avatar else None,
             is_pseudonymous=is_pseudonymous,
+            is_resolved=discussion.is_resolved,
+            flags=final_flags,
         )
 
 
@@ -672,18 +722,41 @@ class DiscussionCommentOut(ModelSchema):
     # anonymous_name: str = Field(None)
     # avatar: str = Field(None)
     is_pseudonymous: bool = Field(False)
+    flags: List[FlagType] = Field(
+        default_factory=list,
+        description="List of flags set for this entity for the current user (e.g., ['unread']). Empty for unauthenticated users.",
+    )
 
     class Config:
         model = DiscussionComment
         model_fields = ["id", "content", "created_at"]
 
     @staticmethod
-    def from_orm_with_replies(comment: DiscussionComment, current_user: Optional[User]):
+    def from_orm_with_replies(
+        comment: DiscussionComment,
+        current_user: Optional[User],
+        flags_by_comment_id: Optional[dict] = None,
+        flags: Optional[List[str]] = None,
+    ):
+        """
+        Create DiscussionCommentOut from a DiscussionComment instance.
+
+        Args:
+            comment: The DiscussionComment model instance
+            current_user: The current authenticated user (or None)
+            flags_by_comment_id: Pre-fetched dict mapping comment_id to list of flag names.
+                                Format: {comment_id: ["unread", "pinned"], ...}
+                                If comment_id not in dict, flags is empty list.
+            flags: Direct list of flags to use (for realtime events where flags are known).
+                   Takes precedence over flags_by_comment_id if provided.
+        """
         author = UserStats.from_model(
             comment.author, basic_details_with_reputation=True
         )
         replies = [
-            DiscussionCommentOut.from_orm_with_replies(reply, current_user)
+            DiscussionCommentOut.from_orm_with_replies(
+                reply, current_user, flags_by_comment_id
+            )
             for reply in DiscussionComment.objects.filter(parent=comment)
         ]
         # pseudonym = AnonymousIdentity.objects.get(
@@ -701,6 +774,14 @@ class DiscussionCommentOut(ModelSchema):
             author.username = pseudonym.fake_name
             author.profile_pic_url = pseudonym.identicon
 
+        # Get flags for this comment
+        # Priority: direct flags param > flags_by_comment_id lookup > empty list
+        final_flags = []
+        if flags is not None:
+            final_flags = flags
+        elif current_user is not None and flags_by_comment_id is not None:
+            final_flags = flags_by_comment_id.get(comment.id, [])
+
         return DiscussionCommentOut(
             id=comment.id,
             author=author,
@@ -712,6 +793,7 @@ class DiscussionCommentOut(ModelSchema):
             is_author=(comment.author == current_user) if current_user else False,
             # avatar=avatar if avatar else None,
             is_pseudonymous=is_pseudonymous,
+            flags=final_flags,
         )
 
 
@@ -767,10 +849,20 @@ class SubscriptionStatusSchema(Schema):
     subscription: Optional[DiscussionSubscriptionOut] = None
 
 
+class SubscriptionArticleOut(Schema):
+    article_id: int
+    article_title: str
+    article_slug: str
+    article_abstract: str
+    community_article_id: int
+    has_unread_event: bool = False
+
+
 class CommunitySubscriptionOut(Schema):
     community_id: int
     community_name: str
-    articles: List[dict]  # List of article info user is subscribed to
+    is_admin: bool
+    articles: List[SubscriptionArticleOut]
 
 
 class UserSubscriptionsOut(Schema):
@@ -812,3 +904,52 @@ class CommunityArticleStatsResponse(Schema):
     reviews_over_time: List[DateCount]
     likes_over_time: List[DateCount]
     average_rating: float
+
+
+"""
+Discussion Summary Schemas for serialization and validation
+"""
+
+
+class DiscussionSummaryOut(ModelSchema):
+    created_by: Optional[UserStats] = None
+    last_updated_by: Optional[UserStats] = None
+
+    class Config:
+        model = DiscussionSummary
+        model_fields = [
+            "id",
+            "content",
+            "created_at",
+            "updated_at",
+        ]
+
+    @classmethod
+    def from_orm(cls, summary: DiscussionSummary):
+        created_by = None
+        last_updated_by = None
+
+        if summary.created_by_id and hasattr(summary, "created_by"):
+            created_by = UserStats.from_model(summary.created_by, basic_details=True)
+
+        if summary.last_updated_by_id and hasattr(summary, "last_updated_by"):
+            last_updated_by = UserStats.from_model(
+                summary.last_updated_by, basic_details=True
+            )
+
+        return cls(
+            id=summary.id,
+            content=summary.content,
+            created_by=created_by,
+            last_updated_by=last_updated_by,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+        )
+
+
+class DiscussionSummaryCreateSchema(Schema):
+    content: str
+
+
+class DiscussionSummaryUpdateSchema(Schema):
+    content: str

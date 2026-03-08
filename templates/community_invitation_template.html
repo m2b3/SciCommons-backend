@@ -1,72 +1,68 @@
 <!DOCTYPE html>
-<html style="padding: 20px;">
-
+<html>
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body.body {
-            width: 100%;
+        body {
             margin: 0;
-            padding: 0;
-            font-family: Arial, Helvetica, sans-serif;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f9fafb;
         }
-
         .container {
-            max-width: 720px;
-            margin-top: 20px;
-            border-radius: 12px;
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-            box-shadow: 0 0px 30px 0 rgba(0, 0, 0, 0.05);
-        }
-
-        .content {
-            padding: 20px 20px 20px 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .heading {
-            font-size: 1.3em;
-            font-weight: bold;
-            margin-bottom: 20px;
-            text-align: center;
             width: 100%;
-        }
-
-        .greeting {
-            font-size: 1.1em;
-        }
-
-        .name {
-            font-size: 1em;
-            font-weight: bold;
-        }
-
-        .footer {
-            font-size: 0.9em;
-            color: rgb(88, 88, 88);
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
         }
     </style>
 </head>
-
-<body class="body">
-    <span>{{ body }}</span>
-    <div class="container">
-        <div class="content">
-            <div style="display: flex; flex-direction: column; gap: 4px;">
-            <span class="name">{{ community_name }}</span>
-            <span style="font-size: 12px; color: gray">{{ community_members }} members</span>
-            </div>
-            <a href="{{ referral_link }}" class="og-button"
-                style="background-color: rgb(64, 183, 94); color: white; text-decoration: none; border-radius: 8px; padding: 10px 16px; font-size: 1em; cursor: pointer; width: fit-content">Accept</a>
-            <div class="footer">
-                <span>If this button doesn't work, click on this link: </span>
-                <a href="{{ referral_link }}">{{ referral_link }}</a>
-            </div>
-        </div>
+<body>
+    <div style="margin-bottom: 20px;">
+        <span style="font-size: 16px; color: #374151;">{{ body }}</span>
     </div>
-</body>
 
+    <table class="container" cellpadding="0" cellspacing="0" border="0" role="presentation">
+        <tr>
+            <td style="padding: 30px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+                    <tr>
+                        <td style="padding-bottom: 20px;">
+                            <h2 style="margin: 0; font-size: 20px; font-weight: bold; color: #111827;">{{ community_name }}</h2>
+                            <p style="margin: 4px 0 0 0; font-size: 14px; color: #6b7280;">{{ community_members }} members</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding-bottom: 30px;">
+                            <table cellpadding="0" cellspacing="0" border="0" role="presentation">
+                                <tr>
+                                    <td align="center" bgcolor="#40B75E" style="border-radius: 8px;">
+                                        <a href="{{ referral_link }}" target="_blank"
+                                            style="font-size: 16px; font-family: Arial, sans-serif; color: #ffffff; text-decoration: none; padding: 12px 25px; border-radius: 8px; border: 1px solid #40B75E; display: inline-block; font-weight: bold;">
+                                            Accept Invitation
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="border-top: 1px solid #f3f4f6; padding-top: 20px;">
+                            <p style="margin: 0; font-size: 13px; color: #585858; line-height: 1.5;">
+                                If the button doesn't work, click on this link:<br>
+                                <a href="{{ referral_link }}" style="color: #40B75E; text-decoration: underline;">{{ referral_link }}</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
 </html>
