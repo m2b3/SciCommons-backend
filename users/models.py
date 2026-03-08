@@ -56,9 +56,11 @@ class User(AbstractUser):
 
     def get_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.id}_user_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.id}_user_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"profile_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     profile_pic_url = models.FileField(upload_to=get_upload_path, null=True)
@@ -243,14 +245,110 @@ class Reputation(models.Model):
 
 
 class Bookmark(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bookmarks")
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="bookmarks", db_index=True
+    )
+    content_type = models.ForeignKey(
+        ContentType, on_delete=models.CASCADE, db_index=True
+    )
+    object_id = models.PositiveIntegerField(db_index=True)
     content_object = GenericForeignKey("content_type", "object_id")
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        # Unique constraint to prevent duplicate bookmarks
         unique_together = ("user", "content_type", "object_id")
+        # Composite indexes for efficient queries
+        indexes = [
+            # For fetching user's bookmarks filtered by content type (most common query)
+            models.Index(
+                fields=["user", "content_type", "-created_at"],
+                name="bookmark_user_type_created",
+            ),
+            # For fetching all user's bookmarks sorted by date
+            models.Index(
+                fields=["user", "-created_at"],
+                name="bookmark_user_created",
+            ),
+            # For checking if a specific item is bookmarked by user
+            models.Index(
+                fields=["user", "content_type", "object_id"],
+                name="bookmark_user_type_obj",
+            ),
+        ]
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.user.username} - Bookmark for {self.content_object}"
+
+
+class UserSetting(models.Model):
+    """
+    Model to store user-specific configuration settings.
+    Uses a flexible key-value structure to store various types of settings.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="settings", db_index=True
+    )
+    config_name = models.CharField(max_length=100, db_index=True)
+    value = models.JSONField()  # Can store boolean, number, string, etc.
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "config_name")
+        indexes = [
+            models.Index(fields=["user", "config_name"], name="user_setting_lookup"),
+        ]
+        db_table = "user_setting"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.config_name}: {self.value}"
+
+
+class UploadedImage(models.Model):
+    """
+    Tracks images uploaded by users for use in markdown content.
+
+    Images start with ref_count=0 when uploaded. When the image is actually
+    used in a comment/review/etc, the ref_count is incremented. This allows
+    us to identify and clean up orphaned images (ref_count=0) that were
+    uploaded but never used.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="uploaded_images"
+    )
+    object_key = models.CharField(
+        max_length=500,
+        unique=True,
+        db_index=True,
+        help_text="S3 object key (path), e.g., user-attachments/prod/filename.jpg",
+    )
+    content_type = models.CharField(
+        max_length=50,
+        help_text="MIME type of the uploaded image",
+    )
+    file_size = models.PositiveIntegerField(
+        help_text="File size in bytes",
+    )
+    ref_count = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text="Reference count - number of times this image is used",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "uploaded_image"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["ref_count", "created_at"],
+                name="uploaded_image_cleanup_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.object_key} (refs: {self.ref_count})"

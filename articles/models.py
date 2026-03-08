@@ -19,11 +19,14 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
+
     def get_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = (
+            f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        )
         return f"article_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     article_image_url = models.ImageField(
@@ -45,8 +48,10 @@ class Article(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['submitter', 'created_at']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=["submitter", "created_at"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["submission_type"]),
+            models.Index(fields=["submission_type", "created_at"]),
         ]
 
     def save(self, *args, **kwargs):
@@ -65,19 +70,21 @@ class Article(models.Model):
 class ArticlePDF(models.Model):
     def get_pdf_upload_path(instance, filename):
         # Get file extension
-        ext = filename.split('.')[-1]
+        ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = f"{instance.article.id}_pdf_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
+        unique_filename = f"{instance.article.slug}_pdf_{instance.article.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
         return f"article_pdfs/{settings.ENVIRONMENT}/{unique_filename}"
 
     article = models.ForeignKey(Article, related_name="pdfs", on_delete=models.CASCADE)
-    pdf_file_url = models.FileField(upload_to=get_pdf_upload_path, null=True, blank=True)
+    pdf_file_url = models.FileField(
+        upload_to=get_pdf_upload_path, null=True, blank=True
+    )
     external_url = models.URLField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.article.title} - PDF {self.id}"
-    
+
     def get_url(self):
         """Return either the local file URL or external URL"""
         if self.pdf_file_url:
@@ -117,7 +124,7 @@ class AnonymousIdentity(models.Model):
             lambda: f"{cap_word()}{random.choice(['', '_'])}{random.randint(10, 99)}",
             lambda: f"{low_word()}_{cap_word()}{random.choice(['.', '-', '_'])}{uuid.uuid4().hex[:5]}",
             lambda: f"{cap_word()}.{low_word()}{random.randint(100, 999)}{cap_word()}",
-            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}"
+            lambda: f"{cap_word()}_{cap_word()}{random.choice(['', str(random.randint(1000, 9999))])}",
         ]
         fake_name = random.choice(patterns)()
         return fake_name
@@ -151,7 +158,11 @@ class Review(models.Model):
     )
     user = models.ForeignKey(User, related_name="reviews", on_delete=models.CASCADE)
     community = models.ForeignKey(
-        "communities.Community", null=True, blank=True, on_delete=models.CASCADE, db_index=True
+        "communities.Community",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        db_index=True,
     )
     community_article = models.ForeignKey(
         "communities.CommunityArticle", null=True, blank=True, on_delete=models.CASCADE
@@ -192,7 +203,9 @@ class Review(models.Model):
         super().save(*args, **kwargs)
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.user, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.user, self.article, self.community
+        )
 
     def delete(self, *args, **kwargs):
         ReviewVersion.objects.filter(review=self).delete()
@@ -201,10 +214,10 @@ class Review(models.Model):
     class Meta:
         unique_together = ("article", "user", "community")
         indexes = [
-            models.Index(fields=['article', 'created_at']),
-            models.Index(fields=['community', 'article']),
-            models.Index(fields=['user', 'article']),
-            models.Index(fields=['community_article']),
+            models.Index(fields=["article", "created_at"]),
+            models.Index(fields=["community", "article"]),
+            models.Index(fields=["user", "article"]),
+            models.Index(fields=["community_article"]),
         ]
 
 
@@ -272,6 +285,7 @@ class ReviewComment(models.Model):
     class Meta:
         ordering = ["created_at"]
 
+
 class ReviewCommentRating(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     review = models.ForeignKey(Review, on_delete=models.CASCADE)
@@ -330,6 +344,7 @@ class Discussion(models.Model):
     deleted_at = models.DateTimeField(null=True, blank=True)
     reactions = GenericRelation("Reaction")
     is_pseudonymous = models.BooleanField(default=False)
+    is_resolved = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Discussion: {self.title} (Article: {self.article.title})"
@@ -338,7 +353,9 @@ class Discussion(models.Model):
         ordering = ["-created_at"]
 
     def get_anonymous_name(self):
-        return AnonymousIdentity.get_or_create_fake_name(self.author, self.article, self.community)
+        return AnonymousIdentity.get_or_create_fake_name(
+            self.author, self.article, self.community
+        )
 
 
 class DiscussionComment(models.Model):
@@ -359,6 +376,7 @@ class DiscussionComment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     reactions = GenericRelation("Reaction")
     is_pseudonymous = models.BooleanField(default=False)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
         return (
@@ -372,6 +390,242 @@ class DiscussionComment(models.Model):
         return AnonymousIdentity.get_or_create_fake_name(
             self.author, self.discussion.article, self.discussion.community
         )
+
+
+class DiscussionSummary(models.Model):
+    """
+    Model to store admin-created summaries for discussions on community articles.
+    Only admins can create/edit these summaries.
+    """
+
+    # OneToOneField ensures one summary per community article
+    # No need for explicit db_index as OneToOneField creates a unique index
+    community_article = models.OneToOneField(
+        "communities.CommunityArticle",
+        on_delete=models.CASCADE,
+        related_name="discussion_summary",
+    )
+    content = models.TextField(help_text="Markdown/text summary of the discussions")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_discussion_summaries",
+    )
+    last_updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_discussion_summaries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Add index on updated_at for potential sorting/filtering by recent updates
+        indexes = [
+            models.Index(fields=["-updated_at"]),
+        ]
+
+    def __str__(self):
+        return f"Discussion Summary for CommunityArticle {self.community_article_id}"
+
+    @property
+    def community(self):
+        """Access community through community_article to avoid denormalization."""
+        return self.community_article.community
+
+    @property
+    def article(self):
+        """Access article through community_article to avoid denormalization."""
+        return self.community_article.article
+
+
+class DiscussionSubscription(models.Model):
+    """
+    Model to track user subscriptions to discussions for real-time updates
+    Only applies to private/hidden community articles
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscriptions",
+        db_index=True,
+    )
+    community_article = models.ForeignKey(
+        "communities.CommunityArticle",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    community = models.ForeignKey(
+        "communities.Community",
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    article = models.ForeignKey(
+        Article,
+        on_delete=models.CASCADE,
+        related_name="discussion_subscribers",
+        db_index=True,
+    )
+    subscribed_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("user", "community_article", "community")
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["community_article", "is_active"]),
+            models.Index(fields=["community", "is_active"]),
+            models.Index(fields=["article", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} subscribed to discussions in {self.community.name} for article {self.article.title}"
+
+    @classmethod
+    def create_auto_subscriptions_for_new_article(cls, community_article):
+        """
+        Create auto-subscriptions when a new article is published to a community
+        - All community admins get subscribed
+        - Article submitter gets subscribed (if they're a member)
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Only work with private/hidden communities
+        if community_article.community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all potential subscribers in one query
+                admin_ids = set(
+                    community_article.community.admins.values_list("id", flat=True)
+                )
+
+                # Check if submitter is a member
+                submitter = community_article.article.submitter
+                is_member = community_article.community.members.filter(
+                    id=submitter.id
+                ).exists()
+
+                user_ids_to_subscribe = admin_ids.copy()
+                if is_member:
+                    user_ids_to_subscribe.add(submitter.id)
+
+                # Get existing subscriptions to avoid duplicates
+                existing_subscriptions = set(
+                    cls.objects.filter(
+                        community_article=community_article,
+                        community=community_article.community,
+                        user_id__in=user_ids_to_subscribe,
+                    ).values_list("user_id", flat=True)
+                )
+
+                # Create subscriptions for users who don't already have them
+                new_user_ids = user_ids_to_subscribe - existing_subscriptions
+
+                if new_user_ids:
+                    # Bulk create subscriptions
+                    new_subscriptions = [
+                        cls(
+                            user_id=user_id,
+                            community_article=community_article,
+                            community=community_article.community,
+                            article=community_article.article,
+                            is_active=True,
+                        )
+                        for user_id in new_user_ids
+                    ]
+
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for article '{community_article.article.title}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for article '{community_article.article.title}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
+
+    @classmethod
+    def create_auto_subscriptions_for_new_admin(cls, user, community):
+        """
+        Create auto-subscriptions when a user becomes an admin of a community
+        Subscribe them to all existing articles in the community
+
+        Optimized with bulk operations and efficient queries
+        """
+        import logging
+
+        from django.db import transaction
+
+        logger = logging.getLogger(__name__)
+        subscriptions_created = []
+
+        # Get all community articles for private/hidden communities only
+        if community.type not in ["private", "hidden"]:
+            return subscriptions_created
+
+        try:
+            with transaction.atomic():
+                # Get all published/accepted articles in this community
+                community_articles = community.communityarticle_set.filter(
+                    status="published"
+                ).select_related("article")
+
+                if not community_articles.exists():
+                    return subscriptions_created
+
+                # Get existing subscriptions to avoid duplicates
+                existing_community_article_ids = set(
+                    cls.objects.filter(
+                        user=user,
+                        community=community,
+                        community_article__in=community_articles,
+                    ).values_list("community_article_id", flat=True)
+                )
+
+                # Create subscriptions for articles that don't already have them
+                new_subscriptions = []
+                for community_article in community_articles:
+                    if community_article.id not in existing_community_article_ids:
+                        new_subscriptions.append(
+                            cls(
+                                user=user,
+                                community_article=community_article,
+                                community=community,
+                                article=community_article.article,
+                                is_active=True,
+                            )
+                        )
+
+                if new_subscriptions:
+                    subscriptions_created = cls.objects.bulk_create(new_subscriptions)
+                    logger.info(
+                        f"Created {len(subscriptions_created)} auto-subscriptions for new admin '{user.username}' in community '{community.name}'"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create auto-subscriptions for new admin '{user.username}': {e}"
+            )
+            # Don't re-raise - this shouldn't break the main flow
+
+        return subscriptions_created
 
 
 # # Delete review history when a review is deleted
@@ -392,3 +646,249 @@ class DiscussionComment(models.Model):
 # def handle_reply_delete(sender, instance, **kwargs):
 #     instance.deleted_at = timezone.now()
 #     instance.save()
+
+
+"""
+User Flag System for Generic Entity State Tracking
+
+A presence-based flag system where:
+- Flag row exists = flag is set (e.g., entity is unread)
+- No flag row = flag is not set (e.g., entity is read)
+"""
+
+
+class UserFlagManager(models.Manager):
+    """Manager for efficient bulk operations on UserFlag"""
+
+    def bulk_create_flags(
+        self,
+        user_ids,
+        flag_type: str,
+        entity_type: str,
+        entity_id: int,
+    ):
+        """
+        Create flags for multiple users efficiently.
+        Uses bulk_create with ignore_conflicts to handle race conditions.
+
+        Args:
+            user_ids: Set or list of user IDs to create flags for
+            flag_type: Type of flag ('unread', etc.)
+            entity_type: Type of entity ('discussion', 'comment', 'notification', etc.)
+            entity_id: ID of the entity
+
+        Returns:
+            List of created UserFlag instances
+        """
+        if not user_ids:
+            return []
+
+        flags = [
+            UserFlag(
+                user_id=user_id,
+                flag_type=flag_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+            for user_id in user_ids
+        ]
+        # ignore_conflicts=True handles race conditions where the same flag
+        # might be created twice (e.g., duplicate webhook calls)
+        return self.bulk_create(flags, ignore_conflicts=True)
+
+    def get_flagged_entity_ids(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str,
+        entity_ids: list,
+    ):
+        """
+        Get which entity IDs have a specific flag set.
+        Avoids N+1 queries when fetching entity lists.
+
+        Args:
+            user_id: User ID to check flags for
+            flag_type: Type of flag to check ('unread', etc.)
+            entity_type: Type of entity ('discussion', 'comment', etc.)
+            entity_ids: List of entity IDs to check
+
+        Returns:
+            Set of entity IDs that have the flag set.
+            Entities not in the set do not have the flag (e.g., are read).
+        """
+        if not entity_ids:
+            return set()
+
+        return set(
+            self.filter(
+                user_id=user_id,
+                flag_type=flag_type,
+                entity_type=entity_type,
+                entity_id__in=entity_ids,
+            ).values_list("entity_id", flat=True)
+        )
+
+    def remove_flags(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str = None,
+        entity_ids: list = None,
+    ):
+        """
+        Remove flags (e.g., mark as read by deleting unread flags).
+        Uses select_for_update to handle race conditions.
+
+        Args:
+            user_id: User ID
+            flag_type: Type of flag to remove ('unread', etc.)
+            entity_type: Optional - filter by entity type
+            entity_ids: Optional - filter by specific entity IDs
+
+        Returns:
+            Number of flags removed
+        """
+        from django.db import transaction
+
+        queryset = self.filter(user_id=user_id, flag_type=flag_type)
+
+        if entity_type:
+            queryset = queryset.filter(entity_type=entity_type)
+        if entity_ids:
+            queryset = queryset.filter(entity_id__in=entity_ids)
+
+        # Use select_for_update to prevent race conditions during concurrent deletes
+        with transaction.atomic():
+            # Lock the rows we're about to delete
+            locked_ids = list(queryset.select_for_update().values_list("id", flat=True))
+            if not locked_ids:
+                return 0
+            # Delete only the locked rows
+            deleted_count, _ = self.filter(id__in=locked_ids).delete()
+            return deleted_count
+
+    def has_flag(
+        self,
+        user_id: int,
+        flag_type: str,
+        entity_type: str,
+        entity_id: int,
+    ):
+        """
+        Check if a specific entity has a flag set for a user.
+
+        Args:
+            user_id: User ID
+            flag_type: Type of flag ('unread', etc.)
+            entity_type: Type of entity
+            entity_id: ID of the entity
+
+        Returns:
+            True if flag exists, False otherwise
+        """
+        return self.filter(
+            user_id=user_id,
+            flag_type=flag_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        ).exists()
+
+    def get_flags_for_entities(
+        self,
+        user_id: int,
+        entity_type: str,
+        entity_ids: list,
+    ):
+        """
+        Get all flags for multiple entities in a single query.
+        Returns a dict mapping entity_id to list of flag names.
+
+        Args:
+            user_id: User ID to check flags for
+            entity_type: Type of entity ('discussion', 'comment', etc.)
+            entity_ids: List of entity IDs to check
+
+        Returns:
+            Dict mapping entity_id to list of flag names.
+            Format: {entity_id: ["unread", "pinned"], ...}
+            Entities not in the dict have no flags set.
+        """
+        if not entity_ids:
+            return {}
+
+        flags = self.filter(
+            user_id=user_id,
+            entity_type=entity_type,
+            entity_id__in=entity_ids,
+        ).values_list("entity_id", "flag_type")
+
+        # Group flags by entity_id
+        result = {}
+        for entity_id, flag_type in flags:
+            if entity_id not in result:
+                result[entity_id] = []
+            result[entity_id].append(flag_type)
+
+        return result
+
+
+class UserFlag(models.Model):
+    """
+    Generic flag system for tracking user-specific states on any entity.
+
+    Presence-based design:
+    - Flag row exists = flag is set (e.g., unread)
+    - No flag row = flag is not set (e.g., read)
+
+    This allows tracking various states like:
+    - unread: User hasn't read this entity
+    - pinned: User has pinned this entity (future)
+    - starred: User has starred this entity (future)
+    - muted: User has muted this entity (future)
+    """
+
+    # Valid flag and entity types (single source of truth)
+    # These lists are imported by myapp/schemas.py for Literal type generation
+    VALID_FLAG_TYPES = ["unread", "pinned"]
+    VALID_ENTITY_TYPES = ["discussion", "comment", "notification", "review"]
+
+    # Django model choices format
+    FLAG_TYPE_CHOICES = [(t, t) for t in VALID_FLAG_TYPES]
+    ENTITY_TYPE_CHOICES = [(t, t) for t in VALID_ENTITY_TYPES]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="flags",
+        db_index=True,
+    )
+    flag_type = models.CharField(max_length=50, choices=FLAG_TYPE_CHOICES)
+    entity_type = models.CharField(max_length=50, choices=ENTITY_TYPE_CHOICES)
+    entity_id = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = UserFlagManager()
+
+    class Meta:
+        constraints = [
+            # Prevent duplicate flags for same user + flag_type + entity
+            models.UniqueConstraint(
+                fields=["user", "flag_type", "entity_type", "entity_id"],
+                name="userflag_unique",
+            ),
+        ]
+        indexes = [
+            # Primary lookup: user's flags of a specific type
+            models.Index(fields=["user", "flag_type"], name="userflag_user_flag"),
+            # Filter by entity type (for counting unread by type)
+            models.Index(
+                fields=["user", "flag_type", "entity_type"],
+                name="userflag_user_flag_etype",
+            ),
+            # Lookup flags for a specific entity
+            models.Index(fields=["entity_type", "entity_id"], name="userflag_entity"),
+        ]
+
+    def __str__(self):
+        return f"UserFlag({self.user_id}, {self.flag_type}, {self.entity_type}:{self.entity_id})"

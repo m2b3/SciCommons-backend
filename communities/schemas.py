@@ -43,10 +43,12 @@ class CommunityListOut(ModelSchema):
     created_at: Optional[datetime] = None
     num_members: int
     num_published_articles: int
-    is_admin: bool = False
-    is_member: bool = False
-    is_request_sent: bool = False
-    requested_at: Optional[datetime] = None
+    org: Optional[str] = None
+    is_bookmarked: Optional[bool] = None
+    # is_admin: bool = False
+    # is_member: bool = False
+    # is_request_sent: bool = False
+    # requested_at: Optional[datetime] = None
 
     class Config:
         model = Community
@@ -60,7 +62,12 @@ class CommunityListOut(ModelSchema):
         ]
 
     @staticmethod
-    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+    def from_orm_with_custom_fields(
+        community: Community,
+        user: Optional[User] = None,
+        org: Optional[str] = None,
+        is_bookmarked: Optional[bool] = None,
+    ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
@@ -74,22 +81,24 @@ class CommunityListOut(ModelSchema):
             "created_at": community.created_at,
             "num_members": num_members,
             "num_published_articles": num_published_articles,
+            "org": org,
+            "is_bookmarked": is_bookmarked,
         }
 
-        if user and not isinstance(user, bool):
-            if community.is_member(user):
-                response_data["is_member"] = True
-            elif community.is_admin(user):
-                response_data["is_admin"] = True
-            else:
-                # Check if the user has a latest join request
-                join_request = JoinRequest.objects.filter(
-                    community=community, user=user
-                ).order_by("-id")
+        # if user and not isinstance(user, bool):
+        #     if community.is_member(user):
+        #         response_data["is_member"] = True
+        #     elif community.is_admin(user):
+        #         response_data["is_admin"] = True
+        #     else:
+        #         # Check if the user has a latest join request
+        #         join_request = JoinRequest.objects.filter(
+        #             community=community, user=user
+        #         ).order_by("-id")
 
-                if join_request.exists():
-                    response_data["is_request_sent"] = True
-                    response_data["requested_at"] = join_request.first().requested_at
+        #         if join_request.exists():
+        #             response_data["is_request_sent"] = True
+        #             response_data["requested_at"] = join_request.first().requested_at
 
         return CommunityListOut(**response_data)
 
@@ -115,8 +124,10 @@ class CommunityOut(ModelSchema):
     is_moderator: Optional[bool] = None
     is_reviewer: Optional[bool] = None
     is_admin: Optional[bool] = None
+    is_bookmarked: Optional[bool] = None
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
+    members: List[str] = []
 
     class Config:
         model = Community
@@ -134,11 +145,17 @@ class CommunityOut(ModelSchema):
         ]
 
     @staticmethod
-    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+    def from_orm_with_custom_fields(
+        community: Community,
+        user: Optional[User] = None,
+        is_bookmarked: Optional[bool] = None,
+        member_usernames: Optional[List[str]] = None,
+    ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
         num_articles = CommunityArticle.objects.filter(community=community).count()
+
         response_data = {
             "id": community.id,
             "name": community.name,
@@ -151,7 +168,9 @@ class CommunityOut(ModelSchema):
             "num_members": community.members.count(),
             "num_published_articles": num_published_articles,
             "num_articles": num_articles,
-            "community_settings": community.community_settings
+            "community_settings": community.community_settings,
+            "is_bookmarked": is_bookmarked,
+            "members": member_usernames if member_usernames is not None else [],
         }
 
         if community.created_at:
@@ -175,13 +194,17 @@ class CommunityOut(ModelSchema):
 
         if user and not isinstance(user, bool):
             if community.is_member(user):
-                response_data.update({
-                    "is_member": True,
-                    "is_moderator": community.moderators.filter(id=user.id).exists(),
-                    "is_reviewer": community.reviewers.filter(id=user.id).exists(),
-                    "is_admin": community.is_admin(user),
-                    "rules": community.rules if community.rules else None,
-                })
+                response_data.update(
+                    {
+                        "is_member": True,
+                        "is_moderator": community.moderators.filter(
+                            id=user.id
+                        ).exists(),
+                        "is_reviewer": community.reviewers.filter(id=user.id).exists(),
+                        "is_admin": community.is_admin(user),
+                        "rules": community.rules if community.rules else None,
+                    }
+                )
 
             else:
                 # Checking if the user has a latest join request
@@ -191,7 +214,7 @@ class CommunityOut(ModelSchema):
 
                 if join_request.exists():
                     response_data["join_request_status"] = join_request.first().status
-            
+
         return CommunityOut(**response_data)
 
 
@@ -244,6 +267,7 @@ class ArticleStatus(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     PUBLISHED = "published"
+    UNPUBLISHED = "unpublished"
 
 
 class Filters(Schema):

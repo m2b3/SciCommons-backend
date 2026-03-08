@@ -1,7 +1,23 @@
+# .flake8
 [flake8]
-max-line-length = 88
-
-extend-ignore =
-    # See https://github.com/PyCQA/pycodestyle/issues/373
-    # flake8/pycodechecker give false positives on black code
-    E203,
+# Display full source where an error occurs
+show-source = true
+# Fail if we hit any E9 / F-series errors that usually indicate real bugs
+select = E9,F63,F7,F82
+# But still look at the whole code base for context
+max-line-length = 120
+exclude =
+    # Python virtual environments and site-packages inside repo
+    */site-packages/*,
+    venv/,
+    env/,
+    .venv/,
+    virtual/,
+    environment/,
+    Create/,
+    # other stray dirs
+    #/,  # The weird name containing site-packages
+    # Migrations (auto-generated)
+    */migrations/*,
+    __pycache__,
+    .git

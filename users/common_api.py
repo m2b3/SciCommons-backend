@@ -2,12 +2,14 @@
 A common API for HashTags, Reactions, and Bookmarks
 """
 
+import logging
 from typing import Literal, Optional
 from urllib.parse import unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Count
+from django.db import transaction
+from django.db.models import Count, Prefetch
 from ninja import Query, Router
 from ninja.errors import HttpRequest
 from ninja.responses import codes_4xx, codes_5xx
@@ -21,11 +23,15 @@ from posts.schemas import PaginatedPostsResponse, PostOut
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Bookmark, Hashtag, HashtagRelation, User
 from users.schemas import (
+    BookmarkContentTypeEnum,
+    BookmarkFilterTypeEnum,
+    BookmarkSchema,
     BookmarkStatusResponseSchema,
     BookmarkToggleResponseSchema,
     BookmarkToggleSchema,
     ContentTypeEnum,
     HashtagOut,
+    PaginatedBookmarksResponseSchema,
     PaginatedHashtagOut,
     ReactionCountOut,
     ReactionIn,
@@ -35,6 +41,9 @@ from users.schemas import (
 )
 
 router = Router(tags=["Users Common API"])
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 """
 Check Permissions
@@ -55,15 +64,17 @@ def check_permission(
         user = request.auth
         if not user:
             return 200, {"has_permission": False}
-        
+
         if not dashboard_type or not resource_id:
             return 200, {"has_permission": False}
-        
+
         try:
             if resource_id:
                 resource_id = unquote(resource_id)
         except Exception:
-            return 400, {"message": "Invalid resource ID format. Please check and try again."}
+            return 400, {
+                "message": "Invalid resource ID format. Please check and try again."
+            }
 
         try:
             if dashboard_type == "article":
@@ -72,23 +83,31 @@ def check_permission(
                     has_permission = article.submitter == user
                 except Article.DoesNotExist:
                     return 404, {"message": "Article not found."}
-                except Exception:
-                    return 500, {"message": "Error retrieving article. Please try again."}
+                except Exception as e:
+                    logger.error(f"Error retrieving article: {e}")
+                    return 500, {
+                        "message": "Error retrieving article. Please try again."
+                    }
             elif dashboard_type == "community":
                 try:
                     community = Community.objects.get(name=resource_id)
                     has_permission = community.is_admin(user)
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}
-                except Exception:
-                    return 500, {"message": "Error retrieving community. Please try again."}
+                except Exception as e:
+                    logger.error(f"Error retrieving community: {e}")
+                    return 500, {
+                        "message": "Error retrieving community. Please try again."
+                    }
             else:
                 has_permission = False
-                
+
             return 200, {"has_permission": has_permission}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking permissions: {e}")
             return 500, {"message": "Error checking permissions. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -96,64 +115,161 @@ def check_permission(
 Bookmarks API
 """
 
+# Cache content types to avoid repeated DB lookups
+_content_type_cache: dict[str, ContentType] = {}
+
 
 def get_content_type(content_type_value: str) -> ContentType:
+    """
+    Get ContentType from cache or database.
+    Uses module-level cache for performance.
+
+    IMPORTANT: Model names in Django ContentType are stored in lowercase.
+    This function ensures we always query with lowercase model names.
+    """
+    if content_type_value in _content_type_cache:
+        return _content_type_cache[content_type_value]
+
     try:
         app_label, model = content_type_value.split(".")
-        return ContentType.objects.get(app_label=app_label, model=model)
+        # Django stores model names in lowercase in ContentType table
+        content_type = ContentType.objects.get(app_label=app_label, model=model.lower())
+        _content_type_cache[content_type_value] = content_type
+        return content_type
     except ValueError:
         raise ValueError("Invalid content type format. Must be 'app_label.model'")
     except ContentType.DoesNotExist:
-        raise ContentType.DoesNotExist(f"Content type {content_type_value} does not exist")
+        raise ContentType.DoesNotExist(
+            f"Content type {content_type_value} does not exist"
+        )
     except Exception as e:
         raise Exception(f"Error retrieving content type: {str(e)}")
 
 
+def get_content_type_for_model(model_class) -> ContentType:
+    """
+    Get ContentType for a model class with caching.
+    This is a cached wrapper around ContentType.objects.get_for_model().
+    """
+    cache_key = f"{model_class._meta.app_label}.{model_class._meta.model_name}"
+    if cache_key not in _content_type_cache:
+        _content_type_cache[cache_key] = ContentType.objects.get_for_model(model_class)
+    return _content_type_cache[cache_key]
+
+
+def _validate_bookmarkable_object(content_type_value: str, object_id: int) -> bool:
+    """
+    Validate that the object being bookmarked exists.
+    Returns True if valid, raises appropriate exception if not.
+    """
+    if content_type_value == BookmarkContentTypeEnum.ARTICLE.value:
+        if not Article.objects.filter(id=object_id).exists():
+            raise Article.DoesNotExist("Article not found")
+    elif content_type_value == BookmarkContentTypeEnum.COMMUNITY.value:
+        if not Community.objects.filter(id=object_id).exists():
+            raise Community.DoesNotExist("Community not found")
+    return True
+
+
 @router.post(
-    "/toggle-bookmark",
-    response={200: BookmarkToggleResponseSchema, codes_4xx: Message, codes_5xx: Message},
+    "/bookmarks/toggle",
+    response={
+        200: BookmarkToggleResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
     auth=JWTAuth(),
+    summary="Toggle a bookmark",
+    description="Toggle bookmark status. Adds if not bookmarked, removes if already bookmarked.",
 )
 def toggle_bookmark(request, data: BookmarkToggleSchema):
+    """Toggle bookmark status for an article or community."""
     try:
         user = request.auth
-        
+
+        # Validate content type
         try:
             content_type = get_content_type(data.content_type.value)
         except ValueError:
-            return 400, {"message": "Invalid content type format. Please check and try again."}
+            return 400, {
+                "message": "Invalid content type format. Please check and try again."
+            }
         except ContentType.DoesNotExist:
-            return 400, {"message": "Content type does not exist. Please check and try again."}
-        except Exception:
+            return 400, {
+                "message": "Content type does not exist. Please check and try again."
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
+        # Validate the object exists before creating bookmark
         try:
-            bookmark, created = Bookmark.objects.get_or_create(
-                user=user, content_type=content_type, object_id=data.object_id
-            )
-        except Exception:
-            return 500, {"message": "Error processing bookmark operation. Please try again."}
+            _validate_bookmarkable_object(data.content_type.value, data.object_id)
+        except (Article.DoesNotExist, Community.DoesNotExist) as e:
+            return 404, {"message": str(e)}
+        except Exception as e:
+            logger.error(f"Error validating object: {e}")
+            return 500, {"message": "Error validating object. Please try again."}
 
-        if created:
-            return 200, {"message": "Bookmark added successfully", "is_bookmarked": True}
-        else:
-            try:
-                bookmark.delete()
-                return 200, {"message": "Bookmark removed successfully", "is_bookmarked": False}
-            except Exception:
-                return 500, {"message": "Error removing bookmark. Please try again."}
-    except Exception:
+        # Use select_for_update to prevent race conditions
+        try:
+            with transaction.atomic():
+                # Lock the row to prevent concurrent modifications
+                bookmark = (
+                    Bookmark.objects.filter(
+                        user=user, content_type=content_type, object_id=data.object_id
+                    )
+                    .select_for_update()
+                    .first()
+                )
+
+                if bookmark:
+                    # Remove existing bookmark
+                    bookmark.delete()
+                    return 200, {
+                        "message": "Bookmark removed successfully",
+                        "is_bookmarked": False,
+                    }
+                else:
+                    # Create new bookmark
+                    Bookmark.objects.create(
+                        user=user, content_type=content_type, object_id=data.object_id
+                    )
+                    return 200, {
+                        "message": "Bookmark added successfully",
+                        "is_bookmarked": True,
+                    }
+        except Exception as e:
+            logger.error(f"Error processing bookmark operation: {e}")
+            return 500, {
+                "message": "Error processing bookmark operation. Please try again."
+            }
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 @router.get(
-    "/bookmark-status/{content_type}/{object_id}",
-    response={200: BookmarkStatusResponseSchema, codes_4xx: Message, codes_5xx: Message},
+    "/bookmarks/status/{content_type}/{object_id}",
+    response={
+        200: BookmarkStatusResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
     auth=OptionalJWTAuth,
+    summary="Get bookmark status",
+    description="Check if an item is bookmarked by the current user.",
 )
-def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
+def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_id: int):
+    """Check if an article or community is bookmarked by the current user."""
     try:
-        user: Optional[User] = None if not request.auth else request.auth
+        # OptionalJWTAuth returns True (boolean) when no token is provided,
+        # so we need to check for both falsy values and boolean instances
+        user: Optional[User] = (
+            request.auth
+            if request.auth and not isinstance(request.auth, bool)
+            else None
+        )
 
         if not user:
             return 200, {"is_bookmarked": None}
@@ -161,20 +277,169 @@ def get_bookmark_status(request, content_type: ContentTypeEnum, object_id: int):
         try:
             content_type_obj = get_content_type(content_type.value)
         except ValueError:
-            return 400, {"message": "Invalid content type format. Please check and try again."}
+            return 400, {
+                "message": "Invalid content type format. Please check and try again."
+            }
         except ContentType.DoesNotExist:
-            return 400, {"message": "Content type does not exist. Please check and try again."}
-        except Exception:
+            return 400, {
+                "message": "Content type does not exist. Please check and try again."
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
         try:
+            # Uses the composite index: bookmark_user_type_obj
             is_bookmarked = Bookmark.objects.filter(
                 user=user, content_type=content_type_obj, object_id=object_id
             ).exists()
             return 200, {"is_bookmarked": is_bookmarked}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking bookmark status: {e}")
             return 500, {"message": "Error checking bookmark status. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/bookmarks",
+    response={
+        200: PaginatedBookmarksResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+    summary="Get user's bookmarks",
+    description="Get paginated list of user's bookmarks. Can filter by type (article/community).",
+)
+def get_my_bookmarks(
+    request,
+    filter_type: BookmarkFilterTypeEnum = Query(
+        BookmarkFilterTypeEnum.ALL, description="Filter by bookmark type"
+    ),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+):
+    """
+    Get paginated list of user's bookmarks with optional type filtering.
+    Uses optimized queries with proper indexing.
+    """
+    try:
+        user = request.auth
+
+        # Build base query - uses index: bookmark_user_created or bookmark_user_type_created
+        try:
+            bookmarks_qs = Bookmark.objects.filter(user=user).select_related(
+                "content_type"
+            )
+
+            # Filter by type if specified
+            if filter_type == BookmarkFilterTypeEnum.ARTICLE:
+                article_ct = get_content_type_for_model(Article)
+                bookmarks_qs = bookmarks_qs.filter(content_type=article_ct)
+            elif filter_type == BookmarkFilterTypeEnum.COMMUNITY:
+                community_ct = get_content_type_for_model(Community)
+                bookmarks_qs = bookmarks_qs.filter(content_type=community_ct)
+
+            # Order by created_at descending (uses index)
+            bookmarks_qs = bookmarks_qs.order_by("-created_at")
+
+        except Exception as e:
+            logger.error(f"Error building bookmarks query: {e}")
+            return 500, {"message": "Error retrieving bookmarks. Please try again."}
+
+        # Paginate
+        try:
+            paginator = Paginator(bookmarks_qs, per_page)
+            page_obj = paginator.get_page(page)
+        except Exception as e:
+            logger.error(f"Error paginating bookmarks: {e}")
+            return 400, {
+                "message": "Invalid pagination parameters. Please check and try again."
+            }
+
+        # Batch fetch related objects for efficiency
+        try:
+            bookmarks_list = list(page_obj.object_list)
+
+            # Separate bookmarks by type for batch fetching
+            article_bookmarks = []
+            community_bookmarks = []
+            article_ct = get_content_type_for_model(Article)
+            community_ct = get_content_type_for_model(Community)
+
+            for bookmark in bookmarks_list:
+                if bookmark.content_type_id == article_ct.id:
+                    article_bookmarks.append(bookmark)
+                elif bookmark.content_type_id == community_ct.id:
+                    community_bookmarks.append(bookmark)
+
+            # Batch fetch articles
+            article_ids = [b.object_id for b in article_bookmarks]
+            articles_map = {}
+            if article_ids:
+                articles = Article.objects.filter(id__in=article_ids).select_related(
+                    "submitter"
+                )
+                articles_map = {a.id: a for a in articles}
+
+            # Batch fetch communities with member count
+            community_ids = [b.object_id for b in community_bookmarks]
+            communities_map = {}
+            if community_ids:
+                communities = Community.objects.filter(id__in=community_ids).annotate(
+                    member_count=Count("members")
+                )
+                communities_map = {c.id: c for c in communities}
+
+            # Build response
+            result = []
+            for bookmark in bookmarks_list:
+                try:
+                    if bookmark.content_type_id == article_ct.id:
+                        article = articles_map.get(bookmark.object_id)
+                        if article:
+                            result.append(
+                                BookmarkSchema(
+                                    id=bookmark.id,
+                                    title=article.title,
+                                    type="article",
+                                    details=f"Article by {article.submitter.get_full_name() or article.submitter.username}",
+                                    slug=article.slug,
+                                    created_at=bookmark.created_at,
+                                )
+                            )
+                    elif bookmark.content_type_id == community_ct.id:
+                        community = communities_map.get(bookmark.object_id)
+                        if community:
+                            result.append(
+                                BookmarkSchema(
+                                    id=bookmark.id,
+                                    title=community.name,
+                                    type="community",
+                                    details=f"{community.member_count} members",
+                                    slug=community.name,
+                                    created_at=bookmark.created_at,
+                                )
+                            )
+                except Exception as e:
+                    logger.error(f"Error formatting bookmark {bookmark.id}: {e}")
+                    # Skip bookmarks with errors instead of failing entirely
+                    continue
+
+            return 200, PaginatedBookmarksResponseSchema(
+                items=result,
+                total=paginator.count,
+                page=page_obj.number,
+                per_page=per_page,
+                pages=paginator.num_pages,
+            )
+        except Exception as e:
+            logger.error(f"Error formatting bookmark data: {e}")
+            return 500, {"message": "Error formatting bookmark data. Please try again."}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -193,18 +458,28 @@ def post_reaction(request, reaction: ReactionIn):
         try:
             content_type = get_content_type(reaction.content_type.value)
         except ValueError:
-            return 400, {"message": "Invalid content type format. Please check and try again."}
+            return 400, {
+                "message": "Invalid content type format. Please check and try again."
+            }
         except ContentType.DoesNotExist:
-            return 400, {"message": "Content type does not exist. Please check and try again."}
-        except Exception:
+            return 400, {
+                "message": "Content type does not exist. Please check and try again."
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
         try:
             existing_reaction = Reaction.objects.filter(
-                user=request.auth, content_type=content_type, object_id=reaction.object_id
+                user=request.auth,
+                content_type=content_type,
+                object_id=reaction.object_id,
             ).first()
-        except Exception:
-            return 500, {"message": "Error checking existing reactions. Please try again."}
+        except Exception as e:
+            logger.error(f"Error checking existing reactions: {e}")
+            return 500, {
+                "message": "Error checking existing reactions. Please try again."
+            }
 
         if existing_reaction:
             if existing_reaction.vote == reaction.vote.value:
@@ -218,8 +493,11 @@ def post_reaction(request, reaction: ReactionIn):
                         created_at=None,
                         message="Reaction removed",
                     )
-                except Exception:
-                    return 500, {"message": "Error removing reaction. Please try again."}
+                except Exception as e:
+                    logger.error(f"Error removing reaction: {e}")
+                    return 500, {
+                        "message": "Error removing reaction. Please try again."
+                    }
             else:
                 # User is changing their reaction from like to dislike or vice versa
                 try:
@@ -232,8 +510,11 @@ def post_reaction(request, reaction: ReactionIn):
                         created_at=existing_reaction.created_at.isoformat(),
                         message="Reaction updated",
                     )
-                except Exception:
-                    return 500, {"message": "Error updating reaction. Please try again."}
+                except Exception as e:
+                    logger.error(f"Error updating reaction: {e}")
+                    return 500, {
+                        "message": "Error updating reaction. Please try again."
+                    }
         else:
             # User is reacting for the first time
             try:
@@ -250,9 +531,11 @@ def post_reaction(request, reaction: ReactionIn):
                     created_at=new_reaction.created_at.isoformat(),
                     message="Reaction added",
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error adding reaction: {e}")
                 return 500, {"message": "Error adding reaction. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -266,25 +549,40 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
         try:
             content_type = get_content_type(content_type.value)
         except ValueError:
-            return 400, {"message": "Invalid content type format. Please check and try again."}
+            return 400, {
+                "message": "Invalid content type format. Please check and try again."
+            }
         except ContentType.DoesNotExist:
-            return 400, {"message": "Content type does not exist. Please check and try again."}
-        except Exception:
+            return 400, {
+                "message": "Content type does not exist. Please check and try again."
+            }
+        except Exception as e:
+            logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
         try:
-            reactions = Reaction.objects.filter(content_type=content_type, object_id=object_id)
-        except Exception:
+            reactions = Reaction.objects.filter(
+                content_type=content_type, object_id=object_id
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving reactions: {e}")
             return 500, {"message": "Error retrieving reactions. Please try again."}
 
         try:
             likes = reactions.filter(vote=VoteEnum.LIKE.value).count()
             dislikes = reactions.filter(vote=VoteEnum.DISLIKE.value).count()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error counting reactions: {e}")
             return 500, {"message": "Error counting reactions. Please try again."}
 
         # Check if the authenticated user is the author
-        current_user: Optional[User] = None if not request.auth else request.auth
+        # OptionalJWTAuth returns True (boolean) when no token is provided,
+        # so we need to check for both falsy values and boolean instances
+        current_user: Optional[User] = (
+            request.auth
+            if request.auth and not isinstance(request.auth, bool)
+            else None
+        )
         user_reaction = None
 
         if current_user:
@@ -292,7 +590,8 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
                 user_reaction_obj = reactions.filter(user=current_user).first()
                 if user_reaction_obj:
                     user_reaction = VoteEnum(user_reaction_obj.vote)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error retrieving user's reaction: {e}")
                 # Continue even if we can't get user's reaction
                 pass
 
@@ -301,7 +600,8 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
             dislikes=dislikes,
             user_reaction=user_reaction,
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
@@ -310,7 +610,10 @@ Hashtags API
 """
 
 
-@router.get("/hashtags/", response={200: PaginatedHashtagOut, codes_4xx: Message, codes_5xx: Message})
+@router.get(
+    "/hashtags/",
+    response={200: PaginatedHashtagOut, codes_4xx: Message, codes_5xx: Message},
+)
 def get_hashtags(
     request,
     sort: SortEnum = Query(SortEnum.POPULAR),
@@ -324,13 +627,15 @@ def get_hashtags(
     try:
         try:
             hashtags = Hashtag.objects.annotate(count=Count("hashtagrelation"))
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving hashtags: {e}")
             return 500, {"message": "Error retrieving hashtags. Please try again."}
 
         try:
             if search:
                 hashtags = hashtags.filter(name__icontains=search)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error searching hashtags: {e}")
             return 500, {"message": "Error searching hashtags. Please try again."}
 
         try:
@@ -340,31 +645,43 @@ def get_hashtags(
                 hashtags = hashtags.order_by("-id")
             else:  # ALPHABETICAL
                 hashtags = hashtags.order_by("name")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting hashtags: {e}")
             return 500, {"message": "Error sorting hashtags. Please try again."}
 
         try:
             paginator = Paginator(hashtags, per_page)
             page_obj = paginator.get_page(page)
-        except Exception:
-            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
+        except Exception as e:
+            logger.error(f"Error paginating hashtags: {e}")
+            return 400, {
+                "message": "Invalid pagination parameters. Please check page number and size."
+            }
 
         try:
             return 200, PaginatedHashtagOut(
-                items=[HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list],
+                items=[
+                    HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list
+                ],
                 total=paginator.count,
                 page=page_obj.number,
                 per_page=per_page,
                 pages=paginator.num_pages,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting hashtag data: {e}")
             return 500, {"message": "Error formatting hashtag data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
 # Todo: Delete this API endpoint
-@router.get("/my-posts", response={200: PaginatedPostsResponse, codes_4xx: Message, codes_5xx: Message}, auth=JWTAuth())
+@router.get(
+    "/my-posts",
+    response={200: PaginatedPostsResponse, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
 def list_my_posts(
     request: HttpRequest,
     page: int = Query(1, ge=1),
@@ -375,17 +692,20 @@ def list_my_posts(
 ):
     try:
         user = request.auth
-        
+
         try:
             posts = Post.objects.filter(author=user, is_deleted=False)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error retrieving your posts: {e}")
             return 500, {"message": "Error retrieving your posts. Please try again."}
 
         # Apply hashtag filtering
         if hashtag:
             try:
                 hashtag_id = (
-                    Hashtag.objects.filter(name=hashtag).values_list("id", flat=True).first()
+                    Hashtag.objects.filter(name=hashtag)
+                    .values_list("id", flat=True)
+                    .first()
                 )
                 if hashtag_id:
                     post_ids = HashtagRelation.objects.filter(
@@ -393,22 +713,28 @@ def list_my_posts(
                         content_type=ContentType.objects.get_for_model(Post),
                     ).values_list("object_id", flat=True)
                     posts = posts.filter(id__in=post_ids)
-            except Exception:
-                return 500, {"message": "Error filtering posts by hashtag. Please try again."}
+            except Exception as e:
+                logger.error(f"Error filtering posts by hashtag: {e}")
+                return 500, {
+                    "message": "Error filtering posts by hashtag. Please try again."
+                }
 
         try:
             # Todo: Add Filter for sorting by post reactions
             # Apply sorting
             order_prefix = "-" if sort_order == "desc" else ""
             posts = posts.order_by(f"{order_prefix}{sort_by}")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error sorting posts: {e}")
             return 500, {"message": "Error sorting posts. Please try again."}
 
         try:
             paginator = Paginator(posts, size)
             page_obj = paginator.get_page(page)
         except Exception:
-            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
+            return 400, {
+                "message": "Invalid pagination parameters. Please check page number and size."
+            }
 
         try:
             return 200, PaginatedPostsResponse(
@@ -417,7 +743,9 @@ def list_my_posts(
                 page=page,
                 size=size,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error formatting post data: {e}")
             return 500, {"message": "Error formatting post data. Please try again."}
-    except Exception:
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

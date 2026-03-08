@@ -29,8 +29,8 @@ class Message(Schema):
 
 
 class UserStats(ModelSchema):
-    reputation_score: int
-    reputation_level: str
+    reputation_score: Optional[int] = None
+    reputation_level: Optional[str] = None
     # submitted, reviewed or commented articles
     contributed_articles: Optional[int] = None
     # communities joined
@@ -43,17 +43,24 @@ class UserStats(ModelSchema):
         model_fields = ["id", "username", "bio", "profile_pic_url", "home_page_url"]
 
     @staticmethod
-    def from_model(user: User, basic_details: bool = False):
-        reputation, created = Reputation.objects.get_or_create(user=user)
+    def from_model(
+        user: User,
+        basic_details: bool = False,
+        basic_details_with_reputation: bool = False,
+    ):
         basic_data = {
             "id": user.id,
             "username": user.username,
             "profile_pic_url": user.profile_pic_url,
-            "reputation_score": reputation.score,
-            "reputation_level": reputation.level,
         }
 
         if basic_details:
+            return UserStats(**basic_data)
+
+        reputation, created = Reputation.objects.get_or_create(user=user)
+        if basic_details_with_reputation:
+            basic_data["reputation_score"] = reputation.score
+            basic_data["reputation_level"] = reputation.level
             return UserStats(**basic_data)
 
         contributed_articles = (
@@ -96,3 +103,69 @@ class DateCount(Schema):
 
 class PermissionCheckOut(Schema):
     has_permission: bool
+
+
+# Real-time system schemas
+class RealtimeRegisterOut(Schema):
+    queue_id: str
+    last_event_id: int
+    communities: list[int]
+
+
+class RealtimeStatusOut(Schema):
+    user_id: int
+    communities: list[int]
+    subscribed_articles: list[int] = []
+    realtime_enabled: bool
+    tornado_url: str
+
+
+class RealtimeHeartbeatOut(Schema):
+    message: str
+
+
+# ============================================================================
+# Flag System Types
+# ============================================================================
+
+
+class FlagType(str, Enum):
+    """
+    Available flag types that can be set on entities.
+    Keep in sync with UserFlag.VALID_FLAG_TYPES in articles/models.py
+
+    - unread: Entity has not been read by the user
+    - pinned: Entity is pinned by the user
+    - unread_comment: (Virtual flag) Discussion has unread comments/replies
+
+    Future flags (add here and in UserFlag.VALID_FLAG_TYPES when implemented):
+    - starred: Entity is starred/favorited by the user
+    - muted: Entity notifications are muted by the user
+    """
+
+    UNREAD = "unread"
+    PINNED = "pinned"
+    UNREAD_COMMENT = "unread_comment"
+    # STARRED = "starred"
+    # MUTED = "muted"
+
+
+class EntityType(str, Enum):
+    """
+    Entity types that can have flags attached.
+    Keep in sync with UserFlag.VALID_ENTITY_TYPES in articles/models.py
+
+    - discussion: A discussion thread on an article
+    - comment: A comment or reply within a discussion
+    - notification: A user notification
+    - review: A review on an article
+
+    Future entity types (add here and in UserFlag.VALID_ENTITY_TYPES when implemented):
+    - article: An article
+    """
+
+    DISCUSSION = "discussion"
+    COMMENT = "comment"
+    NOTIFICATION = "notification"
+    REVIEW = "review"
+    # ARTICLE = "article"

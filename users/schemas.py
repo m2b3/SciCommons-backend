@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from ninja import ModelSchema, Schema
 
 from articles.models import Article, Review, ReviewComment
+from users.config_constants import UserConfigKey, UserConfigType
 from users.models import HashtagRelation, Reputation, User
 
 """
@@ -41,13 +42,14 @@ class LogInSchemaIn(Schema):
     login: str
     password: str
 
-    
+
 class LogInUserSchemaOut(Schema):
     id: int
     username: str
     email: str
     first_name: str
     last_name: str
+
 
 class LogInSchemaOut(Schema):
     """
@@ -74,6 +76,24 @@ class AcademicStatusSchema(Schema):
     academic_email: str
     start_year: str
     end_year: Optional[str] = None
+
+
+class UserBasicDetails(Schema):
+    id: int
+    username: str
+    profile_pic_url: str
+
+    class Config:
+        model = User
+        model_fields = ["id", "username", "profile_pic_url"]
+
+    @staticmethod
+    def from_model(user: User):
+        return {
+            "id": user.id,
+            "username": user.username,
+            "profile_pic_url": user.profile_pic_url,
+        }
 
 
 class UserDetails(ModelSchema):
@@ -229,12 +249,20 @@ Reaction Schemas
 
 class ContentTypeEnum(str, Enum):
     ARTICLE = "articles.article"
+    COMMUNITY = "communities.community"
     POST = "posts.post"
     COMMENT = "posts.comment"
     REVIEWCOMMENT = "articles.reviewcomment"
     REVIEW = "articles.review"
     DISCUSSION = "articles.discussion"
     DISCUSSIONCOMMENT = "articles.discussioncomment"
+
+
+class BookmarkContentTypeEnum(str, Enum):
+    """Enum for content types that can be bookmarked."""
+
+    ARTICLE = "articles.article"
+    COMMUNITY = "communities.community"
 
 
 class VoteEnum(int, Enum):
@@ -297,10 +325,11 @@ class BookmarkSchema(Schema):
     type: str
     details: str
     slug: str
+    created_at: datetime
 
 
 class BookmarkToggleSchema(Schema):
-    content_type: ContentTypeEnum
+    content_type: BookmarkContentTypeEnum
     object_id: int
 
 
@@ -310,4 +339,66 @@ class BookmarkToggleResponseSchema(Schema):
 
 
 class BookmarkStatusResponseSchema(Schema):
-    is_bookmarked: bool
+    is_bookmarked: Optional[bool]
+
+
+class BookmarkFilterTypeEnum(str, Enum):
+    """Enum for filtering bookmarks by type."""
+
+    ARTICLE = "article"
+    COMMUNITY = "community"
+    ALL = "all"
+
+
+class PaginatedBookmarksResponseSchema(Schema):
+    items: List[BookmarkSchema]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+"""
+User Settings Schemas
+"""
+
+
+class UserSettingSchema(Schema):
+    """Schema for a single user setting."""
+
+    config_name: UserConfigKey
+    value: bool | int | str
+    config_type: UserConfigType
+
+
+class UserSettingsResponseSchema(Schema):
+    """Schema for getting all user settings."""
+
+    settings: List[UserSettingSchema]
+
+
+class UserSettingUpdateSchema(Schema):
+    """Schema for updating a single setting."""
+
+    config_name: UserConfigKey
+    value: bool | int | str
+
+
+class UserSettingsBulkUpdateSchema(Schema):
+    """Schema for bulk updating user settings."""
+
+    settings: List[UserSettingUpdateSchema]
+
+
+class UserSettingsUpdateResponseSchema(Schema):
+    """Response schema for settings update."""
+
+    message: str
+    updated_count: int
+
+
+class UserSettingsResetResponseSchema(Schema):
+    """Response schema for settings reset."""
+
+    message: str
+    reset_count: int

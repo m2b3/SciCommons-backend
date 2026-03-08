@@ -1,7 +1,7 @@
 from enum import Enum
 from urllib.parse import quote_plus
 
-COMMUNITY_TYPES  = ['public', 'private', 'hidden']
+COMMUNITY_TYPES = ["public", "private", "hidden"]
 # class COMMUNITY_TYPES(str, Enum):
 #     PUBLIC = "public"
 #     PRIVATE = "private"
@@ -9,10 +9,12 @@ COMMUNITY_TYPES  = ['public', 'private', 'hidden']
 
 COMMUNITY_TYPES_LIST = [e for e in COMMUNITY_TYPES]
 
+
 class COMMUNITY_SETTINGS(str, Enum):
     ANYONE_CAN_JOIN = "anyone_can_join"
     INVITE_ONLY = "invite_only"
     REQUEST_TO_JOIN = "request_to_join"
+
 
 # CACHE
 ONE_MINUTE = 60
@@ -21,3 +23,11 @@ TEN_MINUTES = 600
 FIFTEEN_MINUTES = 900
 THIRTY_MINUTES = 1800
 SIXTY_MINUTES = 3600
+
+
+# Email domain to organization mapping (extensible for future orgs)
+EMAIL_DOMAIN_TO_ORG = {
+    "ashoka.edu.in": "ashoka",
+    # Add more mappings here as needed, e.g.:
+    # "stanford.edu": "stanford",
+}

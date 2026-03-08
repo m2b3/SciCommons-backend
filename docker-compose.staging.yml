@@ -1,6 +1,7 @@
 services:
   web-test:
     build: .
+    restart: unless-stopped
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -9,6 +10,7 @@ services:
       - proxy
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web-test.entrypoints=http"
@@ -26,9 +28,12 @@ services:
       - celery-test
     env_file:
       - .env.test
+    environment:
+      - ENVIRONMENT=staging
 
   redis-test:
     image: redis:alpine
+    restart: unless-stopped
     ports:
       - "6300:6379"
     networks:
@@ -36,6 +41,7 @@ services:
 
   celery-test:
     build: .
+    restart: unless-stopped
     command: celery -A myapp worker --loglevel=info --concurrency=5
     depends_on:
       - redis-test
@@ -43,6 +49,41 @@ services:
       - proxy
     env_file:
       - .env.test
+    volumes:
+      - /home/ubuntu/logs:/logs
+    environment:
+      - ENVIRONMENT=staging
+
+  tornado-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.tornado
+    restart: unless-stopped
+    command: python tornado_server.py
+    ports:
+      - "8887:8887"
+    depends_on:
+      - redis-test
+    networks:
+      - proxy
+    env_file:
+      - .env.test
+    volumes:
+      - /home/ubuntu/logs:/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tornado-test.entrypoints=http"
+      - "traefik.http.routers.tornado-test.rule=Host(`backendtest.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.middlewares.tornado-test-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tornado-test.middlewares=tornado-test-https-redirect"
+      - "traefik.http.routers.tornado-test-secure.entrypoints=https"
+      - "traefik.http.routers.tornado-test-secure.rule=Host(`backendtest.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.routers.tornado-test-secure.tls=true"
+      - "traefik.http.routers.tornado-test-secure.service=tornado-test"
+      - "traefik.http.services.tornado-test.loadbalancer.server.port=8887"
+      - "traefik.docker.network=proxy"
+    environment:
+      - ENVIRONMENT=staging
 
 networks:
   proxy:

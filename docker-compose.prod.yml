@@ -34,6 +34,7 @@ services:
 
   web:
     build: .
+    restart: unless-stopped
     command: >
       sh -c "redis-server --daemonize yes && 
               poetry run python manage.py migrate && 
@@ -43,6 +44,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/ubuntu/logs:/logs
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web.entrypoints=http"
@@ -60,9 +62,12 @@ services:
       - celery
     env_file:
       - .env.prod
+    environment:
+      - ENVIRONMENT=prod
 
   redis:
     image: redis:alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     networks:
@@ -70,6 +75,7 @@ services:
 
   celery:
     build: .
+    restart: unless-stopped
     command: celery -A myapp worker --loglevel=info --concurrency=5
     depends_on:
       - redis
@@ -77,6 +83,41 @@ services:
       - proxy
     env_file:
       - .env.prod
+    volumes:
+      - /home/ubuntu/logs:/logs
+    environment:
+      - ENVIRONMENT=prod
+
+  tornado:
+    build:
+      context: .
+      dockerfile: Dockerfile.tornado
+    restart: unless-stopped
+    command: python tornado_server.py
+    ports:
+      - "8888:8888"
+    depends_on:
+      - redis
+    networks:
+      - proxy
+    env_file:
+      - .env.prod
+    volumes:
+      - /home/ubuntu/logs:/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tornado.entrypoints=http"
+      - "traefik.http.routers.tornado.rule=Host(`backend.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.middlewares.tornado-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tornado.middlewares=tornado-https-redirect"
+      - "traefik.http.routers.tornado-secure.entrypoints=https"
+      - "traefik.http.routers.tornado-secure.rule=Host(`backend.scicommons.org`) && PathPrefix(`/realtime`)"
+      - "traefik.http.routers.tornado-secure.tls=true"
+      - "traefik.http.routers.tornado-secure.service=tornado"
+      - "traefik.http.services.tornado.loadbalancer.server.port=8888"
+      - "traefik.docker.network=proxy"
+    environment:
+      - ENVIRONMENT=prod
 
 networks:
   proxy:

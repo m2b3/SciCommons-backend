@@ -44,6 +44,10 @@ ALLOWED_HOSTS = [
     "127.0.0.1",
 ]
 
+# Allow all hosts in debug mode for development
+if DEBUG:
+    ALLOWED_HOSTS.append("*")
+
 
 # Application definition
 
@@ -90,7 +94,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_ratelimit.middleware.RatelimitMiddleware",
-    "ninja.compatibility.files.fix_request_files_middleware"
+    "ninja.compatibility.files.fix_request_files_middleware",
+    "myapp.middleware.RequestTimingMiddleware",
 ]
 
 # CORS Settings
@@ -112,41 +117,41 @@ CORS_ALLOWED_ORIGINS = [
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
 ]
 CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
 ]
 
 # Security Settings
 SECURE_SSL_REDIRECT = not DEBUG
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = 'DENY'
+X_FRAME_OPTIONS = "DENY"
 SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
 # Additional Security Headers
-SECURE_REFERRER_POLICY = 'same-origin'
-SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
-SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = 'require-corp'
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = "require-corp"
 
 ROOT_URLCONF = "myapp.urls"
 
@@ -201,18 +206,42 @@ FRONTEND_URL = config("FRONTEND_URL")
 # MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 # MEDIA_URL = "/media/"
 
+# Arbutus Object Storage Configuration (S3-compatible)
 AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
-AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME")
-AWS_S3_CUSTOM_DOMAIN = config("AWS_S3_CUSTOM_DOMAIN")
+AWS_S3_ENDPOINT_URL = config(
+    "AWS_S3_ENDPOINT_URL", default="https://object-arbutus.cloud.computecanada.ca"
+)
+AWS_S3_REGION_NAME = config(
+    "AWS_S3_REGION_NAME", default=""
+)  # Arbutus doesn't require region
+AWS_S3_CUSTOM_DOMAIN = config(
+    "AWS_S3_CUSTOM_DOMAIN",
+    default=f"{config('AWS_STORAGE_BUCKET_NAME', default='cdn.scicommons.org')}",
+)
 AWS_S3_FILE_OVERWRITE = False
+AWS_S3_SIGNATURE_VERSION = "s3"  # Required for Arbutus Object Storage
+AWS_S3_USE_SSL = True
+AWS_S3_VERIFY = True  # Verify SSL certificates
+AWS_S3_ADDRESSING_STYLE = "path"  # Use path-style addressing for compatibility
+
+# Object Parameters - Cache and Content Type settings
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=86400",  # Cache for 24 hours
+}
+
+# Default ACL for uploaded files (public-read for CDN access)
+AWS_DEFAULT_ACL = config("AWS_DEFAULT_ACL", default="public-read")
+
+# Querystring Auth - Set to False if files should be publicly accessible
+AWS_QUERYSTRING_AUTH = config("AWS_QUERYSTRING_AUTH", default=False, cast=bool)
 
 
 STORAGES = {
     # Media File (PDFs, images, etc.) Management
     "default": {
-        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "BACKEND": "myapp.storage.ArbutusMediaStorage",
     },
     "staticfiles": {
         # use default storage for static files
@@ -270,27 +299,31 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Celery Configurations
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
+)
 print("redis: ", CELERY_BROKER_URL, CELERY_RESULT_BACKEND)
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
 BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_WORKER_CONCURRENCY = 5
 
 CACHES = {
-    "default": {    
+    "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": config("REDIS_HOST_URL", default="redis://localhost:6379/1"),  # Use DB 1 for Django cache
+        "LOCATION": config(
+            "REDIS_HOST_URL", default="redis://localhost:6379/1"
+        ),  # Use DB 1 for Django cache
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             # "PARSER_CLASS": "redis.connection.HiredisParser",
             "SOCKET_CONNECT_TIMEOUT": 5,  # seconds
-            "SOCKET_TIMEOUT": 5,          # seconds
+            "SOCKET_TIMEOUT": 5,  # seconds
         },
         "KEY_PREFIX": "sci:",  # Optional, helps prevent key collisions
-        "TIMEOUT": FIFTEEN_MINUTES,          # Default cache timeout (5 minutes)
+        "TIMEOUT": FIFTEEN_MINUTES,  # Default cache timeout (5 minutes)
     }
 }
 
@@ -298,38 +331,74 @@ CACHES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 # SESSION_CACHE_ALIAS = "default"
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'simple': {
-            'format': '[{levelname}] {asctime} {name}: {message}',
-            'style': '{',
+# -------------------- Logging Configuration --------------------
+LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(pathname)s - %(message)s"
+
+if DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "detailed": {
+                "format": LOG_FORMAT,
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+            },
         },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "detailed",
+            },
         },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
+        "root": {
+            "handlers": ["console"],
+            "level": "DEBUG",
         },
-        'myapp': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
+        "loggers": {
+            "django.db.backends": {
+                "handlers": ["console"],
+                "level": "DEBUG",
+                "propagate": False,
+            },
+            "myapp.middleware": {
+                "handlers": ["console"],
+                "level": "INFO",
+            },
         },
-    },
-}
+    }
+else:
+    # Ensure /logs directory (mounted from host) exists inside container
+    LOG_DIR = Path("/logs")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "detailed": {
+                "format": LOG_FORMAT,
+                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "detailed",
+                "level": "INFO",
+            },
+            "error_file": {
+                "class": "logging.FileHandler",
+                "filename": str(LOG_FILE_PATH),
+                "formatter": "detailed",
+                "level": "ERROR",
+            },
+        },
+        "root": {
+            "handlers": ["console", "error_file"],
+            "level": "INFO",
+        },
+    }
+# ---------------------------------------------------------------
 
 # ASGI application
 ASGI_APPLICATION = "myapp.asgi.application"
@@ -339,7 +408,9 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [config("REDIS_HOST_URL", default="redis://localhost:6379/2")],  # Use DB 2 for channels
+            "hosts": [
+                config("REDIS_HOST_URL", default="redis://localhost:6379/2")
+            ],  # Use DB 2 for channels
         },
     },
 }
