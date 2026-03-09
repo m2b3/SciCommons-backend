@@ -276,8 +276,10 @@ def list_communities(
             for community in paginated_communities.object_list:
                 # Determine bookmark status: True/False for authenticated, None for anonymous
                 is_bookmarked = None
+                role = None
                 if user and not isinstance(user, bool):
                     is_bookmarked = community.id in bookmarked_ids
+                    role = community.get_user_role(user)
 
                 response_data = {
                     "id": community.id,
@@ -290,23 +292,8 @@ def list_communities(
                     "num_published_articles": published_map.get(community.id, 0),
                     "org": org_map.get(community.id),
                     "is_bookmarked": is_bookmarked,
+                    "role": role,
                 }
-
-                # Optional user-specific flags (minimal perf impact here)
-                # if user and not isinstance(user, bool):
-                #     if community.is_member(user):
-                #         response_data["is_member"] = True
-                #     elif community.is_admin(user):
-                #         response_data["is_admin"] = True
-                #     else:
-                #         join_request = JoinRequest.objects.filter(
-                #             community=community, user=user
-                #         ).order_by("-id")
-                #         if join_request.exists():
-                #             response_data["is_request_sent"] = True
-                #             response_data["requested_at"] = (
-                #                 join_request.first().requested_at
-                #             )
 
                 results.append(CommunityListOut(**response_data))
 
