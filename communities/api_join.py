@@ -7,6 +7,7 @@ from ninja.responses import codes_4xx, codes_5xx
 
 from communities.models import Community, JoinRequest
 from communities.schemas import JoinRequestSchema, Message
+from myapp.services.send_emails import send_join_decision_email, send_join_request_email
 from users.auth import JWTAuth
 from users.models import Notification
 
@@ -131,6 +132,11 @@ def join_community(request, community_id: int):
                 # Continue even if notification fails
                 pass
 
+            try:
+                send_join_request_email(user, community)
+            except Exception as e:
+                logger.error(f"Error sending join request email: {e}")
+
             return 200, {"message": "Your request to join the community has been sent."}
         except Exception as e:
             logger.error(f"Error processing join request: {e}")
@@ -211,6 +217,11 @@ def manage_join_request(
                     # Continue even if notification fails
                     pass
 
+                try:
+                    send_join_decision_email(join_request.user, community, "approve")
+                except Exception as e:
+                    logger.error(f"Error sending join decision email: {e}")
+
                 return 200, {
                     "message": f"Join request approved. \
                             {join_request.user.username} is now a member of the community."
@@ -226,6 +237,11 @@ def manage_join_request(
                     return 500, {
                         "message": "Error updating join request status. Please try again."
                     }
+
+                try:
+                    send_join_decision_email(join_request.user, community, "reject")
+                except Exception as e:
+                    logger.error(f"Error sending join decision email: {e}")
 
                 return 200, {
                     "message": "You have rejected the join request successfully."
