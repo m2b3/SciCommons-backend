@@ -7,6 +7,7 @@ from ninja.responses import codes_4xx, codes_5xx
 
 from communities.models import Community, JoinRequest
 from communities.schemas import JoinRequestSchema, Message
+from myapp.services.send_emails import send_join_request_approved_email
 from users.auth import JWTAuth
 from users.models import Notification
 
@@ -209,6 +210,14 @@ def manage_join_request(
                 except Exception as e:
                     logger.error(f"Error creating notification: {e}")
                     # Continue even if notification fails
+                    pass
+
+                # Send email notification to the user
+                try:
+                    send_join_request_approved_email(join_request.user, community)
+                except Exception as e:
+                    logger.error(f"Error sending approval email: {e}")
+                    # Continue even if email fails
                     pass
 
                 return 200, {
