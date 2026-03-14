@@ -242,6 +242,15 @@ class NotificationSchema(Schema):
     expiresAt: datetime | None
 
 
+class MarkNotificationsReadSchema(Schema):
+    notification_ids: List[int]
+
+
+class MarkNotificationsReadResponseSchema(Schema):
+    message: str
+    updated_count: int
+
+
 class RealtimeNotificationData(Schema):
     """Schema for realtime notification event data (sent via Tornado)"""
 

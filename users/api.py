@@ -25,6 +25,8 @@ from users.config_constants import (
 from users.models import Hashtag, HashtagRelation, Notification, User, UserSetting
 from users.schemas import (
     FavoriteItemSchema,
+    MarkNotificationsReadResponseSchema,
+    MarkNotificationsReadSchema,
     NotificationSchema,
     UserArticleSchema,
     UserCommunitySchema,
@@ -744,37 +746,38 @@ def get_notifications(
 
 
 @router.post(
-    "/notifications/{notification_id}/mark-as-read",
-    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    "/notifications/mark-as-read",
+    response={
+        200: MarkNotificationsReadResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
     auth=JWTAuth(),
 )
-def mark_notification_as_read(request, notification_id: int):
-    try:
-        try:
-            notification = Notification.objects.get(
-                pk=notification_id, user=request.auth
-            )
-        except Notification.DoesNotExist:
-            return 404, {"message": "Notification not found."}
-        except Exception as e:
-            logger.error(f"Error retrieving notification: {e}")
-            return 500, {"message": "Error retrieving notification. Please try again."}
+def bulk_mark_notifications_as_read(request, payload: MarkNotificationsReadSchema):
+    """
+    Mark multiple notifications as read in bulk.
 
-        if not notification.is_read:
-            try:
-                notification.is_read = True
-                notification.save()
-                return 200, {"message": "Notification marked as read."}
-            except Exception as e:
-                logger.error(f"Error updating notification status: {e}")
-                return 500, {
-                    "message": "Error updating notification status. Please try again."
-                }
-        else:
-            return 200, {"message": "Notification was already marked as read."}
+    Accepts a list of notification IDs and marks all of them as read.
+    Only notifications belonging to the authenticated user will be updated.
+    """
+    try:
+        if not payload.notification_ids:
+            return 200, {"message": "No notifications to update.", "updated_count": 0}
+
+        updated_count = Notification.objects.filter(
+            pk__in=payload.notification_ids,
+            user=request.auth,
+            is_read=False,
+        ).update(is_read=True)
+
+        return 200, {
+            "message": f"{updated_count} notification(s) marked as read.",
+            "updated_count": updated_count,
+        }
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        return 500, {"message": "An unexpected error occurred. Please try again later."}
+        logger.error(f"Error bulk updating notifications: {e}")
+        return 500, {"message": "Error updating notifications. Please try again."}
 
 
 """
