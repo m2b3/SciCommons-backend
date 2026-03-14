@@ -242,6 +242,19 @@ class NotificationSchema(Schema):
     expiresAt: datetime | None
 
 
+class RealtimeNotificationData(Schema):
+    """Schema for realtime notification event data (sent via Tornado)"""
+
+    notification_type: str
+    category: str
+    message: str
+    link: Optional[str]
+    content: Optional[str]
+    community_id: Optional[int]
+    article_id: Optional[int]
+    notification_ids: list[int]
+
+
 """
 Reaction Schemas
 """

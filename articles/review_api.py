@@ -33,6 +33,11 @@ from articles.schemas import (
 from communities.models import Community, CommunityArticle
 from myapp.feature_flags import MAX_NESTING_LEVEL
 from myapp.schemas import UserStats
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
 from myapp.services.send_emails import (
     send_comment_notification_email,
     send_review_notification_email,
@@ -192,13 +197,46 @@ def create_review(
                 # Continue even if anonymous name creation fails
                 pass
 
+        # Send notifications to article submitter (only if subscribed for community articles)
+        try:
+            from articles.models import DiscussionSubscription
+
+            reviewer_name = user.username
+            if is_pseudonymous:
+                reviewer_name = "A reviewer"
+
+            # Build link - use discussions page with articleId param (reviews are part of discussions)
+            link = f"/discussions?articleId={article.id}"
+
+            # For community articles, check if author is subscribed
+            should_notify_author = True
+            if community and article.submitter_id:
+                should_notify_author = DiscussionSubscription.objects.filter(
+                    user_id=article.submitter_id,
+                    article=article,
+                    community=community,
+                    is_active=True,
+                ).exists()
+
+            if should_notify_author:
+                NotificationService.send_to_article_author(
+                    article_id=article.id,
+                    notification_type=NotificationType.REVIEW_SUBMITTED,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{reviewer_name} submitted a review on your article '{article.title}'",
+                    link=link,
+                    community_id=community.id if community else None,
+                    exclude_user_id=user.id,
+                )
+        except Exception as e:
+            logger.error(f"Error sending review notification: {e}")
+
         # Send email notification to article submitter if review is in a community
         if community:
             try:
                 send_review_notification_email(article, review, community)
             except Exception as e:
                 logger.error(f"Error sending review notification email: {e}")
-                # Continue even if email sending fails
 
         # Process image references in the review content (async)
         try:
@@ -631,6 +669,78 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 # Continue even if anonymous name creation fails
                 pass
 
+        # Send notification to review author and article author (only if subscribed for community articles)
+        try:
+            from articles.models import DiscussionSubscription
+
+            commenter_name = user.username
+            if is_pseudonymous:
+                commenter_name = "Someone"
+
+            article = review.article
+            community = review.community
+
+            # Build link - use discussions page with articleId param
+            link = f"/discussions?articleId={article.id}"
+
+            # Helper function to check if user is subscribed (for community articles)
+            def is_user_subscribed(user_id: int) -> bool:
+                if not community:
+                    return True  # Standalone articles - always notify
+                return DiscussionSubscription.objects.filter(
+                    user_id=user_id,
+                    article=article,
+                    community=community,
+                    is_active=True,
+                ).exists()
+
+            # Notify review author (if not the commenter and subscribed)
+            if review.user_id != user.id and is_user_subscribed(review.user_id):
+                NotificationService.send_to_user(
+                    user_id=review.user_id,
+                    notification_type=NotificationType.REVIEW_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} commented on your review",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+
+            # Notify article author (if not the commenter, not the reviewer, and subscribed)
+            if (
+                article.submitter_id
+                and article.submitter_id != user.id
+                and article.submitter_id != review.user_id
+                and is_user_subscribed(article.submitter_id)
+            ):
+                NotificationService.send_to_user(
+                    user_id=article.submitter_id,
+                    notification_type=NotificationType.REVIEW_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} commented on a review of your article",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+
+            # If this is a reply, notify the parent comment author (if subscribed)
+            if (
+                parent_comment
+                and parent_comment.author_id != user.id
+                and is_user_subscribed(parent_comment.author_id)
+            ):
+                NotificationService.send_to_user(
+                    user_id=parent_comment.author_id,
+                    notification_type=NotificationType.REVIEW_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} replied to your comment",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+        except Exception as e:
+            logger.error(f"Error sending review comment notification: {e}")
+
         # Send email notification if comment is in a community
         if review.community:
             try:
@@ -639,7 +749,6 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 )
             except Exception as e:
                 logger.error(f"Error sending comment notification email: {e}")
-                # Continue even if email sending fails
 
         # Process image references in the comment content (async)
         try:
