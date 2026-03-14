@@ -63,12 +63,17 @@ class FlagModifyOut(Schema):
 # ============================================================================
 
 
-def validate_flag_type(flag_type: str) -> None:
-    """Validate that the flag type is supported"""
-    if flag_type not in UserFlag.VALID_FLAG_TYPES:
+def validate_flag_type(flag_type: FlagType) -> None:
+    """Validate that the flag type is supported for storage.
+
+    Note: 'unread_comment' is a virtual flag computed from comment unread states,
+    not a storable flag type. Use 'unread' on individual comments instead.
+    """
+    flag_value = flag_type.value if isinstance(flag_type, FlagType) else str(flag_type)
+    if flag_value not in UserFlag.VALID_FLAG_TYPES:
         raise HttpError(
             400,
-            f"Invalid flag_type '{flag_type}'. Must be one of: {', '.join(UserFlag.VALID_FLAG_TYPES)}",
+            f"Invalid flag_type '{flag_value}'. Must be one of: {', '.join(UserFlag.VALID_FLAG_TYPES)}",
         )
 
 

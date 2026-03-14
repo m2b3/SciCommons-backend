@@ -41,10 +41,15 @@ from communities.models import Community, CommunityArticle
 from myapp.cache import get_cache, set_cache
 from myapp.constants import FIFTEEN_MINUTES
 from myapp.schemas import FilterType
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.common_api import get_content_type_for_model
-from users.models import Bookmark, Hashtag, HashtagRelation, Notification, User
+from users.models import Bookmark, Hashtag, HashtagRelation, User
 
 router = Router(tags=["Articles"])
 
@@ -157,22 +162,21 @@ def create_article(
                             f"Auto-subscription creation failed for article {article.id} in community {community.id}: {e}"
                         )
 
-                    # Send notification to the community admin
+                    # Send notification to community admins
                     try:
-                        Notification.objects.create(
-                            user=community.admins.first(),
-                            community=community,
-                            category="communities",
-                            notification_type="article_submitted",
+                        NotificationService.send_to_community_admins(
+                            community_id=community.id,
+                            notification_type=NotificationType.ARTICLE_SUBMITTED,
+                            category=NotificationCategory.COMMUNITIES,
                             message=(
                                 f"New article submitted in {community.name}"
                                 f" by {request.auth.username}"
                             ),
                             link=f"/community/{community.name}/submissions",
                             content=article.title,
+                            article_id=article.id,
                         )
                     except Exception:
-                        # Continue even if notification creation fails
                         pass
                 except Community.DoesNotExist:
                     return 404, {"message": "Community not found."}

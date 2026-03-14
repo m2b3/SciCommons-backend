@@ -49,6 +49,11 @@ class StatusFilter(str, Enum):
     PUBLISHED = "published"
 
 
+class NotificationStatusFilter(str, Enum):
+    READ = "read"
+    UNREAD = "unread"
+
+
 class CommunityRoleFilter(str, Enum):
     ADMIN = "admin"
     MODERATOR = "moderator"
@@ -662,6 +667,12 @@ def get_notifications(
     article_slug: Optional[str] = Query(None, description="Filter by article slug"),
     community_id: Optional[int] = Query(None, description="Filter by community ID"),
     post_id: Optional[int] = Query(None, description="Filter by post ID"),
+    limit: Optional[int] = Query(
+        None, description="Limit number of notifications returned"
+    ),
+    status: Optional[NotificationStatusFilter] = Query(
+        None, description="Filter by status: 'read' or 'unread'"
+    ),
 ):
     try:
         try:
@@ -684,12 +695,22 @@ def get_notifications(
 
             if filters:
                 user_notifications = user_notifications.filter(filters)
+
+            # Filter by read/unread status
+            if status:
+                if status == NotificationStatusFilter.READ:
+                    user_notifications = user_notifications.filter(is_read=True)
+                elif status == NotificationStatusFilter.UNREAD:
+                    user_notifications = user_notifications.filter(is_read=False)
         except Exception as e:
             logger.error(f"Error filtering notifications: {e}")
             return 500, {"message": "Error filtering notifications. Please try again."}
 
         try:
             user_notifications = user_notifications.order_by("-created_at")
+            # Apply limit if provided
+            if limit is not None and limit > 0:
+                user_notifications = user_notifications[:limit]
         except Exception as e:
             logger.error(f"Error sorting notifications: {e}")
             return 500, {"message": "Error sorting notifications. Please try again."}

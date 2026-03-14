@@ -96,7 +96,7 @@ def send_review_notification_email(article, review, community):
         if review.user == recipient:
             return
 
-        # Check if recipient has email notifications enabled
+        # Check if recipient has email notifications enabled (early exit to avoid unnecessary work)
         if not is_email_notifications_enabled(recipient.id):
             logger.debug(
                 f"Email notifications disabled for user {recipient.id}, skipping review notification"
@@ -151,24 +151,14 @@ def send_comment_notification_email(comment, review, article, community):
         # Determine recipient: review author for top-level comments, parent comment author for replies
         if comment.parent:
             recipient = comment.parent.author
-            notification_type = "New Reply to Your Comment"
             # Don't send email if user is replying to their own comment
             if comment.author == recipient:
                 return
-            message_text = mark_safe(
-                f"<b>{comment.author.username}</b> has replied to your comment on the review "
-                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
-            )
         else:
             recipient = review.user
-            notification_type = "New Comment on Your Review"
             # Don't send email if user is commenting on their own review
             if comment.author == recipient:
                 return
-            message_text = mark_safe(
-                f"<b>{comment.author.username}</b> has commented on your review "
-                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
-            )
 
         if not recipient or not recipient.email:
             logger.warning(
@@ -176,12 +166,26 @@ def send_comment_notification_email(comment, review, article, community):
             )
             return
 
-        # Check if recipient has email notifications enabled
+        # Check if recipient has email notifications enabled (early exit to avoid unnecessary work)
         if not is_email_notifications_enabled(recipient.id):
             logger.debug(
                 f"Email notifications disabled for user {recipient.id}, skipping comment notification"
             )
             return
+
+        # Build notification content after all early-exit checks pass
+        if comment.parent:
+            notification_type = "New Reply to Your Comment"
+            message_text = mark_safe(
+                f"<b>{comment.author.username}</b> has replied to your comment on the review "
+                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
+            )
+        else:
+            notification_type = "New Comment on Your Review"
+            message_text = mark_safe(
+                f"<b>{comment.author.username}</b> has commented on your review "
+                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
+            )
 
         domain = get_frontend_domain()
         article_link = f"{domain}/community/{quote(community.name, safe='')}/articles/{article.slug}"
@@ -210,3 +214,55 @@ def send_comment_notification_email(comment, review, article, community):
         )
     except Exception as e:
         logger.error(f"Error sending comment notification email: {e}")
+
+
+def send_join_request_approved_email(user, community):
+    """
+    Send email notification to a user when their join request to a community is approved.
+
+    Note: This email is always sent regardless of user's email notification settings,
+    as it's a transactional email confirming an important account action.
+    """
+    try:
+        if not user or not user.email:
+            logger.warning(
+                f"Cannot send join request approved email: user has no email"
+            )
+            return
+
+        domain = get_frontend_domain()
+        community_link = f"{domain}/community/{quote(community.name, safe='')}"
+
+        # Truncate description for preview (first 150 characters)
+        community_description = None
+        if community.description:
+            community_description = (
+                community.description[:150] + "..."
+                if len(community.description) > 150
+                else community.description
+            )
+
+        recipient_name = user.first_name or user.username
+        message_text = mark_safe(
+            f"Hi <b>{recipient_name}</b>, your request to join the "
+            f"<b>{community.name}</b> community has been approved. "
+            f"You are now a member and can participate in community activities."
+        )
+
+        context = {
+            "recipient_name": recipient_name,
+            "message_text": message_text,
+            "community_name": community.name,
+            "community_description": community_description,
+            "community_link": community_link,
+        }
+
+        send_email_task.delay(
+            subject=f"Welcome to {community.name}! Your join request has been approved",
+            html_template_name="join_request_approved.html",
+            context=context,
+            recipient_list=[user.email],
+            from_email=settings.DEFAULT_FROM_EMAIL,
+        )
+    except Exception as e:
+        logger.error(f"Error sending join request approved email: {e}")
