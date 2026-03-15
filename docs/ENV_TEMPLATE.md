@@ -9,6 +9,7 @@ SECRET_KEY=your-secret-key-here
 DEBUG=True
 ENVIRONMENT=local
 FRONTEND_URL=http://localhost:3000
+LOG_SQL_DEBUG=False
 COOKIE_DOMAIN=localhost
 
 # Database Configuration

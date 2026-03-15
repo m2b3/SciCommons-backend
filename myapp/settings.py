@@ -31,6 +31,7 @@ SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
+LOG_SQL_DEBUG = config("LOG_SQL_DEBUG", default=False, cast=bool)
 
 ENVIRONMENT = config("ENVIRONMENT", default="local")
 
@@ -189,7 +190,6 @@ DATABASES = {
 }
 
 if not DEBUG:
-    print(config("DATABASE_URL"))
     DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 
 
@@ -302,7 +302,6 @@ CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/
 CELERY_RESULT_BACKEND = config(
     "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
 )
-print("redis: ", CELERY_BROKER_URL, CELERY_RESULT_BACKEND)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -335,6 +334,19 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(pathname)s - %(message)s"
 
 if DEBUG:
+    debug_loggers = {
+        "myapp.middleware": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+    }
+    if LOG_SQL_DEBUG:
+        debug_loggers["django.db.backends"] = {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        }
+
     LOGGING = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -354,17 +366,7 @@ if DEBUG:
             "handlers": ["console"],
             "level": "DEBUG",
         },
-        "loggers": {
-            "django.db.backends": {
-                "handlers": ["console"],
-                "level": "DEBUG",
-                "propagate": False,
-            },
-            "myapp.middleware": {
-                "handlers": ["console"],
-                "level": "INFO",
-            },
-        },
+        "loggers": debug_loggers,
     }
 else:
     # Ensure /logs directory (mounted from host) exists inside container
