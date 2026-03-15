@@ -44,10 +44,8 @@ class CommunityListOut(ModelSchema):
     num_members: int
     num_published_articles: int
     org: Optional[str] = None
-    # is_admin: bool = False
-    # is_member: bool = False
-    # is_request_sent: bool = False
-    # requested_at: Optional[datetime] = None
+    is_bookmarked: Optional[bool] = None
+    role: Optional[str] = None
 
     class Meta:
         model = Community
@@ -62,7 +60,10 @@ class CommunityListOut(ModelSchema):
 
     @staticmethod
     def from_orm_with_custom_fields(
-        community: Community, user: Optional[User] = None, org: Optional[str] = None
+        community: Community,
+        user: Optional[User] = None,
+        org: Optional[str] = None,
+        is_bookmarked: Optional[bool] = None,
     ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
@@ -78,6 +79,7 @@ class CommunityListOut(ModelSchema):
             "num_members": num_members,
             "num_published_articles": num_published_articles,
             "org": org,
+            "is_bookmarked": is_bookmarked,
         }
 
         # if user and not isinstance(user, bool):
@@ -119,8 +121,10 @@ class CommunityOut(ModelSchema):
     is_moderator: Optional[bool] = None
     is_reviewer: Optional[bool] = None
     is_admin: Optional[bool] = None
+    is_bookmarked: Optional[bool] = None
     join_request_status: Optional[str] = None
     community_settings: Optional[str] = None
+    members: List[str] = []
 
     class Meta:
         model = Community
@@ -139,11 +143,17 @@ class CommunityOut(ModelSchema):
         
 
     @staticmethod
-    def from_orm_with_custom_fields(community: Community, user: Optional[User] = None):
+    def from_orm_with_custom_fields(
+        community: Community,
+        user: Optional[User] = None,
+        is_bookmarked: Optional[bool] = None,
+        member_usernames: Optional[List[str]] = None,
+    ):
         num_published_articles = CommunityArticle.objects.filter(
             community=community, status="published"
         ).count()
         num_articles = CommunityArticle.objects.filter(community=community).count()
+
         response_data = {
             "id": community.id,
             "name": community.name,
@@ -157,6 +167,8 @@ class CommunityOut(ModelSchema):
             "num_published_articles": num_published_articles,
             "num_articles": num_articles,
             "community_settings": community.community_settings,
+            "is_bookmarked": is_bookmarked,
+            "members": member_usernames if member_usernames is not None else [],
         }
 
         if community.created_at:
@@ -253,6 +265,7 @@ class ArticleStatus(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     PUBLISHED = "published"
+    UNPUBLISHED = "unpublished"
 
 
 class Filters(Schema):

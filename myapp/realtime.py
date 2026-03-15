@@ -105,11 +105,9 @@ class RealtimeEventPublisher:
     @staticmethod
     def publish_discussion_created(discussion, community_ids: Set[int]):
         """Publish event when a new discussion is created"""
+        from articles.models import UserFlag
         from articles.schemas import DiscussionOut
         from communities.models import CommunityArticle
-
-        # Create discussion output schema - pass None as current_user for real-time events
-        discussion_data = DiscussionOut.from_orm(discussion, None).dict()
 
         # Get subscribers if this is part of a community article
         subscriber_ids = set()
@@ -127,6 +125,33 @@ class RealtimeEventPublisher:
                 )
             except Exception as e:
                 logger.error(f"Error getting subscribers for discussion created: {e}")
+
+        # Create UserFlag entries (unread flags) for all subscribers (except author)
+        # Presence of flag = entity is unread
+        if subscriber_ids:
+            try:
+                # Exclude the discussion author from receiving their own event
+                recipient_ids = subscriber_ids - {discussion.author.id}
+                if recipient_ids:
+                    UserFlag.objects.bulk_create_flags(
+                        user_ids=recipient_ids,
+                        flag_type="unread",
+                        entity_type="discussion",
+                        entity_id=discussion.id,
+                    )
+                    logger.debug(
+                        f"Created {len(recipient_ids)} UserFlag entries for discussion {discussion.id}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error creating UserFlag entries for discussion {discussion.id}: {e}"
+                )
+
+        # Create discussion output schema with unread flag for recipients
+        # New discussions are unread for all recipients (author is excluded from event)
+        discussion_data = DiscussionOut.from_orm(
+            discussion, None, flags=["unread"]
+        ).dict()
 
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.NEW_DISCUSSION,
@@ -147,11 +172,9 @@ class RealtimeEventPublisher:
     @staticmethod
     def publish_comment_created(comment, community_ids: Set[int]):
         """Publish event when a new comment is created"""
+        from articles.models import UserFlag
         from articles.schemas import DiscussionCommentOut
         from communities.models import CommunityArticle
-
-        # Create comment output schema - pass None as current_user for real-time events
-        comment_data = DiscussionCommentOut.from_orm_with_replies(comment, None).dict()
 
         # Calculate reply depth for nested comments
         reply_depth = 0
@@ -178,6 +201,33 @@ class RealtimeEventPublisher:
                 logger.warning(f"No community article found for comment {comment.id}")
             except Exception as e:
                 logger.error(f"Error getting subscribers for comment created: {e}")
+
+        # Create UserFlag entries (unread flags) for all subscribers (except author)
+        # Presence of flag = entity is unread
+        if subscriber_ids:
+            try:
+                # Exclude the comment author from receiving their own event
+                recipient_ids = subscriber_ids - {comment.author.id}
+                if recipient_ids:
+                    UserFlag.objects.bulk_create_flags(
+                        user_ids=recipient_ids,
+                        flag_type="unread",
+                        entity_type="comment",
+                        entity_id=comment.id,
+                    )
+                    logger.debug(
+                        f"Created {len(recipient_ids)} UserFlag entries for comment {comment.id}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error creating UserFlag entries for comment {comment.id}: {e}"
+                )
+
+        # Create comment output schema with unread flag for recipients
+        # New comments are unread for all recipients (author is excluded from event)
+        comment_data = DiscussionCommentOut.from_orm_with_replies(
+            comment, None, flags=["unread"]
+        ).dict()
 
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.NEW_COMMENT,

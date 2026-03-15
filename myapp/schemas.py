@@ -123,3 +123,51 @@ class RealtimeStatusOut(Schema):
 
 class RealtimeHeartbeatOut(Schema):
     message: str
+    message: str
+
+
+# ============================================================================
+# Flag System Types
+# ============================================================================
+
+
+class FlagType(str, Enum):
+    """
+    Available flag types that can be set on entities.
+    Keep in sync with UserFlag.VALID_FLAG_TYPES in articles/models.py
+
+    - unread: Entity has not been read by the user
+    - pinned: Entity is pinned by the user
+    - unread_comment: (Virtual flag) Discussion has unread comments/replies
+
+    Future flags (add here and in UserFlag.VALID_FLAG_TYPES when implemented):
+    - starred: Entity is starred/favorited by the user
+    - muted: Entity notifications are muted by the user
+    """
+
+    UNREAD = "unread"
+    PINNED = "pinned"
+    UNREAD_COMMENT = "unread_comment"
+    # STARRED = "starred"
+    # MUTED = "muted"
+
+
+class EntityType(str, Enum):
+    """
+    Entity types that can have flags attached.
+    Keep in sync with UserFlag.VALID_ENTITY_TYPES in articles/models.py
+
+    - discussion: A discussion thread on an article
+    - comment: A comment or reply within a discussion
+    - notification: A user notification
+    - review: A review on an article
+
+    Future entity types (add here and in UserFlag.VALID_ENTITY_TYPES when implemented):
+    - article: An article
+    """
+
+    DISCUSSION = "discussion"
+    COMMENT = "comment"
+    NOTIFICATION = "notification"
+    REVIEW = "review"
+    # ARTICLE = "article"

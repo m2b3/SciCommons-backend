@@ -35,6 +35,8 @@ from myapp.feature_flags import MAX_COMMUNITIES_PER_USER
 from myapp.schemas import DateCount, Message
 from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
+from users.common_api import get_content_type_for_model
+from users.models import Bookmark
 
 router = Router(tags=["Communities"])
 
@@ -257,9 +259,28 @@ def list_communities(
                         if org:
                             org_map[community_id] = org
 
+            # Bulk fetch bookmark status for authenticated users
+            bookmarked_ids = set()
+            if user and not isinstance(user, bool):
+                community_ct = get_content_type_for_model(Community)
+                bookmarked_ids = set(
+                    Bookmark.objects.filter(
+                        user=user,
+                        content_type=community_ct,
+                        object_id__in=community_ids,
+                    ).values_list("object_id", flat=True)
+                )
+
             # Build Response
             results = []
             for community in paginated_communities.object_list:
+                # Determine bookmark status: True/False for authenticated, None for anonymous
+                is_bookmarked = None
+                role = None
+                if user and not isinstance(user, bool):
+                    is_bookmarked = community.id in bookmarked_ids
+                    role = community.get_user_role(user)
+
                 response_data = {
                     "id": community.id,
                     "name": community.name,
@@ -270,23 +291,9 @@ def list_communities(
                     "num_members": members_map.get(community.id, 0),
                     "num_published_articles": published_map.get(community.id, 0),
                     "org": org_map.get(community.id),
+                    "is_bookmarked": is_bookmarked,
+                    "role": role,
                 }
-
-                # Optional user-specific flags (minimal perf impact here)
-                # if user and not isinstance(user, bool):
-                #     if community.is_member(user):
-                #         response_data["is_member"] = True
-                #     elif community.is_admin(user):
-                #         response_data["is_admin"] = True
-                #     else:
-                #         join_request = JoinRequest.objects.filter(
-                #             community=community, user=user
-                #         ).order_by("-id")
-                #         if join_request.exists():
-                #             response_data["is_request_sent"] = True
-                #             response_data["requested_at"] = (
-                #                 join_request.first().requested_at
-                #             )
 
                 results.append(CommunityListOut(**response_data))
 
@@ -329,8 +336,28 @@ def get_community(request, community_name: str):
                 "message": "You do not have permission to view this community."
             }
 
+        # Check bookmark status
+        is_bookmarked = None
+        if user and not isinstance(user, bool):
+            community_ct = get_content_type_for_model(Community)
+            is_bookmarked = Bookmark.objects.filter(
+                user=user, content_type=community_ct, object_id=community.id
+            ).exists()
+
+        # Only return member usernames if user is a member of the community
+        member_usernames = []
+        if community.is_member(user):
+            member_usernames = list(
+                community.members.values_list("username", flat=True)
+            )
+
         try:
-            return 200, CommunityOut.from_orm_with_custom_fields(community, user)
+            return 200, CommunityOut.from_orm_with_custom_fields(
+                community,
+                user,
+                is_bookmarked=is_bookmarked,
+                member_usernames=member_usernames,
+            )
         except Exception as e:
             logger.error(f"Error formatting community data: {e}")
             return 500, {

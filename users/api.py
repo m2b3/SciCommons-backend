@@ -17,17 +17,26 @@ from communities.schemas import CommunityListOut, PaginatedCommunities
 from myapp.schemas import Message, UserStats
 from posts.models import Post
 from users.auth import JWTAuth
-from users.models import Bookmark, Hashtag, HashtagRelation, Notification, User
+from users.config_constants import (
+    get_all_config_metadata,
+    get_default_value,
+    validate_config_value,
+)
+from users.models import Hashtag, HashtagRelation, Notification, User, UserSetting
 from users.schemas import (
-    BookmarkSchema,
     FavoriteItemSchema,
     NotificationSchema,
     UserArticleSchema,
     UserCommunitySchema,
     UserDetails,
     UserPostSchema,
+    UserSettingsBulkUpdateSchema,
+    UserSettingsResetResponseSchema,
+    UserSettingsResponseSchema,
+    UserSettingsUpdateResponseSchema,
     UserUpdateSchema,
 )
+from users.settings_cache import invalidate_user_settings_cache
 
 router = Router(tags=["Users"])
 
@@ -38,6 +47,13 @@ logger = logging.getLogger(__name__)
 class StatusFilter(str, Enum):
     UNSUBMITTED = "unsubmitted"
     PUBLISHED = "published"
+
+
+class CommunityRoleFilter(str, Enum):
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+    REVIEWER = "reviewer"
+    MEMBER = "member"
 
 
 """
@@ -244,19 +260,55 @@ def list_my_articles(
         codes_5xx: Message,
     },
     summary="Get My Communities",
+    description="Get all communities the user is part of. Use the 'role' filter to get communities where the user has a specific role.",
     auth=JWTAuth(),
 )
 def list_my_communities(
     request: HttpRequest,
+    role: Optional[CommunityRoleFilter] = None,
     search: Optional[str] = None,
     sort: Optional[str] = None,
     page: int = 1,
     per_page: int = 10,
 ):
+    """
+    Get communities the authenticated user is part of.
+
+    By default, returns all communities where the user is a member, moderator,
+    reviewer, or admin. Use the 'role' filter to get communities where the user
+    has a specific role.
+
+    Args:
+        role: Filter by user's role in the community (admin, moderator, reviewer, member).
+              Only one role filter can be applied at a time.
+        search: Search communities by name or description.
+        sort: Sort order (latest, oldest, name_asc, name_desc).
+        page: Page number for pagination.
+        per_page: Number of items per page.
+    """
     try:
         user = request.auth
         try:
-            communities = Community.objects.filter(admins__in=[user])
+            # Filter communities based on role parameter
+            if role == CommunityRoleFilter.ADMIN:
+                communities = Community.objects.filter(admins=user)
+            elif role == CommunityRoleFilter.MODERATOR:
+                communities = Community.objects.filter(moderators=user)
+            elif role == CommunityRoleFilter.REVIEWER:
+                communities = Community.objects.filter(reviewers=user)
+            elif role == CommunityRoleFilter.MEMBER:
+                # Member role means user is in the members M2M but not admin/moderator/reviewer
+                communities = Community.objects.filter(members=user).exclude(
+                    Q(admins=user) | Q(moderators=user) | Q(reviewers=user)
+                )
+            else:
+                # Default: return all communities the user is part of
+                communities = Community.objects.filter(
+                    Q(members=user)
+                    | Q(admins=user)
+                    | Q(moderators=user)
+                    | Q(reviewers=user)
+                ).distinct()
         except Exception as e:
             logger.error(f"Error retrieving communities: {e}")
             return 500, {"message": "Error retrieving communities. Please try again."}
@@ -266,7 +318,7 @@ def list_my_communities(
             if search:
                 search = search.strip()
                 if len(search) > 0:
-                    communities = communities.filter(admins__in=[user]).filter(
+                    communities = communities.filter(
                         Q(name__icontains=search) | Q(description__icontains=search)
                     )
         except Exception as e:
@@ -285,7 +337,6 @@ def list_my_communities(
                     communities = communities.order_by("name")
                 elif sort == "name_desc":
                     communities = communities.order_by("-name")
-                # Add more sorting options if needed
             else:
                 # Default sort by latest
                 communities = communities.order_by("-created_at")
@@ -302,18 +353,6 @@ def list_my_communities(
             }
 
         try:
-            # results = [
-            #     CommunityListOut.from_orm_with_custom_fields(community, user=user)
-            #     for community in paginated_communities.object_list
-            # ]
-
-            # return 200, PaginatedCommunities(
-            #     items=results,
-            #     total=paginator.count,
-            #     page=page,
-            #     per_page=per_page,
-            #     num_pages=paginator.num_pages,
-            # )
             community_ids = [
                 community.id for community in paginated_communities.object_list
             ]
@@ -349,6 +388,7 @@ def list_my_communities(
                         created_at=community.created_at,
                         num_members=members_count.get(community.id, 0),
                         num_published_articles=articles_count.get(community.id, 0),
+                        role=community.get_user_role(user),
                     )
                 )
 
@@ -607,72 +647,6 @@ def get_my_favorites(request):
         return 500, {"message": "An unexpected error occurred. Please try again later."}
 
 
-@router.get(
-    "/bookmarks",
-    response={200: List[BookmarkSchema], codes_4xx: Message, codes_5xx: Message},
-    auth=JWTAuth(),
-)
-def get_my_bookmarks(request):
-    try:
-        user = request.auth
-        try:
-            bookmarks = Bookmark.objects.filter(user=user).select_related(
-                "content_type"
-            )
-        except Exception as e:
-            logger.error(f"Error retrieving your bookmarks: {e}")
-            return 500, {
-                "message": "Error retrieving your bookmarks. Please try again."
-            }
-
-        result = []
-        for bookmark in bookmarks:
-            try:
-                obj = bookmark.content_object
-                if isinstance(obj, Article):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.title,
-                            "type": "Article",
-                            "details": f"Article by {obj.author.get_full_name()}",
-                            "slug": obj.slug,
-                        }
-                    )
-                elif isinstance(obj, Community):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.name,
-                            "type": "Community",
-                            "details": f"{obj.members.count()} members",
-                            "slug": obj.slug,
-                        }
-                    )
-                elif isinstance(obj, Post):
-                    result.append(
-                        {
-                            "id": bookmark.id,
-                            "title": obj.title,
-                            "type": "Post",
-                            "details": (
-                                f"Post by {obj.author.username} · "
-                                f"{obj.reactions.filter(vote=1).count()} likes"
-                            ),
-                            "slug": str(obj.id),
-                        }
-                    )
-            except Exception as e:
-                logger.error(f"Error formatting bookmark data: {e}")
-                # Skip bookmarks with errors instead of failing entirely
-                continue
-
-        return 200, result
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
-        return 500, {"message": "An unexpected error occurred. Please try again later."}
-
-
 """
 Notification API
 """
@@ -780,3 +754,138 @@ def mark_notification_as_read(request, notification_id: int):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+"""
+User Settings API
+"""
+
+
+@router.get(
+    "/settings",
+    response={200: UserSettingsResponseSchema, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def get_user_settings(request):
+    """
+    Get all user settings. Returns default values for settings that haven't been set yet.
+    Includes type information for each setting.
+    """
+    try:
+        user = request.auth
+
+        # Get all config metadata
+        config_metadata = get_all_config_metadata()
+
+        # Get user's existing settings
+        user_settings = UserSetting.objects.filter(user=user)
+        user_settings_dict = {
+            setting.config_name: setting.value for setting in user_settings
+        }
+
+        # Merge with defaults (user settings override defaults)
+        all_settings = []
+        for config_name, metadata in config_metadata.items():
+            value = user_settings_dict.get(config_name, metadata["default_value"])
+            all_settings.append(
+                {
+                    "config_name": config_name,
+                    "value": value,
+                    "config_type": metadata["config_type"],
+                }
+            )
+
+        return 200, {"settings": all_settings}
+
+    except Exception as e:
+        logger.error(f"Error retrieving user settings: {e}")
+        return 500, {"message": "Error retrieving settings. Please try again."}
+
+
+@router.put(
+    "/settings",
+    response={
+        200: UserSettingsUpdateResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def update_user_settings(request, payload: UserSettingsBulkUpdateSchema):
+    """
+    Bulk update user settings. Creates or updates settings as needed.
+    """
+    try:
+        user = request.auth
+        updated_count = 0
+
+        for setting_update in payload.settings:
+            config_name = setting_update.config_name
+            value = setting_update.value
+
+            # Validate that the config_name exists in defaults
+            if get_default_value(config_name) is None:
+                return 400, {"message": f"Invalid configuration key: {config_name}"}
+
+            # Validate that the value matches the expected type
+            is_valid, error_message = validate_config_value(config_name, value)
+            if not is_valid:
+                return 400, {"message": error_message}
+
+            # Update or create the setting
+            try:
+                user_setting, created = UserSetting.objects.update_or_create(
+                    user=user,
+                    config_name=config_name,
+                    defaults={"value": value},
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"Error updating setting {config_name}: {e}")
+                return 500, {
+                    "message": f"Error updating setting {config_name}. Please try again."
+                }
+
+        # Invalidate cache immediately so changes take effect right away
+        invalidate_user_settings_cache(user.id)
+
+        return 200, {
+            "message": "Settings updated successfully.",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating user settings: {e}")
+        return 500, {"message": "Error updating settings. Please try again."}
+
+
+@router.post(
+    "/settings/reset",
+    response={
+        200: UserSettingsResetResponseSchema,
+        codes_4xx: Message,
+        codes_5xx: Message,
+    },
+    auth=JWTAuth(),
+)
+def reset_user_settings(request):
+    """
+    Reset all user settings to default values by deleting all custom settings.
+    """
+    try:
+        user = request.auth
+
+        # Delete all user settings (will fall back to defaults when retrieved)
+        deleted_count, _ = UserSetting.objects.filter(user=user).delete()
+
+        # Invalidate cache immediately so changes take effect right away
+        invalidate_user_settings_cache(user.id)
+
+        return 200, {
+            "message": "Settings reset to defaults successfully.",
+            "reset_count": deleted_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting user settings: {e}")
+        return 500, {"message": "Error resetting settings. Please try again."}
