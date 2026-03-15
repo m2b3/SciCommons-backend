@@ -47,9 +47,9 @@ class CommunityListOut(ModelSchema):
     is_bookmarked: Optional[bool] = None
     role: Optional[str] = None
 
-    class Config:
+    class Meta:
         model = Community
-        model_fields = [
+        fields = [
             "id",
             "name",
             "description",
@@ -126,9 +126,9 @@ class CommunityOut(ModelSchema):
     community_settings: Optional[str] = None
     members: List[str] = []
 
-    class Config:
+    class Meta:
         model = Community
-        model_fields = [
+        fields = [
             "id",
             "name",
             "description",
@@ -140,6 +140,7 @@ class CommunityOut(ModelSchema):
             "rules",
             "about",
         ]
+        
 
     @staticmethod
     def from_orm_with_custom_fields(
