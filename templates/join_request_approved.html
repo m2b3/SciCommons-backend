@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html style="padding: 20px;">
+
+<head>
+    <style>
+        body.body {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .heading {
+            font-size: 1em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .message {
+            font-size: 1em;
+            margin-bottom: 12px;
+        }
+
+        .community-box {
+            background-color: rgba(0, 0, 0, 0.03);
+            border-left: 3px solid rgb(64, 183, 94);
+            padding: 12px 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .community-name {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: rgb(40, 40, 40);
+        }
+
+        .community-description {
+            font-size: 0.95em;
+            color: rgb(80, 80, 80);
+            margin-top: 8px;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: rgb(64, 183, 94);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 1em;
+            margin-top: 16px;
+        }
+
+        .footer {
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: rgb(88, 88, 88);
+        }
+
+        .footer-link {
+            color: rgb(88, 88, 88);
+            word-break: break-all;
+        }
+
+        .footer-separator {
+            background-color: rgb(220, 220, 220);
+            height: 1px;
+            border: none;
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="body">
+    <div>
+        <div>
+            <p class="heading">Join Request Approved</p>
+            <p class="message">{{ message_text|safe }}</p>
+            
+            <div class="community-box">
+                <div class="community-name">{{ community_name }}</div>
+                {% if community_description %}
+                <div class="community-description">{{ community_description }}</div>
+                {% endif %}
+            </div>
+            
+            <a href="{{ community_link }}" class="cta-button">Visit Community</a>
+            
+            <div class="footer">
+                <hr class="footer-separator">
+                <p>If the button doesn't work, click on this link:</p>
+                <a href="{{ community_link }}" class="footer-link">{{ community_link }}</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

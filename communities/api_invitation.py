@@ -16,9 +16,14 @@ from communities.schemas import (
     Message,
     SendInvitationsPayload,
 )
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
 from myapp.services.send_emails import send_email_task
 from users.auth import JWTAuth
-from users.models import Notification, User
+from users.models import User
 
 router = Router(tags=["Community Invitations"])
 
@@ -97,13 +102,14 @@ def invite_registered_users(request, community_id: int, payload: InvitePayload):
                         f"{settings.FRONTEND_URL}/community/{community_id}"
                         f"/invitations/registered/{invitation.id}"
                     )
-                    Notification.objects.create(
-                        user=user,
+                    NotificationService.send_to_user(
+                        user_id=user.id,
+                        notification_type=NotificationType.INVITATION_RECEIVED,
+                        category=NotificationCategory.COMMUNITIES,
                         message=f"You have been invited to join {community.name} community.",
                         content=payload.note,
                         link=link,
-                        category="communities",
-                        notification_type="join_request_received",
+                        community_id=community.id,
                     )
                 except Exception as e:
                     logger.error(f"Error creating invitation for user: {e}")
@@ -184,18 +190,17 @@ def respond_to_invitation(
             logger.error(f"Error processing your response: {e}")
             return 500, {"message": "Error processing your response. Please try again."}
 
-        # Optional: Send notification to community admin about the decision
+        # Send notification to community admins about the decision
         try:
-            Notification.objects.create(
-                user=invitation.community.admins.first(),
+            NotificationService.send_to_community_admins(
+                community_id=invitation.community.id,
+                notification_type=NotificationType.INVITATION_RESPONDED,
+                category=NotificationCategory.COMMUNITIES,
                 message=f"{request.auth.username} has {payload.action}ed the "
                 f"invitation to join {invitation.community.name}.",
-                category="communities",
-                notification_type="join_request_responded",
             )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
-            # Continue even if notification fails - the invitation was already processed
             pass
 
         return 200, {"message": response_message}
@@ -415,20 +420,19 @@ def respond_to_email_invitation(
             logger.error(f"Error processing your response: {e}")
             return 500, {"message": "Error processing your response. Please try again."}
 
+        # Send notification to community admins about the decision
         try:
-            # Optional: Send notification to community admin about the decision
-            Notification.objects.create(
-                user=invitation.community.admins.first(),
+            NotificationService.send_to_community_admins(
+                community_id=invitation.community.id,
+                notification_type=NotificationType.INVITATION_RESPONDED,
+                category=NotificationCategory.COMMUNITIES,
                 message=(
                     f"{user.username} has {payload.action}ed the "
                     f"invitation to join {invitation.community.name}."
                 ),
-                category="communities",
-                notification_type="join_request_responded",
             )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
-            # Continue even if notification fails - the invitation was already processed
             pass
 
         return 200, {"message": response_message}

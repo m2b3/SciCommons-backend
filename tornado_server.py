@@ -110,8 +110,23 @@ class QueueManager:
             return False
 
     @staticmethod
-    def add_event_to_queues(event: Dict, target_community_ids: Set[int]):
-        """Add an event to all relevant user queues, excluding the author"""
+    def add_event_to_queues(
+        event: Dict,
+        target_community_ids: Set[int] = None,
+        target_user_ids: Set[int] = None,
+    ):
+        """
+        Add an event to all relevant user queues.
+
+        Supports two routing modes:
+        1. Community-based: Routes to users subscribed to target_community_ids
+        2. User-targeted: Routes directly to users in target_user_ids
+
+        Args:
+            event: Event data dictionary
+            target_community_ids: Set of community IDs for community-based routing
+            target_user_ids: Set of user IDs for direct user targeting
+        """
         global global_event_id
         global_event_id += 1
 
@@ -137,13 +152,24 @@ class QueueManager:
                 )
                 continue
 
-            # If explicit subscribers were provided, only deliver to those users
-            if event_subscriber_ids and user_id not in event_subscriber_ids:
-                continue
+            # Determine if user should receive this event
+            should_receive = False
 
-            # Check if user belongs to any of the target communities
-            user_community_ids = user_communities.get(queue_id, set())
-            if target_community_ids.intersection(user_community_ids):
+            # Mode 1: User-targeted routing (for notifications)
+            if target_user_ids and user_id in target_user_ids:
+                should_receive = True
+
+            # Mode 2: Community-based routing (for discussions/comments)
+            elif target_community_ids:
+                user_community_ids = user_communities.get(queue_id, set())
+                if target_community_ids.intersection(user_community_ids):
+                    # If explicit subscribers are present, enforce that filter too.
+                    if event_subscriber_ids:
+                        should_receive = user_id in event_subscriber_ids
+                    else:
+                        should_receive = True
+
+            if should_receive:
                 # Add event to queue
                 queue_data["events"].append(event)
 
@@ -162,8 +188,13 @@ class QueueManager:
         author_info = (
             f" (excluded author: user {exclude_user_id})" if excluded_author else ""
         )
+        routing_info = (
+            f"users {target_user_ids}"
+            if target_user_ids
+            else f"communities {target_community_ids}"
+        )
         logger.info(
-            f"Added event {global_event_id} to {added_to_queues} queues for communities {target_community_ids}{author_info}"
+            f"Added event {global_event_id} to {added_to_queues} queues for {routing_info}{author_info}"
         )
 
     @staticmethod
@@ -476,34 +507,59 @@ async def redis_event_listener():
     try:
         redis_client = redis.from_url(REDIS_URL)
         pubsub = redis_client.pubsub()
-        await pubsub.subscribe("discussion_events")
+        # Subscribe to both discussion and notification channels
+        await pubsub.subscribe("discussion_events", "notification_events")
 
         logger.info(
-            f"Started Redis event listener on channel 'discussion_events' with Redis URL: {REDIS_URL}"
+            f"Started Redis event listener on channels 'discussion_events' and 'notification_events' with Redis URL: {REDIS_URL}"
         )
 
         async for message in pubsub.listen():
             if message["type"] == "message":
                 try:
-                    logger.info(f"Received Redis message: {message['data']}")
+                    channel = (
+                        message["channel"].decode()
+                        if isinstance(message["channel"], bytes)
+                        else message["channel"]
+                    )
+                    logger.info(
+                        f"Received Redis message on {channel}: {message['data']}"
+                    )
                     event_data = json.loads(message["data"])
 
-                    # Extract community IDs from the event
-                    community_ids = set()
-                    if "community_id" in event_data:
-                        community_ids.add(event_data["community_id"])
-                    if "community_ids" in event_data:
-                        community_ids.update(event_data["community_ids"])
-
-                    if community_ids:
-                        logger.info(
-                            f"Processing event for communities {community_ids}: {event_data.get('type', 'unknown')}"
-                        )
-                        QueueManager.add_event_to_queues(event_data, community_ids)
+                    if channel == "notification_events":
+                        # User-targeted routing for notifications
+                        target_user_ids = set(event_data.get("target_user_ids", []))
+                        if target_user_ids:
+                            logger.info(
+                                f"Processing notification event for users {target_user_ids}: {event_data.get('type', 'unknown')}"
+                            )
+                            QueueManager.add_event_to_queues(
+                                event_data, target_user_ids=target_user_ids
+                            )
+                        else:
+                            logger.warning(
+                                f"Notification event missing target_user_ids: {event_data}"
+                            )
                     else:
-                        logger.warning(
-                            f"Event missing community information: {event_data}"
-                        )
+                        # Community-based routing for discussions/comments
+                        community_ids = set()
+                        if "community_id" in event_data:
+                            community_ids.add(event_data["community_id"])
+                        if "community_ids" in event_data:
+                            community_ids.update(event_data["community_ids"])
+
+                        if community_ids:
+                            logger.info(
+                                f"Processing event for communities {community_ids}: {event_data.get('type', 'unknown')}"
+                            )
+                            QueueManager.add_event_to_queues(
+                                event_data, target_community_ids=community_ids
+                            )
+                        else:
+                            logger.warning(
+                                f"Event missing community information: {event_data}"
+                            )
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode Redis message: {e}")

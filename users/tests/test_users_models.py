@@ -148,17 +148,12 @@ class NotificationModelTest(TestCase):
             submitter=self.user,
             faqs=[],
         )
-        self.post = Post.objects.create(
-            author=self.user,
-            title="Test Post",
-            content="This is a test post content.",
-        )
         self.community = Community.objects.create(name="Test Community")
         self.notification_data = {
             "user": self.user,
             "category": "articles",
-            "notification_type": "article_commented",
-            "message": "Your article has a new comment.",
+            "notification_type": "review_submitted",
+            "message": "Your article has a new review.",
             "article": self.article,
         }
 
@@ -193,18 +188,18 @@ class NotificationModelTest(TestCase):
             abs((notification.expires_at - expected_expiration).total_seconds()) < 1
         )
 
-    def test_notification_with_post(self):
+    def test_notification_with_community(self):
         self.notification_data.update(
             {
-                "category": "posts",
-                "notification_type": "post_replied",
-                "message": "Your post has a new reply.",
-                "post": self.post,
-                "article": None,  # Ensure article is None
+                "category": "communities",
+                "notification_type": "join_request_received",
+                "message": "New join request received.",
+                "community": self.community,
+                "article": None,
             }
         )
         notification = Notification.objects.create(**self.notification_data)
-        self.assertEqual(notification.post, self.post)
+        self.assertEqual(notification.community, self.community)
         self.assertIsNone(notification.article)
 
 

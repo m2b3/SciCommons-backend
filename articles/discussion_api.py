@@ -37,6 +37,11 @@ from articles.schemas import (
 from communities.models import Community, CommunityArticle
 from myapp.realtime import RealtimeEventPublisher
 from myapp.schemas import Message, UserStats
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
 from myapp.upload_api import process_content_images_async
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.models import Reputation, User
@@ -135,6 +140,39 @@ def create_discussion(
             except Exception as e:
                 logger.error(f"Failed to publish discussion created event: {e}")
                 # Continue even if event publishing fails
+
+            # Send notification to article author (only if subscribed for community articles)
+            try:
+                author_name = user.username
+                if is_pseudonymous:
+                    author_name = "Someone"
+
+                # Build link - use discussions page with articleId param
+                link = f"/discussions?articleId={article.id}"
+
+                # For community articles, check if author is subscribed
+                should_notify_author = True
+                if community and article.submitter_id:
+                    # Check if author is subscribed to this community article
+                    should_notify_author = DiscussionSubscription.objects.filter(
+                        user_id=article.submitter_id,
+                        article=article,
+                        community=community,
+                        is_active=True,
+                    ).exists()
+
+                if should_notify_author:
+                    NotificationService.send_to_article_author(
+                        article_id=article.id,
+                        notification_type=NotificationType.DISCUSSION_CREATED,
+                        category=NotificationCategory.ARTICLES,
+                        message=f"{author_name} started a discussion on your article '{article.title}'",
+                        link=link,
+                        community_id=community.id if community else None,
+                        exclude_user_id=user.id,
+                    )
+            except Exception as e:
+                logger.error(f"Error sending discussion notification: {e}")
 
             # Process image references in the discussion content (async)
             try:
@@ -910,6 +948,78 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
         except Exception as e:
             logger.error(f"Failed to publish comment created event: {e}")
             # Continue even if event publishing fails
+
+        # Send notifications (only to subscribed users for community articles)
+        try:
+            commenter_name = user.username
+            if is_pseudonymous:
+                commenter_name = "Someone"
+
+            article = discussion.article
+            community = discussion.community
+
+            # Build link - use discussions page with articleId param
+            link = f"/discussions?articleId={article.id}"
+
+            # Helper function to check if user is subscribed (for community articles)
+            def is_user_subscribed(user_id: int) -> bool:
+                if not community:
+                    return True  # Standalone articles - always notify
+                return DiscussionSubscription.objects.filter(
+                    user_id=user_id,
+                    article=article,
+                    community=community,
+                    is_active=True,
+                ).exists()
+
+            # Notify discussion author (if not the commenter and subscribed)
+            if discussion.author_id != user.id and is_user_subscribed(
+                discussion.author_id
+            ):
+                NotificationService.send_to_user(
+                    user_id=discussion.author_id,
+                    notification_type=NotificationType.DISCUSSION_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} commented on your discussion",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+
+            # Notify article author (if not the commenter, not the discussion author, and subscribed)
+            if (
+                article.submitter_id
+                and article.submitter_id != user.id
+                and article.submitter_id != discussion.author_id
+                and is_user_subscribed(article.submitter_id)
+            ):
+                NotificationService.send_to_user(
+                    user_id=article.submitter_id,
+                    notification_type=NotificationType.DISCUSSION_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} commented on a discussion on your article",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+
+            # If this is a reply, notify the parent comment author (if subscribed)
+            if (
+                parent_comment
+                and parent_comment.author_id != user.id
+                and is_user_subscribed(parent_comment.author_id)
+            ):
+                NotificationService.send_to_user(
+                    user_id=parent_comment.author_id,
+                    notification_type=NotificationType.DISCUSSION_COMMENT,
+                    category=NotificationCategory.ARTICLES,
+                    message=f"{commenter_name} replied to your comment",
+                    link=link,
+                    article_id=article.id,
+                    community_id=community.id if community else None,
+                )
+        except Exception as e:
+            logger.error(f"Error sending discussion comment notification: {e}")
 
         # Process image references in the comment content (async)
         try:
