@@ -10,6 +10,7 @@ services:
     volumes:
       - .:/app
     depends_on:
+      - postgres
       - redis
       - celery
       - tornado
@@ -21,12 +22,24 @@ services:
     ports:
       - "6379:6379"
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: scicommons_dev
+      POSTGRES_USER: scicommons
+      POSTGRES_PASSWORD: scicommons
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   celery:
     build: .
     command: celery -A myapp worker --loglevel=info --concurrency=5
     volumes:
       - .:/app
     depends_on:
+      - postgres
       - redis
     env_file:
       - .env.local
@@ -41,6 +54,7 @@ services:
     volumes:
       - .:/app
     depends_on:
+      - postgres
       - redis
     env_file:
       - .env.local
@@ -51,3 +65,6 @@ services:
       - MAX_EVENTS_PER_QUEUE=1000
       - POLL_TIMEOUT_SECONDS=60
       - HEARTBEAT_INTERVAL_SECONDS=60
+
+volumes:
+  postgres_data:

@@ -65,7 +65,7 @@ Community Management Endpoints
 def create_community(
     request: HttpRequest,
     payload: CommunityCreateSchema,
-    profile_image_file: File[UploadedFile] = None,
+    profile_image_file: Optional[UploadedFile] = File(None),
 ):
     try:
         # Retrieve the authenticated user from the JWT token
@@ -377,8 +377,8 @@ def update_community(
     request: HttpRequest,
     community_id: int,
     payload: CommunityUpdateSchema,
-    profile_pic_file: File[UploadedFile] = None,
-    banner_pic_file: File[UploadedFile] = None,
+    profile_pic_file: Optional[UploadedFile] = File(None),
+    banner_pic_file: Optional[UploadedFile] = File(None),
 ):
     try:
         with transaction.atomic():
