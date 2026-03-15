@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 def create_article(
     request,
     details: ArticleCreateSchema,
-    image_file: File[UploadedFile] = None,
+    image_file: UploadedFile = File(None),
     pdf_files: List[UploadedFile] = File(None),
 ):
     try:
@@ -445,7 +445,7 @@ def update_article(
     request,
     article_id: int,
     details: ArticleUpdateSchema,
-    image_file: File[UploadedFile] = None,
+    image_file: UploadedFile = File(None),
 ):
     try:
         with transaction.atomic():
