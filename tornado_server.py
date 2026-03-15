@@ -13,7 +13,7 @@ import sys
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Dict, List, Optional, Set
 
 import redis.asyncio as redis
@@ -66,8 +66,8 @@ class QueueManager:
             "user_id": user_id,
             "events": [],
             "last_event_id": last_event_id,
-            "created_at": datetime.utcnow(),
-            "last_heartbeat": datetime.utcnow(),
+            "created_at": datetime.now(UTC),
+            "last_heartbeat": datetime.now(UTC),
             "community_ids": community_ids,
         }
 
@@ -98,7 +98,7 @@ class QueueManager:
         """Update the heartbeat timestamp for a queue"""
         if queue_id in user_queues:
             old_heartbeat = user_queues[queue_id]["last_heartbeat"]
-            user_queues[queue_id]["last_heartbeat"] = datetime.utcnow()
+            user_queues[queue_id]["last_heartbeat"] = datetime.now(UTC)
             logger.debug(
                 f"Updated heartbeat for queue {queue_id} (was {old_heartbeat})"
             )
@@ -116,10 +116,12 @@ class QueueManager:
         global_event_id += 1
 
         event["event_id"] = global_event_id
-        event["timestamp"] = datetime.utcnow().isoformat()
+        event["timestamp"] = datetime.now(UTC).isoformat()
 
         # Get the user to exclude (the author of the event)
         exclude_user_id = event.get("exclude_user_id")
+        # Optional strict recipient filtering from Django payload
+        event_subscriber_ids = set(event.get("data", {}).get("subscriber_ids", []))
 
         added_to_queues = 0
         excluded_author = False
@@ -133,6 +135,10 @@ class QueueManager:
                 logger.debug(
                     f"Excluding author (user {user_id}) from receiving their own event"
                 )
+                continue
+
+            # If explicit subscribers were provided, only deliver to those users
+            if event_subscriber_ids and user_id not in event_subscriber_ids:
                 continue
 
             # Check if user belongs to any of the target communities
@@ -176,9 +182,24 @@ class QueueManager:
         return events
 
     @staticmethod
+    def is_catchup_required(queue_id: str, last_event_id: int) -> bool:
+        """
+        Determine if the client is too far behind the in-memory queue buffer.
+        """
+        if queue_id not in user_queues:
+            return False
+
+        queue_events = user_queues[queue_id]["events"]
+        if not queue_events:
+            return False
+
+        oldest_event_id = queue_events[0]["event_id"]
+        return last_event_id < (oldest_event_id - 1)
+
+    @staticmethod
     def cleanup_expired_queues():
         """Remove expired queues based on TTL with race condition protection"""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         ttl_threshold = current_time - timedelta(minutes=QUEUE_TTL_MINUTES)
 
         # Add 30-second buffer to prevent race conditions with active polls
@@ -242,7 +263,7 @@ class HealthHandler(tornado.web.RequestHandler):
         self.write(
             {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "active_queues": len(user_queues),
                 "pending_polls": len(pending_polls),
                 "user_mappings": len(user_to_queue),
@@ -385,7 +406,12 @@ class PollHandler(tornado.web.RequestHandler):
 
     async def get(self):
         queue_id = self.get_argument("queue_id", None)
-        last_event_id = int(self.get_argument("last_event_id", 0))
+        try:
+            last_event_id = int(self.get_argument("last_event_id", 0))
+        except ValueError:
+            self.set_status(400)
+            self.write({"error": "last_event_id must be an integer"})
+            return
 
         if not queue_id:
             self.set_status(400)
@@ -399,6 +425,11 @@ class PollHandler(tornado.web.RequestHandler):
 
         # Auto-heartbeat: Update last_heartbeat on every poll request
         QueueManager.update_heartbeat(queue_id)
+
+        # Client is behind what the in-memory queue can serve; force catch-up flow.
+        if QueueManager.is_catchup_required(queue_id, last_event_id):
+            self.write({"catchup_required": True, "last_event_id": global_event_id})
+            return
 
         # Check if there are already new events
         events = QueueManager.get_events_since(queue_id, last_event_id)
@@ -415,6 +446,12 @@ class PollHandler(tornado.web.RequestHandler):
         try:
             # Wait for new events or timeout
             await asyncio.wait_for(future, timeout=POLL_TIMEOUT_SECONDS)
+
+            if QueueManager.is_catchup_required(queue_id, last_event_id):
+                self.write(
+                    {"catchup_required": True, "last_event_id": global_event_id}
+                )
+                return
 
             # Get new events
             events = QueueManager.get_events_since(queue_id, last_event_id)

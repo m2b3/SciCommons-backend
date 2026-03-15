@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
+from importlib.util import find_spec
 from datetime import timedelta
 from pathlib import Path
 
@@ -94,9 +95,12 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_ratelimit.middleware.RatelimitMiddleware",
-    "ninja.compatibility.files.fix_request_files_middleware",
     "myapp.middleware.RequestTimingMiddleware",
 ]
+
+# django-ninja compatibility middleware moved across versions.
+if find_spec("ninja.compatibility.files") is not None:
+    MIDDLEWARE.append("ninja.compatibility.files.fix_request_files_middleware")
 
 # CORS Settings
 CORS_ALLOW_ALL_ORIGINS = False

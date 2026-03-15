@@ -49,6 +49,22 @@ def serialize_json(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
+def send_event_to_tornado(event: Dict) -> int:
+    """
+    Publish an event payload to Tornado via Redis pub/sub.
+
+    Args:
+        event: Event payload dictionary.
+
+    Returns:
+        Number of subscribers that received the message.
+    """
+    redis_client = get_redis_client()
+    return redis_client.publish(
+        "discussion_events", json.dumps(event, default=serialize_json)
+    )
+
+
 class EventTypes:
     """Constants for event types"""
 
@@ -88,11 +104,7 @@ class RealtimeEventPublisher:
                 "timestamp": None,  # Will be set by Tornado
                 "event_id": None,  # Will be set by Tornado
             }
-
-            redis_client = get_redis_client()
-            result = redis_client.publish(
-                "discussion_events", json.dumps(event, default=serialize_json)
-            )
+            result = send_event_to_tornado(event)
 
             logger.info(
                 f"Published {event_type} event for communities {community_ids}. Subscribers: {result}"
