@@ -11,7 +11,9 @@ COPY pyproject.toml poetry.lock /app/
 RUN pip install poetry==1.7.1
 
 # Install Python dependencies from lockfile (no sync to avoid removing Poetry)
-RUN poetry config virtualenvs.create false \
+# Pre-install sentence-transformers with pip to avoid poetry hanging on massive PyTorch wheels
+RUN pip install --default-timeout=1000 sentence-transformers --extra-index-url https://download.pytorch.org/whl/cpu \
+    && poetry config virtualenvs.create false \
     && poetry install --without dev --no-root
 
 # Install Redis (necessary for Celery)

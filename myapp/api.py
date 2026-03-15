@@ -91,6 +91,9 @@ articles_parent_router.add_router("", articles_router)
 articles_parent_router.add_router("", articles_review_router)
 articles_parent_router.add_router("", articles_discussion_router)
 
+from articles.reviewer_recommendation import router as editorial_router
+articles_parent_router.add_router("", editorial_router)
+
 # Create a parent router to aggregate all community-related endpoints
 communities_parent_router = Router()
 
@@ -107,3 +110,5 @@ api.add_router("/realtime", realtime_router)
 api.add_router("/flags", flags_router)
 api.add_router("/uploads", upload_router)
 # api.add_router("/posts", posts_router)
+
+
