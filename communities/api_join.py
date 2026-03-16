@@ -1,5 +1,6 @@
 import logging
 from typing import List, Literal
+from urllib.parse import quote
 
 from django.utils import timezone
 from ninja import Router
@@ -7,6 +8,7 @@ from ninja.responses import codes_4xx, codes_5xx
 
 from communities.models import Community, JoinRequest
 from communities.schemas import JoinRequestSchema, Message
+from myapp.services.send_emails import send_join_decision_email, send_join_request_email
 from users.auth import JWTAuth
 from users.models import Notification
 
@@ -124,12 +126,17 @@ def join_community(request, community_id: int):
                     community=community,
                     notification_type="join_request_received",
                     message=f"New join request from {user.username}",
-                    link=f"/community/{community.name}/requests",
+                    link=f"/community/{quote(community.name, safe='')}/requests",
                 )
             except Exception as e:
                 logger.error(f"Error creating notification: {e}")
                 # Continue even if notification fails
                 pass
+
+            try:
+                send_join_request_email(user, community)
+            except Exception as e:
+                logger.error(f"Error sending join request email: {e}")
 
             return 200, {"message": "Your request to join the community has been sent."}
         except Exception as e:
@@ -204,12 +211,17 @@ def manage_join_request(
                         community=community,
                         notification_type="join_request_approved",
                         message=f"Your join request to {community.name} has been approved.",
-                        link=f"/community/{community.name}",
+                        link=f"/community/{quote(community.name, safe='')}",
                     )
                 except Exception as e:
                     logger.error(f"Error creating notification: {e}")
                     # Continue even if notification fails
                     pass
+
+                try:
+                    send_join_decision_email(join_request.user, community, "approve")
+                except Exception as e:
+                    logger.error(f"Error sending join decision email: {e}")
 
                 return 200, {
                     "message": f"Join request approved. \
@@ -226,6 +238,11 @@ def manage_join_request(
                     return 500, {
                         "message": "Error updating join request status. Please try again."
                     }
+
+                try:
+                    send_join_decision_email(join_request.user, community, "reject")
+                except Exception as e:
+                    logger.error(f"Error sending join decision email: {e}")
 
                 return 200, {
                     "message": "You have rejected the join request successfully."
