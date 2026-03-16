@@ -1,5 +1,6 @@
 import logging
 from typing import List, Literal
+from urllib.parse import quote
 
 from django.utils import timezone
 from ninja import Router
@@ -125,7 +126,7 @@ def join_community(request, community_id: int):
                     community=community,
                     notification_type="join_request_received",
                     message=f"New join request from {user.username}",
-                    link=f"/community/{community.name}/requests",
+                    link=f"/community/{quote(community.name, safe='')}/requests",
                 )
             except Exception as e:
                 logger.error(f"Error creating notification: {e}")
@@ -210,7 +211,7 @@ def manage_join_request(
                         community=community,
                         notification_type="join_request_approved",
                         message=f"Your join request to {community.name} has been approved.",
-                        link=f"/community/{community.name}",
+                        link=f"/community/{quote(community.name, safe='')}",
                     )
                 except Exception as e:
                     logger.error(f"Error creating notification: {e}")
