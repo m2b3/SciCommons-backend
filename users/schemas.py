@@ -81,7 +81,7 @@ class AcademicStatusSchema(Schema):
 class UserBasicDetails(Schema):
     id: int
     username: str
-    profile_pic_url: str
+    profile_pic_url: Optional[str]
 
     class Config:
         model = User
@@ -92,7 +92,7 @@ class UserBasicDetails(Schema):
         return {
             "id": user.id,
             "username": user.username,
-            "profile_pic_url": user.profile_pic_url,
+            "profile_pic_url": user.profile_pic_url.url if user.profile_pic_url else None,
         }
 
 
@@ -131,7 +131,7 @@ class UserDetails(ModelSchema):
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "profile_pic_url": user.profile_pic_url,
+            "profile_pic_url": user.profile_pic_url.url if user.profile_pic_url else None,
             "pubMed_url": user.pubMed_url,
             "google_scholar_url": user.google_scholar_url,
             "bio": user.bio,
