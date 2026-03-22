@@ -186,13 +186,15 @@ def respond_to_invitation(
 
         # Optional: Send notification to community admin about the decision
         try:
-            Notification.objects.create(
-                user=invitation.community.admins.first(),
-                message=f"{request.auth.username} has {payload.action}ed the "
-                f"invitation to join {invitation.community.name}.",
-                category="communities",
-                notification_type="join_request_responded",
-            )
+            admin = invitation.community.admins.first()
+            if admin:
+                Notification.objects.create(
+                    user=admin,
+                    message=f"{request.auth.username} has {payload.action}ed the "
+                    f"invitation to join {invitation.community.name}.",
+                    category="communities",
+                    notification_type="join_request_responded",
+                )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails - the invitation was already processed
@@ -417,15 +419,17 @@ def respond_to_email_invitation(
 
         try:
             # Optional: Send notification to community admin about the decision
-            Notification.objects.create(
-                user=invitation.community.admins.first(),
-                message=(
-                    f"{user.username} has {payload.action}ed the "
-                    f"invitation to join {invitation.community.name}."
-                ),
-                category="communities",
-                notification_type="join_request_responded",
-            )
+            admin = invitation.community.admins.first()
+            if admin:
+                Notification.objects.create(
+                    user=admin,
+                    message=(
+                        f"{user.username} has {payload.action}ed the "
+                        f"invitation to join {invitation.community.name}."
+                    ),
+                    category="communities",
+                    notification_type="join_request_responded",
+                )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails - the invitation was already processed

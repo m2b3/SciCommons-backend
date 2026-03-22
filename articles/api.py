@@ -159,18 +159,20 @@ def create_article(
 
                     # Send notification to the community admin
                     try:
-                        Notification.objects.create(
-                            user=community.admins.first(),
-                            community=community,
-                            category="communities",
-                            notification_type="article_submitted",
-                            message=(
-                                f"New article submitted in {community.name}"
-                                f" by {request.auth.username}"
-                            ),
-                            link=f"/community/{community.name}/submissions",
-                            content=article.title,
-                        )
+                        admin = community.admins.first()
+                        if admin:
+                            Notification.objects.create(
+                                user=admin,
+                                community=community,
+                                category="communities",
+                                notification_type="article_submitted",
+                                message=(
+                                    f"New article submitted in {community.name}"
+                                    f" by {request.auth.username}"
+                                ),
+                                link=f"/community/{community.name}/submissions",
+                                content=article.title,
+                            )
                     except Exception:
                         # Continue even if notification creation fails
                         pass
