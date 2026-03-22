@@ -119,13 +119,15 @@ def join_community(request, community_id: int):
 
             # Send a notification to the first admin
             try:
-                Notification.objects.create(
-                    user=community.admins.first(),
-                    community=community,
-                    notification_type="join_request_received",
-                    message=f"New join request from {user.username}",
-                    link=f"/community/{community.name}/requests",
-                )
+                admin = community.admins.first()
+                if admin:
+                    Notification.objects.create(
+                        user=admin,
+                        community=community,
+                        notification_type="join_request_received",
+                        message=f"New join request from {user.username}",
+                        link=f"/community/{community.name}/requests",
+                    )
             except Exception as e:
                 logger.error(f"Error creating notification: {e}")
                 # Continue even if notification fails

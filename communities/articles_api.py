@@ -111,17 +111,19 @@ def submit_article(request, community_name: str, article_slug: str):
 
         # Send a notification to the community admins
         try:
-            Notification.objects.create(
-                user=community.admins.first(),
-                community=community,
-                category="communities",
-                notification_type="article_submitted",
-                message=(
-                    f"New article submitted in {community.name} by {request.auth.username}"
-                ),
-                link=f"/community/{community.name}/submissions",
-                content=article.title,
-            )
+            admin = community.admins.first()
+            if admin:
+                Notification.objects.create(
+                    user=admin,
+                    community=community,
+                    category="communities",
+                    notification_type="article_submitted",
+                    message=(
+                        f"New article submitted in {community.name} by {request.auth.username}"
+                    ),
+                    link=f"/community/{community.name}/submissions",
+                    content=article.title,
+                )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
             # Continue even if notification fails
