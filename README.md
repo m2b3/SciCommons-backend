@@ -1,127 +1,117 @@
-## Set up Guide
+# SciCommons Backend
 
-### 1. Create a Virtual Environment
+## Quick Start (Docker - Recommended)
 
-```bash
-python -m venv venv
-```
+The easiest way to run the backend is using Docker. This sets up everything automatically: the web server, PostgreSQL database, Redis, Celery worker, and Tornado realtime server.
 
-*Note:* Make sure you have Python 3.12.3 or compatible version installed.
+### Prerequisites
 
-### 2. Activate the Virtual Environment
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed
 
-#### Mac/Linux:
+### Setup
 
-```bash
-source venv/bin/activate
-```
+1. **Clone the repository and navigate to the project directory**
 
-#### Windows:
+2. **Copy the example environment file**
 
-```bash
-venv\Scripts\activate
-```
+   ```bash
+   cp .env.example .env.local
+   ```
 
-### 3. Install the Required Libraries using poetry
+3. **Start all services with local PostgreSQL**
 
-```bash
-poetry install
-```
+   ```bash
+   docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local up -d
+   ```
 
-### 4. Create a .env and add the environment variables present in the .env.example file
+   This starts:
+   - PostgreSQL database (with persistent data)
+   - Redis
+   - Celery worker
+   - Tornado realtime server
+   - Django web server (with auto-migrations)
 
-```bash
-touch .env
-```
+4. **Access the application**
 
-```bash
-cp .env.example .env
-```
+   - API: http://localhost:8000/
+   - API Documentation: http://localhost:8000/api/docs/
 
-### 5. Apply Database Migrations
+### Using an External Database
 
-```bash
-poetry run python manage.py migrate
-```
+If you want to use your own PostgreSQL database instead of the local one:
 
-### 6. Run the Server
+1. Edit `.env.local` with your database credentials:
 
-#### Using Uvicorn (Recommended for ASGI support)
+   ```
+   DB_HOST=your-db-host
+   DB_NAME=your-db-name
+   DB_USER=your-db-user
+   DB_PASSWORD=your-db-password
+   DB_PORT=5432
+   DATABASE_URL=postgresql://user:password@host:port/dbname
+   ```
 
-```bash
-poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --reload
-```
+2. Start services without the local database:
 
-#### Using Django Development Server (Alternative)
+   ```bash
+   docker compose -f docker-compose.dev.yml --env-file .env.local up -d
+   ```
 
-```bash
-poetry run python manage.py runserver
-```
+---
 
-*Note:* Uvicorn is recommended as it provides ASGI support for async features and WebSockets.
+## Manual Setup (Alternative)
 
-### 7. Install Redis
+If you prefer to run services manually without Docker:
 
-#### Windows:
-Useful Links: 
-  - [https://naveenrenji.medium.com/install-redis-on-windows-b80880dc2a36](https://naveenrenji.medium.com/install-redis-on-windows-b80880dc2a36)
-  - [https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/)
-  - [https://github.com/tporadowski/redis](https://github.com/tporadowski/redis)
+### Prerequisites
 
-#### Mac:
-```bash
-brew install redis
-```
+- Python 3.12.3+
+- Poetry
+- PostgreSQL
+- Redis
 
-#### Linux (Ubuntu):
-```bash
-sudo apt update
-sudo apt install redis-server
-```
+### Steps
 
-### 8. Run Celery Worker
+1. **Install dependencies**
 
-(Before running Celery, make sure Redis is properly set up on your machine.)
+   ```bash
+   poetry install
+   ```
 
-#### Windows:
+2. **Set up environment variables**
 
-```bash
-celery -A myapp worker --loglevel=info --concurrency=5 --pool=solo
-```
+   ```bash
+   cp .env.example .env
+   ```
 
-#### Mac/Linux (Ubuntu):
+   Edit `.env` with your database and Redis configuration.
 
-```bash
-celery -A myapp worker --loglevel=info --concurrency=5
-```
+3. **Run database migrations**
 
-*Note:* The `--pool=solo` flag is required on Windows but not necessary on Mac/Linux.
+   ```bash
+   poetry run python manage.py migrate
+   ```
 
-After installation, start Redis using:
-```bash
-redis-server
-```
+4. **Start Redis**
 
-### 9. Run Tornado Server (For Realtime Features)
+   ```bash
+   redis-server
+   ```
 
-If you need realtime features like WebSocket support, run the Tornado server:
+5. **Start Celery worker**
 
-```bash
-poetry run python tornado_server.py
-```
+   ```bash
+   celery -A myapp worker --loglevel=info --concurrency=5
+   ```
 
-*Note:* The Tornado server runs on port 8888 by default and handles realtime subscriptions and events.
+6. **Start Tornado server (for realtime features)**
 
-### 10. Run Docker locally
+   ```bash
+   poetry run python tornado_server.py
+   ```
 
-```bash
-# Copy .env.example to .env.local
-cp .env.example .env.local
+7. **Start the web server**
 
-docker compose -f docker-compose.dev.yml --env-file .env.local up
-
-# To run in detached mode:
-docker compose -f docker-compose.dev.yml --env-file .env.local up -d
-```
-
-You can now access the server at [http://localhost:8000/](http://localhost:8000/) and API documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/).
+   ```bash
+   poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --reload
+   ```
