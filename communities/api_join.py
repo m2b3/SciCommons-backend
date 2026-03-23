@@ -1,5 +1,6 @@
 import logging
 from typing import List, Literal
+from urllib.parse import quote
 
 from django.utils import timezone
 from ninja import Router
@@ -129,11 +130,16 @@ def join_community(request, community_id: int):
                     notification_type=NotificationType.JOIN_REQUEST_RECEIVED,
                     category=NotificationCategory.COMMUNITIES,
                     message=f"New join request from {user.username}",
-                    link=f"/community/{community.name}/requests",
+                    link=f"/community/{quote(community.name, safe='')}/requests",
                 )
             except Exception as e:
                 logger.error(f"Error creating notification: {e}")
                 pass
+
+            try:
+                send_join_request_email(user, community)
+            except Exception as e:
+                logger.error(f"Error sending join request email: {e}")
 
             return 200, {"message": "Your request to join the community has been sent."}
         except Exception as e:
@@ -222,6 +228,11 @@ def manage_join_request(
                     logger.error(f"Error sending approval email: {e}")
                     # Continue even if email fails
                     pass
+
+                try:
+                    send_join_decision_email(join_request.user, community, "approve")
+                except Exception as e:
+                    logger.error(f"Error sending join decision email: {e}")
 
                 return 200, {
                     "message": f"Join request approved. \

@@ -1,5 +1,6 @@
 import logging
 from typing import List, Literal, Optional
+from urllib.parse import quote
 
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -123,7 +124,7 @@ def submit_article(request, community_name: str, article_slug: str):
                 message=(
                     f"New article submitted in {community.name} by {request.auth.username}"
                 ),
-                link=f"/community/{community.name}/submissions",
+                link=f"/community/{quote(community.name, safe='')}/submissions",
                 content=article.title,
                 article_id=article.id,
             )

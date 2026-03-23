@@ -135,6 +135,87 @@ def send_review_notification_email(article, review, community):
         logger.error(f"Error sending review notification email: {e}")
 
 
+def send_join_request_email(user, community):
+    admin = community.admins.first()
+    if not admin or not admin.email:
+        logger.warning(
+            f"Cannot send join request email: community {community.id} has no admin with email"
+        )
+        return
+
+    if not is_email_notifications_enabled(admin.id):
+        logger.debug(
+            f"Email notifications disabled for admin {admin.id}, skipping join request email"
+        )
+        return
+
+    domain = get_frontend_domain()
+    link = f"{domain}/community/{quote(community.name, safe='')}/requests"
+
+    context = {
+        "recipient_name": admin.first_name or admin.username,
+        "notification_type": "New Join Request",
+        "message_text": mark_safe(
+            f"<b>{user.username}</b> has requested to join the <b>{community.name}</b> community."
+        ),
+        "content_preview": None,
+        "article_link": link,
+    }
+
+    send_email_task.delay(
+        subject=f"New Join Request for {community.name}",
+        html_template_name="review_comment_notification.html",
+        context=context,
+        recipient_list=[admin.email],
+        from_email=settings.DEFAULT_FROM_EMAIL,
+    )
+
+
+def send_join_decision_email(user, community, action):
+    if not user or not user.email:
+        logger.warning(
+            f"Cannot send join decision email: user has no email for community {community.id}"
+        )
+        return
+
+    if not is_email_notifications_enabled(user.id):
+        logger.debug(
+            f"Email notifications disabled for user {user.id}, skipping join decision email"
+        )
+        return
+
+    domain = get_frontend_domain()
+
+    if action == "approve":
+        notification_type = "Join Request Approved"
+        message_text = mark_safe(
+            f"Your request to join <b>{community.name}</b> has been approved. Welcome!"
+        )
+        link = f"{domain}/community/{quote(community.name, safe='')}"
+    else:
+        notification_type = "Join Request Rejected"
+        message_text = mark_safe(
+            f"Your request to join <b>{community.name}</b> has been rejected."
+        )
+        link = f"{domain}/communities"
+
+    context = {
+        "recipient_name": user.first_name or user.username,
+        "notification_type": notification_type,
+        "message_text": message_text,
+        "content_preview": None,
+        "article_link": link,
+    }
+
+    send_email_task.delay(
+        subject=f"Community Join Request {action.capitalize()}d: {community.name}",
+        html_template_name="review_comment_notification.html",
+        context=context,
+        recipient_list=[user.email],
+        from_email=settings.DEFAULT_FROM_EMAIL,
+    )
+
+
 def send_comment_notification_email(comment, review, article, community):
     """
     Send email notification when a new comment/reply is added to a review.

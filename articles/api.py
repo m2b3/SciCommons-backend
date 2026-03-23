@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from datetime import timedelta
 from typing import Counter, List, Optional
-from urllib.parse import quote_plus, unquote
+from urllib.parse import quote, quote_plus, unquote
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -172,7 +172,7 @@ def create_article(
                                 f"New article submitted in {community.name}"
                                 f" by {request.auth.username}"
                             ),
-                            link=f"/community/{community.name}/submissions",
+                            link=f"/community/{quote(community.name, safe='')}/submissions",
                             content=article.title,
                             article_id=article.id,
                         )
