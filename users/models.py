@@ -85,20 +85,31 @@ class User(AbstractUser):
 
 class Notification(models.Model):
     CATEGORY_CHOICES = [
-        ("posts", "Posts"),
         ("articles", "Articles"),
         ("communities", "Communities"),
         ("users", "Users"),
     ]
 
     TYPE_CHOICES = [
-        ("join_request_sent", "Join Request Sent"),
+        # Join requests (community moderation)
         ("join_request_received", "Join Request Received"),
-        ("article_commented", "Article Commented"),
-        ("post_replied", "Post Replied"),
-        ("comment_replied", "Comment Replied"),
+        ("join_request_approved", "Join Request Approved"),
+        ("join_request_rejected", "Join Request Rejected"),
+        # Invitations
+        ("invitation_received", "Invitation Received"),
+        ("invitation_responded", "Invitation Responded"),
+        # Articles (community moderation)
         ("article_submitted", "Article Submitted"),
         ("article_assigned", "Article Assigned"),
+        ("article_accepted", "Article Accepted"),
+        ("article_rejected", "Article Rejected"),
+        # Reviews
+        ("review_submitted", "Review Submitted"),
+        ("review_comment", "Review Comment"),
+        # Discussions
+        ("discussion_created", "Discussion Created"),
+        ("discussion_comment", "Discussion Comment"),
+        ("discussion_mention", "Discussion Mention"),
     ]
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
@@ -108,10 +119,6 @@ class Notification(models.Model):
     article = models.ForeignKey(
         "articles.Article", on_delete=models.SET_NULL, null=True, blank=True
     )
-    post = models.ForeignKey(
-        "posts.Post", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    # Optional: Add references to other models such as Review or Comment if needed
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     notification_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
     message = models.TextField()

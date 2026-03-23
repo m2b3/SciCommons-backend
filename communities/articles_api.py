@@ -23,8 +23,13 @@ from communities.schemas import (
     Message,
     StatusFilter,
 )
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import Notification, User
+from users.models import User
 
 # Initialize a router for the communities API
 router = Router(tags=["Community Articles"])
@@ -110,22 +115,21 @@ def submit_article(request, community_name: str, article_slug: str):
                 "message": "Error submitting article to community. Please try again."
             }
 
-        # Send a notification to the community admins
+        # Send notification to community admins
         try:
-            Notification.objects.create(
-                user=community.admins.first(),
-                community=community,
-                category="communities",
-                notification_type="article_submitted",
+            NotificationService.send_to_community_admins(
+                community_id=community.id,
+                notification_type=NotificationType.ARTICLE_SUBMITTED,
+                category=NotificationCategory.COMMUNITIES,
                 message=(
                     f"New article submitted in {community.name} by {request.auth.username}"
                 ),
                 link=f"/community/{quote(community.name, safe='')}/submissions",
                 content=article.title,
+                article_id=article.id,
             )
         except Exception as e:
             logger.error(f"Error creating notification: {e}")
-            # Continue even if notification fails
             pass
 
         return 200, {"message": "Article submitted successfully"}

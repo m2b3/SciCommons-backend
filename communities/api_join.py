@@ -8,9 +8,13 @@ from ninja.responses import codes_4xx, codes_5xx
 
 from communities.models import Community, JoinRequest
 from communities.schemas import JoinRequestSchema, Message
-from myapp.services.send_emails import send_join_decision_email, send_join_request_email
+from myapp.services.notifications import (
+    NotificationCategory,
+    NotificationService,
+    NotificationType,
+)
+from myapp.services.send_emails import send_join_request_approved_email
 from users.auth import JWTAuth
-from users.models import Notification
 
 router = Router(auth=JWTAuth(), tags=["Join Community"])
 
@@ -119,18 +123,17 @@ def join_community(request, community_id: int):
                     "message": "Error creating join request. Please try again."
                 }
 
-            # Send a notification to the first admin
+            # Send notification to community admins
             try:
-                Notification.objects.create(
-                    user=community.admins.first(),
-                    community=community,
-                    notification_type="join_request_received",
+                NotificationService.send_to_community_admins(
+                    community_id=community.id,
+                    notification_type=NotificationType.JOIN_REQUEST_RECEIVED,
+                    category=NotificationCategory.COMMUNITIES,
                     message=f"New join request from {user.username}",
                     link=f"/community/{quote(community.name, safe='')}/requests",
                 )
             except Exception as e:
                 logger.error(f"Error creating notification: {e}")
-                # Continue even if notification fails
                 pass
 
             try:
@@ -204,18 +207,26 @@ def manage_join_request(
                         "message": "Error adding user to community. Please try again."
                     }
 
-                # Send a notification to the user
+                # Send notification to the user
                 try:
-                    Notification.objects.create(
-                        user=join_request.user,
-                        community=community,
-                        notification_type="join_request_approved",
+                    NotificationService.send_to_user(
+                        user_id=join_request.user.id,
+                        notification_type=NotificationType.JOIN_REQUEST_APPROVED,
+                        category=NotificationCategory.COMMUNITIES,
                         message=f"Your join request to {community.name} has been approved.",
-                        link=f"/community/{quote(community.name, safe='')}",
+                        link=f"/community/{community.name}",
+                        community_id=community.id,
                     )
                 except Exception as e:
                     logger.error(f"Error creating notification: {e}")
-                    # Continue even if notification fails
+                    pass
+
+                # Send email notification to the user
+                try:
+                    send_join_request_approved_email(join_request.user, community)
+                except Exception as e:
+                    logger.error(f"Error sending approval email: {e}")
+                    # Continue even if email fails
                     pass
 
                 try:
@@ -239,10 +250,19 @@ def manage_join_request(
                         "message": "Error updating join request status. Please try again."
                     }
 
+                # Send notification to the user about rejection
                 try:
-                    send_join_decision_email(join_request.user, community, "reject")
+                    NotificationService.send_to_user(
+                        user_id=join_request.user.id,
+                        notification_type=NotificationType.JOIN_REQUEST_REJECTED,
+                        category=NotificationCategory.COMMUNITIES,
+                        message=f"Your join request to {community.name} has been rejected.",
+                        link=f"/community/{community.name}",
+                        community_id=community.id,
+                    )
                 except Exception as e:
-                    logger.error(f"Error sending join decision email: {e}")
+                    logger.error(f"Error creating notification: {e}")
+                    pass
 
                 return 200, {
                     "message": "You have rejected the join request successfully."
