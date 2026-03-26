@@ -10,6 +10,7 @@ from articles.models import (
     AnonymousIdentity,
     Article,
     ArticlePDF,
+    ArticleVersion,
     Discussion,
     DiscussionComment,
     DiscussionSubscription,
@@ -368,6 +369,19 @@ class ArticleFilters(Schema):
     limit: int = 10
     offset: int = 0
     community_id: Optional[int] = None
+
+
+class ArticleVersionOut(ModelSchema):
+    class Config:
+        model = ArticleVersion
+        model_fields = ["id", "version", "title", "abstract", "created_at"]
+
+
+class ArticleVersionDiffOut(Schema):
+    version: int
+    created_at: datetime
+    title_diff: List[str]
+    abstract_diff: List[str]
 
 
 """

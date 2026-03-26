@@ -67,6 +67,22 @@ class Article(models.Model):
         return self.title
 
 
+class ArticleVersion(models.Model):
+    article = models.ForeignKey(
+        Article, on_delete=models.CASCADE, related_name="versions"
+    )
+    version = models.PositiveIntegerField()
+    title = models.CharField(max_length=500)
+    abstract = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+
+    def __str__(self):
+        return f"Version {self.version} of {self.article.title}"
+
+
 class ArticlePDF(models.Model):
     def get_pdf_upload_path(instance, filename):
         # Get file extension
