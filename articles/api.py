@@ -16,6 +16,7 @@ from articles.cache import generate_articles_cache_key, invalidate_articles_cach
 from articles.models import (
     Article,
     ArticlePDF,
+    ArticleVersion,
     Discussion,
     Reaction,
     Review,
@@ -29,6 +30,7 @@ from articles.schemas import (
     ArticleOut,
     ArticlesListOut,
     ArticleUpdateSchema,
+    ArticleVersionDiffOut,
     CommunityArticleStatsResponse,
     DateCount,
     Message,
@@ -477,6 +479,15 @@ def update_article(
                 }
 
             try:
+                # Save current state as a version before overwriting
+                latest_version = ArticleVersion.objects.filter(article=article).count()
+                ArticleVersion.objects.create(
+                    article=article,
+                    version=latest_version + 1,
+                    title=article.title,
+                    abstract=article.abstract,
+                )
+
                 # Update the article fields only if they are provided
                 article.title = details.payload.title
                 article.abstract = details.payload.abstract
@@ -553,6 +564,60 @@ def update_article(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.get(
+    "/{article_id}/versions",
+    response={200: List[ArticleVersionDiffOut], codes_4xx: Message, codes_5xx: Message},
+    auth=OptionalJWTAuth,
+    summary="Get article version history with diffs",
+)
+def get_article_versions(request, article_id: int):
+    import difflib
+
+    try:
+        article = Article.objects.get(id=article_id)
+    except Article.DoesNotExist:
+        return 404, {"message": "Article not found."}
+
+    versions = list(ArticleVersion.objects.filter(article=article).order_by("version"))
+    if not versions:
+        return 200, []
+
+    # Build diff pairs: each version vs the next (or current article for the latest)
+    result = []
+    for i, version in enumerate(versions):
+        if i + 1 < len(versions):
+            next_title = versions[i + 1].title
+            next_abstract = versions[i + 1].abstract
+        else:
+            next_title = article.title
+            next_abstract = article.abstract
+
+        title_diff = list(
+            difflib.unified_diff(
+                version.title.splitlines(),
+                next_title.splitlines(),
+                lineterm="",
+            )
+        )
+        abstract_diff = list(
+            difflib.unified_diff(
+                version.abstract.splitlines(),
+                next_abstract.splitlines(),
+                lineterm="",
+            )
+        )
+        result.append(
+            ArticleVersionDiffOut(
+                version=version.version,
+                created_at=version.created_at,
+                title_diff=title_diff,
+                abstract_diff=abstract_diff,
+            )
+        )
+
+    return 200, result
 
 
 @router.get(
