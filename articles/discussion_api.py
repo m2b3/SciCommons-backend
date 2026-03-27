@@ -86,26 +86,20 @@ def create_discussion(
                     return 404, {"message": "Community not found."}
                 except Exception as e:
                     logger.error(f"Error retrieving community: {e}")
-                    return 500, {
-                        "message": "Error retrieving community. Please try again."
-                    }
+                    return 500, {"message": "Error retrieving community. Please try again."}
 
                 if not community.is_member(user):
                     return 403, {"message": "You are not a member of this community."}
 
                 try:
-                    community_article = CommunityArticle.objects.get(
-                        article=article, community=community
-                    )
+                    community_article = CommunityArticle.objects.get(article=article, community=community)
                     if community_article.is_pseudonymous:
                         is_pseudonymous = True
                 except CommunityArticle.DoesNotExist:
                     return 404, {"message": "Article not found in this community."}
                 except Exception as e:
                     logger.error(f"Error retrieving community article: {e}")
-                    return 500, {
-                        "message": "Error retrieving community article. Please try again."
-                    }
+                    return 500, {"message": "Error retrieving community article. Please try again."}
 
             try:
                 discussion = Discussion.objects.create(
@@ -125,18 +119,14 @@ def create_discussion(
                     # Create an anonymous name for the user who created the review
                     discussion.get_anonymous_name()
                 except Exception:
-                    logger.error(
-                        "Error creating anonymous name for discussion", exc_info=True
-                    )
+                    logger.error("Error creating anonymous name for discussion", exc_info=True)
                     # Continue even if anonymous name creation fails
 
             # Publish real-time event for private communities only
             try:
                 if discussion.community and discussion.community.type == "private":
                     community_ids = {discussion.community.id}
-                    RealtimeEventPublisher.publish_discussion_created(
-                        discussion, community_ids
-                    )
+                    RealtimeEventPublisher.publish_discussion_created(discussion, community_ids)
             except Exception as e:
                 logger.error(f"Failed to publish discussion created event: {e}")
                 # Continue even if event publishing fails
@@ -184,9 +174,7 @@ def create_discussion(
             return 201, DiscussionOut.from_orm(discussion, user)
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
-            return 500, {
-                "message": "Discussion created but error retrieving discussion data."
-            }
+            return 500, {"message": "Discussion created but error retrieving discussion data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -197,9 +185,7 @@ def create_discussion(
     response={200: PaginatedDiscussionSchema, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
-def list_discussions(
-    request, article_id: int, community_id: int = None, page: int = 1, size: int = 10
-):
+def list_discussions(request, article_id: int, community_id: int = None, page: int = 1, size: int = 10):
     try:
         try:
             # article = Article.objects.get(id=article_id)
@@ -233,9 +219,7 @@ def list_discussions(
             paginator = Paginator(discussions, size)
             page_obj = paginator.page(page)
         except Exception:
-            return 400, {
-                "message": "Invalid pagination parameters. Please check page number and size."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
 
@@ -244,10 +228,7 @@ def list_discussions(
 
             # Prefetch reputations in one query
             author_ids = set(d.author_id for d in discussions_list)
-            reputations = {
-                rep.user_id: rep
-                for rep in Reputation.objects.filter(user_id__in=author_ids)
-            }
+            reputations = {rep.user_id: rep for rep in Reputation.objects.filter(user_id__in=author_ids)}
 
             # Prefetch pseudonyms in one query (for only pseudonymous discussions)
             pseudonym_map = {}
@@ -278,9 +259,9 @@ def list_discussions(
                 # Check for unread comments within these discussions
                 # Get all comment IDs for these discussions
                 comment_ids_by_discussion = {}
-                comments = DiscussionComment.objects.filter(
-                    discussion_id__in=discussion_ids
-                ).values_list("id", "discussion_id")
+                comments = DiscussionComment.objects.filter(discussion_id__in=discussion_ids).values_list(
+                    "id", "discussion_id"
+                )
                 all_comment_ids = []
                 for comment_id, disc_id in comments:
                     all_comment_ids.append(comment_id)
@@ -361,9 +342,7 @@ def list_discussions(
             )
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
-            return 500, {
-                "message": "Error formatting discussion data. Please try again."
-            }
+            return 500, {"message": "Error formatting discussion data. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -398,9 +377,7 @@ def get_user_subscriptions(request):
 
             # Bulk check which communities user is admin of
             admin_community_ids = set(
-                Community.objects.filter(id__in=community_ids, admins=user).values_list(
-                    "id", flat=True
-                )
+                Community.objects.filter(id__in=community_ids, admins=user).values_list("id", flat=True)
             )
 
             # Get all discussion/comment IDs from subscriptions to check for unread flags
@@ -410,9 +387,9 @@ def get_user_subscriptions(request):
 
             # Get discussion IDs for subscribed articles
             discussion_ids = list(
-                Discussion.objects.filter(
-                    article_id__in=[s.article_id for s in subscriptions]
-                ).values_list("id", flat=True)
+                Discussion.objects.filter(article_id__in=[s.article_id for s in subscriptions]).values_list(
+                    "id", flat=True
+                )
             )
 
             # Get comment IDs for subscribed articles (via discussions)
@@ -450,15 +427,13 @@ def get_user_subscriptions(request):
             articles_with_unread = set()
             if unread_discussion_ids:
                 articles_with_unread.update(
-                    Discussion.objects.filter(id__in=unread_discussion_ids).values_list(
-                        "article_id", flat=True
-                    )
+                    Discussion.objects.filter(id__in=unread_discussion_ids).values_list("article_id", flat=True)
                 )
             if unread_comment_ids:
                 articles_with_unread.update(
-                    DiscussionComment.objects.filter(
-                        id__in=unread_comment_ids
-                    ).values_list("discussion__article_id", flat=True)
+                    DiscussionComment.objects.filter(id__in=unread_comment_ids).values_list(
+                        "discussion__article_id", flat=True
+                    )
                 )
 
             # Group subscriptions by community
@@ -482,15 +457,13 @@ def get_user_subscriptions(request):
                         "article_slug": subscription.article.slug,
                         "article_abstract": subscription.article.abstract,
                         "community_article_id": subscription.community_article_id,
-                        "has_unread_event": subscription.article_id
-                        in articles_with_unread,
+                        "has_unread_event": subscription.article_id in articles_with_unread,
                     }
                 )
 
             # Convert dict to list of CommunitySubscriptionOut objects
             communities_list = [
-                CommunitySubscriptionOut(**community_data)
-                for community_data in communities_dict.values()
+                CommunitySubscriptionOut(**community_data) for community_data in communities_dict.values()
             ]
 
             return 200, UserSubscriptionsOut(communities=communities_list)
@@ -518,25 +491,23 @@ def get_subscription_status(request, community_article_id: int, community_id: in
 
         # Validate community article exists
         try:
-            community_article = CommunityArticle.objects.select_related(
-                "community", "article"
-            ).get(id=community_article_id, community_id=community_id)
+            community_article = CommunityArticle.objects.select_related("community", "article").get(
+                id=community_article_id, community_id=community_id
+            )
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Community article not found."}
         except Exception as e:
             logger.error(f"Error retrieving community article: {e}")
-            return 500, {
-                "message": "Error retrieving community article. Please try again."
-            }
+            return 500, {"message": "Error retrieving community article. Please try again."}
 
         # Check if user is a member of the community
         if not community_article.community.is_member(user):
-            return 403, {
-                "message": "You must be a member of this community to check subscription status."
-            }
+            return 403, {"message": "You must be a member of this community to check subscription status."}
 
         try:
-            subscription = DiscussionSubscription.objects.get(
+            subscription = DiscussionSubscription.objects.select_related(
+                "community_article", "community", "article"
+            ).get(
                 user=user,
                 community_article=community_article,
                 community=community_article.community,
@@ -551,9 +522,7 @@ def get_subscription_status(request, community_article_id: int, community_id: in
             return 200, SubscriptionStatusSchema(is_subscribed=False, subscription=None)
         except Exception as e:
             logger.error(f"Error checking subscription status: {e}")
-            return 500, {
-                "message": "Error checking subscription status. Please try again."
-            }
+            return 500, {"message": "Error checking subscription status. Please try again."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -583,34 +552,26 @@ def subscribe_to_discussion(request, subscription_data: DiscussionSubscriptionSc
 
         # Validate community article exists
         try:
-            community_article = CommunityArticle.objects.select_related(
-                "community", "article"
-            ).get(id=subscription_data.community_article_id)
+            community_article = CommunityArticle.objects.select_related("community", "article").get(
+                id=subscription_data.community_article_id
+            )
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Community article not found."}
         except Exception as e:
             logger.error(f"Error retrieving community article: {e}")
-            return 500, {
-                "message": "Error retrieving community article. Please try again."
-            }
+            return 500, {"message": "Error retrieving community article. Please try again."}
 
         # Validate community matches
         if community_article.community.id != subscription_data.community_id:
-            return 400, {
-                "message": "Community ID does not match the community article."
-            }
+            return 400, {"message": "Community ID does not match the community article."}
 
         # Only allow subscriptions for private/hidden communities
         if community_article.community.type not in ["private", "hidden"]:
-            return 400, {
-                "message": "Subscriptions are only available for private and hidden communities."
-            }
+            return 400, {"message": "Subscriptions are only available for private and hidden communities."}
 
         # Check if user is a member of the community
         if not community_article.community.is_member(user):
-            return 403, {
-                "message": "You must be a member of this community to subscribe to discussions."
-            }
+            return 403, {"message": "You must be a member of this community to subscribe to discussions."}
 
         try:
             # Create or update subscription
@@ -641,18 +602,14 @@ def subscribe_to_discussion(request, subscription_data: DiscussionSubscriptionSc
             community_ids = list(get_user_community_ids(user))
             RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
         except Exception as e:
-            logger.warning(
-                f"Failed to update real-time subscriptions for user {user.id}: {e}"
-            )
+            logger.warning(f"Failed to update real-time subscriptions for user {user.id}: {e}")
             # Continue - real-time update failure shouldn't break subscription
 
         try:
             return status_code, DiscussionSubscriptionOut.from_orm(subscription)
         except Exception as e:
             logger.error(f"Error formatting subscription data: {e}")
-            return 500, {
-                "message": "Subscription created but error retrieving subscription data."
-            }
+            return 500, {"message": "Subscription created but error retrieving subscription data."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -694,9 +651,7 @@ def get_discussion(request, discussion_id: int):
             return 200, response_data
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
-            return 500, {
-                "message": "Error formatting discussion data. Please try again."
-            }
+            return 500, {"message": "Error formatting discussion data. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -707,9 +662,7 @@ def get_discussion(request, discussion_id: int):
     response={201: DiscussionOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def update_discussion(
-    request, discussion_id: int, discussion_data: CreateDiscussionSchema
-):
+def update_discussion(request, discussion_id: int, discussion_data: CreateDiscussionSchema):
     try:
         try:
             discussion = Discussion.objects.get(id=discussion_id)
@@ -723,9 +676,7 @@ def update_discussion(
 
         # Check if the review belongs to the user
         if discussion.author != user:
-            return 403, {
-                "message": "You do not have permission to update this discussion."
-            }
+            return 403, {"message": "You do not have permission to update this discussion."}
 
         if discussion.community and not discussion.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
@@ -744,9 +695,7 @@ def update_discussion(
             return 201, response_data
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
-            return 500, {
-                "message": "Discussion updated but error retrieving discussion data."
-            }
+            return 500, {"message": "Discussion updated but error retrieving discussion data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -770,9 +719,7 @@ def delete_discussion(request, discussion_id: int):
         user = request.auth  # Assuming user is authenticated
 
         if discussion.author != user:
-            return 403, {
-                "message": "You do not have permission to delete this discussion."
-            }
+            return 403, {"message": "You do not have permission to delete this discussion."}
 
         if discussion.community and not discussion.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
@@ -811,9 +758,7 @@ def toggle_discussion_resolved(request, discussion_id: int):
         user = request.auth
 
         try:
-            discussion = Discussion.objects.select_related(
-                "community", "article", "author"
-            ).get(id=discussion_id)
+            discussion = Discussion.objects.select_related("community", "article", "author").get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
         except Exception as e:
@@ -822,18 +767,14 @@ def toggle_discussion_resolved(request, discussion_id: int):
 
         # Check if this is a community discussion
         if not discussion.community:
-            return 400, {
-                "message": "Only discussions in communities can be resolved/unresolved."
-            }
+            return 400, {"message": "Only discussions in communities can be resolved/unresolved."}
 
         # Check if user is community admin or discussion author
         is_community_admin = discussion.community.is_admin(user)
         is_discussion_author = discussion.author == user
 
         if not is_community_admin and not is_discussion_author:
-            return 403, {
-                "message": "Only community admins or the discussion author can resolve/unresolve discussions."
-            }
+            return 403, {"message": "Only community admins or the discussion author can resolve/unresolve discussions."}
 
         # Toggle the resolved status
         try:
@@ -841,9 +782,7 @@ def toggle_discussion_resolved(request, discussion_id: int):
             discussion.save(update_fields=["is_resolved"])
         except Exception as e:
             logger.error(f"Error updating discussion resolved status: {e}")
-            return 500, {
-                "message": "Error updating discussion status. Please try again."
-            }
+            return 500, {"message": "Error updating discussion status. Please try again."}
 
         # Return the updated discussion
         try:
@@ -851,9 +790,7 @@ def toggle_discussion_resolved(request, discussion_id: int):
             return 200, response_data
         except Exception as e:
             logger.error(f"Error formatting discussion data: {e}")
-            return 500, {
-                "message": "Discussion updated but error retrieving discussion data."
-            }
+            return 500, {"message": "Discussion updated but error retrieving discussion data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -897,9 +834,7 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 return 404, {"message": "Article not found in this community."}
             except Exception as e:
                 logger.error(f"Error checking community membership: {e}")
-                return 500, {
-                    "message": "Error checking community membership. Please try again."
-                }
+                return 500, {"message": "Error checking community membership. Please try again."}
 
         parent_comment = None
 
@@ -908,16 +843,12 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 parent_comment = DiscussionComment.objects.get(id=payload.parent_id)
 
                 if parent_comment.parent and parent_comment.parent.parent:
-                    return 400, {
-                        "message": "Exceeded maximum comment nesting level of 3"
-                    }
+                    return 400, {"message": "Exceeded maximum comment nesting level of 3"}
             except DiscussionComment.DoesNotExist:
                 return 404, {"message": "Parent comment not found."}
             except Exception as e:
                 logger.error(f"Error retrieving parent comment: {e}")
-                return 500, {
-                    "message": "Error retrieving parent comment. Please try again."
-                }
+                return 500, {"message": "Error retrieving parent comment. Please try again."}
 
         try:
             comment = DiscussionComment.objects.create(
@@ -973,9 +904,7 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 ).exists()
 
             # Notify discussion author (if not the commenter and subscribed)
-            if discussion.author_id != user.id and is_user_subscribed(
-                discussion.author_id
-            ):
+            if discussion.author_id != user.id and is_user_subscribed(discussion.author_id):
                 NotificationService.send_to_user(
                     user_id=discussion.author_id,
                     notification_type=NotificationType.DISCUSSION_COMMENT,
@@ -1004,11 +933,7 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
                 )
 
             # If this is a reply, notify the parent comment author (if subscribed)
-            if (
-                parent_comment
-                and parent_comment.author_id != user.id
-                and is_user_subscribed(parent_comment.author_id)
-            ):
+            if parent_comment and parent_comment.author_id != user.id and is_user_subscribed(parent_comment.author_id):
                 NotificationService.send_to_user(
                     user_id=parent_comment.author_id,
                     notification_type=NotificationType.DISCUSSION_COMMENT,
@@ -1032,9 +957,7 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             return 201, DiscussionCommentOut.from_orm_with_replies(comment, user)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
-            return 500, {
-                "message": "Comment created but error retrieving comment data."
-            }
+            return 500, {"message": "Comment created but error retrieving comment data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -1071,9 +994,7 @@ def get_comment(request, comment_id: int):
             if current_user:
                 # Get all comment IDs including nested replies
                 all_comment_ids = [comment.id] + list(
-                    DiscussionComment.objects.filter(
-                        discussion=comment.discussion
-                    ).values_list("id", flat=True)
+                    DiscussionComment.objects.filter(discussion=comment.discussion).values_list("id", flat=True)
                 )
                 flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
                     user_id=current_user.id,
@@ -1081,9 +1002,7 @@ def get_comment(request, comment_id: int):
                     entity_ids=all_comment_ids,
                 )
 
-            return 200, DiscussionCommentOut.from_orm_with_replies(
-                comment, current_user, flags_by_comment_id
-            )
+            return 200, DiscussionCommentOut.from_orm_with_replies(comment, current_user, flags_by_comment_id)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
@@ -1097,12 +1016,10 @@ def get_comment(request, comment_id: int):
     response={200: List[DiscussionCommentOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
-def list_discussion_comments(
-    request, discussion_id: int, page: int = 1, size: int = 10
-):
+def list_discussion_comments(request, discussion_id: int, page: int = 1, size: int = 10):
     try:
         try:
-            discussion = Discussion.objects.get(id=discussion_id)
+            discussion = Discussion.objects.select_related("community").get(id=discussion_id)
         except Discussion.DoesNotExist:
             return 404, {"message": "Discussion not found."}
         except Exception as e:
@@ -1119,24 +1036,10 @@ def list_discussion_comments(
             return 403, {"message": "You are not a member of this community."}
 
         try:
-            comments = (
-                DiscussionComment.objects.filter(discussion=discussion, parent=None)
-                .select_related("author")
-                .order_by("-created_at")
-            )
-        except Exception as e:
-            logger.error(f"Error retrieving comments: {e}")
-            return 500, {"message": "Error retrieving comments. Please try again."}
-
-        try:
-            # Prefetch all flags for comments (including nested replies) in one query
             flags_by_comment_id = {}
             if current_user:
-                # Get all comment IDs including nested replies
                 all_comment_ids = list(
-                    DiscussionComment.objects.filter(discussion=discussion).values_list(
-                        "id", flat=True
-                    )
+                    DiscussionComment.objects.filter(discussion=discussion).values_list("id", flat=True)
                 )
                 flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
                     user_id=current_user.id,
@@ -1144,12 +1047,7 @@ def list_discussion_comments(
                     entity_ids=all_comment_ids,
                 )
 
-            return 200, [
-                DiscussionCommentOut.from_orm_with_replies(
-                    comment, current_user, flags_by_comment_id
-                )
-                for comment in comments
-            ]
+            return 200, DiscussionCommentOut.bulk_from_orm(discussion, current_user, flags_by_comment_id)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
             return 500, {"message": "Error formatting comment data. Please try again."}
@@ -1174,13 +1072,9 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         if comment.author != request.auth:
-            return 403, {
-                "message": "You do not have permission to update this comment."
-            }
+            return 403, {"message": "You do not have permission to update this comment."}
 
-        if comment.discussion.community and not comment.discussion.community.is_member(
-            request.auth
-        ):
+        if comment.discussion.community and not comment.discussion.community.is_member(request.auth):
             return 403, {"message": "You are not a member of this community."}
 
         try:
@@ -1191,14 +1085,10 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
             return 500, {"message": "Error updating comment. Please try again."}
 
         try:
-            return 200, DiscussionCommentOut.from_orm_with_replies(
-                comment, request.auth
-            )
+            return 200, DiscussionCommentOut.from_orm_with_replies(comment, request.auth)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
-            return 500, {
-                "message": "Comment updated but error retrieving comment data."
-            }
+            return 500, {"message": "Comment updated but error retrieving comment data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -1222,9 +1112,7 @@ def delete_comment(request, comment_id: int):
 
         # Check if the user is the owner of the comment or has permission to delete it
         if comment.author != user:
-            return 403, {
-                "message": "You do not have permission to delete this comment."
-            }
+            return 403, {"message": "You do not have permission to delete this comment."}
 
         try:
             # Store parent info before deletion for real-time event
@@ -1236,9 +1124,7 @@ def delete_comment(request, comment_id: int):
                 current_comment = current_comment.parent
 
             # Delete reactions associated with the comment
-            Reaction.objects.filter(
-                content_type__model="discussioncomment", object_id=comment.id
-            ).delete()
+            Reaction.objects.filter(content_type__model="discussioncomment", object_id=comment.id).delete()
 
             # Logically delete the comment by clearing its content and marking it as deleted
             comment.content = "[deleted]"
@@ -1282,9 +1168,7 @@ Subscription endpoints for discussion real-time updates
     response={200: DiscussionSubscriptionOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def update_discussion_subscription(
-    request, subscription_id: int, update_data: DiscussionSubscriptionUpdateSchema
-):
+def update_discussion_subscription(request, subscription_id: int, update_data: DiscussionSubscriptionUpdateSchema):
     """
     Update discussion subscription (mainly to activate/deactivate)
     """
@@ -1320,18 +1204,14 @@ def update_discussion_subscription(
             community_ids = list(get_user_community_ids(user))
             RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
         except Exception as e:
-            logger.warning(
-                f"Failed to update real-time subscriptions for user {user.id}: {e}"
-            )
+            logger.warning(f"Failed to update real-time subscriptions for user {user.id}: {e}")
             # Continue - real-time update failure shouldn't break subscription update
 
         try:
             return 200, DiscussionSubscriptionOut.from_orm(subscription)
         except Exception as e:
             logger.error(f"Error formatting subscription data: {e}")
-            return 500, {
-                "message": "Subscription updated but error retrieving subscription data."
-            }
+            return 500, {"message": "Subscription updated but error retrieving subscription data."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -1351,9 +1231,7 @@ def unsubscribe_from_discussion(request, subscription_id: int):
         user = request.auth
 
         try:
-            subscription = DiscussionSubscription.objects.get(
-                id=subscription_id, user=user
-            )
+            subscription = DiscussionSubscription.objects.get(id=subscription_id, user=user)
         except DiscussionSubscription.DoesNotExist:
             return 404, {"message": "Subscription not found."}
         except Exception as e:
@@ -1377,9 +1255,7 @@ def unsubscribe_from_discussion(request, subscription_id: int):
             community_ids = list(get_user_community_ids(user))
             RealtimeQueueManager.update_user_subscriptions(user.id, community_ids)
         except Exception as e:
-            logger.warning(
-                f"Failed to update real-time subscriptions for user {user.id}: {e}"
-            )
+            logger.warning(f"Failed to update real-time subscriptions for user {user.id}: {e}")
             # Continue - real-time update failure shouldn't break unsubscription
 
         return 204, None
@@ -1420,9 +1296,7 @@ def get_discussion_summary(request, community_article_id: int):
             return 404, {"message": "Discussion summary not found for this article."}
         except Exception as e:
             logger.error(f"Error retrieving discussion summary: {e}")
-            return 500, {
-                "message": "Error retrieving discussion summary. Please try again."
-            }
+            return 500, {"message": "Error retrieving discussion summary. Please try again."}
 
         # Check if user can view (hidden communities require membership)
         community = summary.community_article.community
@@ -1433,9 +1307,7 @@ def get_discussion_summary(request, community_article_id: int):
             return 200, DiscussionSummaryOut.from_orm(summary)
         except Exception as e:
             logger.error(f"Error formatting discussion summary data: {e}")
-            return 500, {
-                "message": "Error formatting discussion summary data. Please try again."
-            }
+            return 500, {"message": "Error formatting discussion summary data. Please try again."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -1447,9 +1319,7 @@ def get_discussion_summary(request, community_article_id: int):
     response={201: DiscussionSummaryOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def create_discussion_summary(
-    request, community_article_id: int, payload: DiscussionSummaryCreateSchema
-):
+def create_discussion_summary(request, community_article_id: int, payload: DiscussionSummaryCreateSchema):
     """
     Create a discussion summary for a community article.
     Only community admins can create summaries.
@@ -1460,22 +1330,16 @@ def create_discussion_summary(
         user = request.auth
 
         try:
-            community_article = CommunityArticle.objects.select_related(
-                "community"
-            ).get(id=community_article_id)
+            community_article = CommunityArticle.objects.select_related("community").get(id=community_article_id)
         except CommunityArticle.DoesNotExist:
             return 404, {"message": "Community article not found."}
         except Exception as e:
             logger.error(f"Error retrieving community article: {e}")
-            return 500, {
-                "message": "Error retrieving community article. Please try again."
-            }
+            return 500, {"message": "Error retrieving community article. Please try again."}
 
         # Check if user is an admin
         if not community_article.community.is_admin(user):
-            return 403, {
-                "message": "Only community admins can create discussion summaries."
-            }
+            return 403, {"message": "Only community admins can create discussion summaries."}
 
         try:
             with transaction.atomic():
@@ -1496,21 +1360,15 @@ def create_discussion_summary(
 
         except Exception as e:
             logger.error(f"Error creating discussion summary: {e}")
-            return 500, {
-                "message": "Error creating discussion summary. Please try again."
-            }
+            return 500, {"message": "Error creating discussion summary. Please try again."}
 
-        logger.info(
-            f"User {user.id} created discussion summary for community article {community_article_id}"
-        )
+        logger.info(f"User {user.id} created discussion summary for community article {community_article_id}")
 
         try:
             return 201, DiscussionSummaryOut.from_orm(summary)
         except Exception as e:
             logger.error(f"Error formatting discussion summary data: {e}")
-            return 500, {
-                "message": "Discussion summary created but error retrieving data."
-            }
+            return 500, {"message": "Discussion summary created but error retrieving data."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -1522,9 +1380,7 @@ def create_discussion_summary(
     response={200: DiscussionSummaryOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-def update_discussion_summary(
-    request, community_article_id: int, payload: DiscussionSummaryUpdateSchema
-):
+def update_discussion_summary(request, community_article_id: int, payload: DiscussionSummaryUpdateSchema):
     """
     Update the discussion summary for a community article.
     Only community admins can update summaries.
@@ -1537,20 +1393,14 @@ def update_discussion_summary(
                 "community_article__community",
             ).get(community_article_id=community_article_id)
         except DiscussionSummary.DoesNotExist:
-            return 404, {
-                "message": "Discussion summary not found. Use POST to create one."
-            }
+            return 404, {"message": "Discussion summary not found. Use POST to create one."}
         except Exception as e:
             logger.error(f"Error retrieving discussion summary: {e}")
-            return 500, {
-                "message": "Error retrieving discussion summary. Please try again."
-            }
+            return 500, {"message": "Error retrieving discussion summary. Please try again."}
 
         # Check if user is an admin
         if not summary.community_article.community.is_admin(user):
-            return 403, {
-                "message": "Only community admins can update discussion summaries."
-            }
+            return 403, {"message": "Only community admins can update discussion summaries."}
 
         try:
             summary.content = payload.content
@@ -1558,21 +1408,15 @@ def update_discussion_summary(
             summary.save(update_fields=["content", "last_updated_by", "updated_at"])
         except Exception as e:
             logger.error(f"Error updating discussion summary: {e}")
-            return 500, {
-                "message": "Error updating discussion summary. Please try again."
-            }
+            return 500, {"message": "Error updating discussion summary. Please try again."}
 
-        logger.info(
-            f"User {user.id} updated discussion summary for community article {community_article_id}"
-        )
+        logger.info(f"User {user.id} updated discussion summary for community article {community_article_id}")
 
         try:
             return 200, DiscussionSummaryOut.from_orm(summary)
         except Exception as e:
             logger.error(f"Error formatting discussion summary data: {e}")
-            return 500, {
-                "message": "Discussion summary updated but error retrieving data."
-            }
+            return 500, {"message": "Discussion summary updated but error retrieving data."}
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
@@ -1600,27 +1444,19 @@ def delete_discussion_summary(request, community_article_id: int):
             return 404, {"message": "Discussion summary not found."}
         except Exception as e:
             logger.error(f"Error retrieving discussion summary: {e}")
-            return 500, {
-                "message": "Error retrieving discussion summary. Please try again."
-            }
+            return 500, {"message": "Error retrieving discussion summary. Please try again."}
 
         # Check if user is an admin
         if not summary.community_article.community.is_admin(user):
-            return 403, {
-                "message": "Only community admins can delete discussion summaries."
-            }
+            return 403, {"message": "Only community admins can delete discussion summaries."}
 
         try:
             summary.delete()
         except Exception as e:
             logger.error(f"Error deleting discussion summary: {e}")
-            return 500, {
-                "message": "Error deleting discussion summary. Please try again."
-            }
+            return 500, {"message": "Error deleting discussion summary. Please try again."}
 
-        logger.info(
-            f"User {user.id} deleted discussion summary for community article {community_article_id}"
-        )
+        logger.info(f"User {user.id} deleted discussion summary for community article {community_article_id}")
 
         return 204, None
 

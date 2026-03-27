@@ -1,10 +1,8 @@
 import logging
-from collections import defaultdict
 from datetime import timedelta
-from typing import Counter, List, Optional
-from urllib.parse import quote_plus, unquote
+from typing import List, Optional
+from urllib.parse import unquote
 
-from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Avg, Count, Q
@@ -12,7 +10,7 @@ from django.utils import timezone
 from ninja import File, Query, Router, UploadedFile
 from ninja.responses import codes_4xx, codes_5xx
 
-from articles.cache import generate_articles_cache_key, invalidate_articles_cache
+from articles.cache import invalidate_articles_cache
 from articles.models import (
     Article,
     ArticlePDF,
@@ -34,22 +32,18 @@ from articles.schemas import (
     Message,
     OfficialArticleStatsResponse,
     PaginatedArticlesListResponse,
-    PaginatedArticlesResponse,
     ReviewExcerpt,
 )
 from communities.models import Community, CommunityArticle
-from myapp.cache import get_cache, set_cache
-from myapp.constants import FIFTEEN_MINUTES
-from myapp.schemas import FilterType
+from myapp.schemas import FilterType, UserStats
 from myapp.services.notifications import (
     NotificationCategory,
     NotificationService,
     NotificationType,
 )
-from myapp.utils import validate_tags
 from users.auth import JWTAuth, OptionalJWTAuth
 from users.common_api import get_content_type_for_model
-from users.models import Bookmark, Hashtag, HashtagRelation, User
+from users.models import Bookmark, Reputation, User
 
 router = Router(tags=["Articles"])
 
@@ -79,15 +73,11 @@ def create_article(
 
             # If either title, abstract aren't unique, return an error
             try:
-                if Article.objects.filter(
-                    title=article_title, abstract=article_abstract
-                ).exists():
+                if Article.objects.filter(title=article_title, abstract=article_abstract).exists():
                     return 400, {"message": "This article has already been submitted."}
             except Exception as e:
                 logger.error(f"Error checking article uniqueness: {e}")
-                return 500, {
-                    "message": "Error checking article uniqueness. Please try again."
-                }
+                return 500, {"message": "Error checking article uniqueness. Please try again."}
 
             if pdf_files and len(pdf_files) > 1:
                 return 400, {"message": "Only one PDF file is allowed."}
@@ -95,17 +85,11 @@ def create_article(
             # Check if the article link is unique
             try:
                 if details.payload.article_link:
-                    if Article.objects.filter(
-                        article_link=details.payload.article_link
-                    ).exists():
-                        return 400, {
-                            "message": "This article has already been submitted."
-                        }
+                    if Article.objects.filter(article_link=details.payload.article_link).exists():
+                        return 400, {"message": "This article has already been submitted."}
             except Exception as e:
                 logger.error(f"Error checking article link uniqueness: {e}")
-                return 500, {
-                    "message": "Error checking article link uniqueness. Please try again."
-                }
+                return 500, {"message": "Error checking article link uniqueness. Please try again."}
 
             # Create the Article instance
             try:
@@ -137,8 +121,7 @@ def create_article(
                     community = Community.objects.get(name=community_name)
                     community_article_status = (
                         CommunityArticle.PUBLISHED
-                        if community.type in {"private", "hidden"}
-                        or community.admins.filter(id=user.id).exists()
+                        if community.type in {"private", "hidden"} or community.admins.filter(id=user.id).exists()
                         else CommunityArticle.SUBMITTED
                     )
                     community_article = CommunityArticle.objects.create(
@@ -153,9 +136,7 @@ def create_article(
                         if community_article_status == CommunityArticle.PUBLISHED:
                             from articles.models import DiscussionSubscription
 
-                            DiscussionSubscription.create_auto_subscriptions_for_new_article(
-                                community_article
-                            )
+                            DiscussionSubscription.create_auto_subscriptions_for_new_article(community_article)
                     except Exception as e:
                         # Log and continue; auto-subscription failure should not block article creation
                         logger.warning(
@@ -168,10 +149,7 @@ def create_article(
                             community_id=community.id,
                             notification_type=NotificationType.ARTICLE_SUBMITTED,
                             category=NotificationCategory.COMMUNITIES,
-                            message=(
-                                f"New article submitted in {community.name}"
-                                f" by {request.auth.username}"
-                            ),
+                            message=(f"New article submitted in {community.name}" f" by {request.auth.username}"),
                             link=f"/community/{community.name}/submissions",
                             content=article.title,
                             article_id=article.id,
@@ -182,9 +160,7 @@ def create_article(
                     return 404, {"message": "Community not found."}
                 except Exception as e:
                     logger.error(f"Error associating article with community: {e}")
-                    return 500, {
-                        "message": "Error associating article with community. Please try again."
-                    }
+                    return 500, {"message": "Error associating article with community. Please try again."}
 
             article_pdf_urls = []
             try:
@@ -194,9 +170,7 @@ def create_article(
 
                 pdf_link = details.payload.pdf_link
                 if pdf_link:
-                    ArticlePDF.objects.create(
-                        article=article, pdf_file_url=None, external_url=pdf_link
-                    )
+                    ArticlePDF.objects.create(article=article, pdf_file_url=None, external_url=pdf_link)
                     article_pdf_urls.append(pdf_link)
             except Exception as e:
                 logger.error(f"Error uploading PDF files: {e}")
@@ -269,9 +243,7 @@ def get_article(
                 return 404, {"message": "Community not found."}
             except Exception as e:
                 logger.error(f"Error processing community information: {e}")
-                return 500, {
-                    "message": "Error processing community information. Please try again."
-                }
+                return 500, {"message": "Error processing community information. Please try again."}
 
         if community:
             try:
@@ -279,9 +251,11 @@ def get_article(
                     # community_article = CommunityArticle.objects.get(
                     #     article=article, community=community
                     # )
-                    community_article = CommunityArticle.objects.select_related(
-                        "community", "article"
-                    ).get(article=article, community=community)
+                    community_article = (
+                        CommunityArticle.objects.select_related("community", "article")
+                        .prefetch_related("assigned_reviewers")
+                        .get(article=article, community=community)
+                    )
                 except CommunityArticle.DoesNotExist:
                     return 404, {"message": "Article not found in this community."}
 
@@ -289,9 +263,7 @@ def get_article(
                 try:
                     if community.type in ["hidden", "private"]:
                         # if request.auth not in community.members.all():
-                        has_access = community.members.filter(
-                            id=request.auth.id
-                        ).exists()
+                        has_access = community.members.filter(id=request.auth.id).exists()
                         if not has_access:
                             return 403, {
                                 "message": (
@@ -301,27 +273,18 @@ def get_article(
                             }
                 except Exception as e:
                     logger.error(f"Error checking access permissions: {e}")
-                    return 500, {
-                        "message": "Error checking access permissions. Please try again."
-                    }
+                    return 500, {"message": "Error checking access permissions. Please try again."}
             except Exception as e:
                 logger.error(f"Error retrieving community article: {e}")
-                return 500, {
-                    "message": "Error retrieving community article. Please try again."
-                }
+                return 500, {"message": "Error retrieving community article. Please try again."}
         else:
             # Check submission type and user's access for non-community articles
             try:
-                if (
-                    article.submission_type == "Private"
-                    and article.submitter != request.auth
-                ):
+                if article.submission_type == "Private" and article.submitter != request.auth:
                     return 403, {"message": "You don't have access to this article."}
             except Exception as e:
                 logger.error(f"Error checking article permissions: {e}")
-                return 500, {
-                    "message": "Error checking article permissions. Please try again."
-                }
+                return 500, {"message": "Error checking article permissions. Please try again."}
 
         if community_article and community_article.status == "rejected":
             return 403, {"message": "This article is not available in this community."}
@@ -336,26 +299,19 @@ def get_article(
             if community:
                 reviews_qs = Review.objects.filter(article=article, community=community)
             else:
-                reviews_qs = Review.objects.filter(
-                    article=article, community__isnull=True
-                )
+                reviews_qs = Review.objects.filter(article=article, community__isnull=True)
 
-            total_reviews = reviews_qs.count()
-            total_ratings = round(
-                reviews_qs.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0, 1
-            )
+            review_stats = reviews_qs.aggregate(total_reviews=Count("id"), avg_rating=Avg("rating"))
+            total_reviews = review_stats["total_reviews"]
+            total_ratings = round(review_stats["avg_rating"] or 0, 1)
 
             # Discussions and comments counts (example; adjust models if needed)
             total_discussions = Discussion.objects.filter(article=article).count()
-            total_comments = ReviewComment.objects.filter(
-                review__article=article
-            ).count()
+            total_comments = ReviewComment.objects.filter(review__article=article).count()
 
             # PDFs — assumed external, mocked as empty list for now
             # article_pdf_urls = []  # You can load this from storage/S3 if needed
-            article_pdf_urls = [
-                pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)
-            ]
+            article_pdf_urls = [pdf.get_url() for pdf in ArticlePDF.objects.filter(article=article)]
 
             # Check bookmark status
             is_bookmarked = None
@@ -413,11 +369,7 @@ def get_article_meta(request, article_slug: str):
         # Ensure the article is not tied to a hidden/private community and
         # that it is published/accepted within the community context.
         try:
-            community_article = (
-                CommunityArticle.objects.select_related("community")
-                .filter(article=article)
-                .first()
-            )
+            community_article = CommunityArticle.objects.select_related("community").filter(article=article).first()
             if community_article:
                 if community_article.community.type in ["hidden", "private"]:
                     return 404, {"message": "Article not found."}
@@ -425,9 +377,7 @@ def get_article_meta(request, article_slug: str):
                     return 404, {"message": "Article not found."}
         except Exception as e:
             logger.error(f"Error validating community article: {e}")
-            return 500, {
-                "message": "Error validating community article. Please try again."
-            }
+            return 500, {"message": "Error validating community article. Please try again."}
 
         return 200, ArticleMetaOut.from_orm(article)
     except Exception as e:
@@ -459,22 +409,16 @@ def update_article(
 
             # Check if the user is the submitter
             if article.submitter != request.auth:
-                return 403, {
-                    "message": "You don't have permission to update this article."
-                }
+                return 403, {"message": "You don't have permission to update this article."}
 
             try:
                 article_community = (
-                    CommunityArticle.objects.select_related("community", "article")
-                    .filter(article=article)
-                    .first()
+                    CommunityArticle.objects.select_related("community", "article").filter(article=article).first()
                     or None
                 )
             except Exception as e:
                 logger.error(f"Error retrieving article community information: {e}")
-                return 500, {
-                    "message": "Error retrieving article community information. Please try again."
-                }
+                return 500, {"message": "Error retrieving article community information. Please try again."}
 
             try:
                 # Update the article fields only if they are provided
@@ -511,23 +455,16 @@ def update_article(
                 article_pdf_urls = []
                 pdf_qs = ArticlePDF.objects.filter(article=article)
                 for pdf in pdf_qs:
-                    article_pdf_urls.append(
-                        pdf.external_url if pdf.external_url else pdf.pdf_file_url.url
-                    )
+                    article_pdf_urls.append(pdf.external_url if pdf.external_url else pdf.pdf_file_url.url)
 
                 # Get counts for output (you may skip these counts if unnecessary for update)
                 total_reviews = Review.objects.filter(article=article).count()
                 total_ratings = round(
-                    Review.objects.filter(article=article).aggregate(
-                        avg_rating=Avg("rating")
-                    )["avg_rating"]
-                    or 0,
+                    Review.objects.filter(article=article).aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0,
                     1,
                 )
                 total_discussions = Discussion.objects.filter(article=article).count()
-                total_comments = ReviewComment.objects.filter(
-                    review__article=article
-                ).count()
+                total_comments = ReviewComment.objects.filter(review__article=article).count()
 
                 # Final output
                 response_data = ArticleOut.from_orm_with_custom_fields(
@@ -615,9 +552,7 @@ def get_articles(
 
                 # If the community is hidden and the user is not a member,
                 # return an empty queryset
-                if community.type == "hidden" and (
-                    not current_user or not community.is_member(current_user)
-                ):
+                if community.type == "hidden" and (not current_user or not community.is_member(current_user)):
                     return 403, {"message": "You don't have access to this community."}
 
                 # Only display articles that are published or accepted in the community
@@ -631,14 +566,10 @@ def get_articles(
                     ).distinct()
                 except Exception as e:
                     logger.error(f"Error filtering community articles: {e}")
-                    return 500, {
-                        "message": "Error filtering community articles. Please try again."
-                    }
+                    return 500, {"message": "Error filtering community articles. Please try again."}
             except Exception as e:
                 logger.error(f"Error processing community information: {e}")
-                return 500, {
-                    "message": "Error processing community information. Please try again."
-                }
+                return 500, {"message": "Error processing community information. Please try again."}
         else:
             # Just do not display articles that belong to hidden communities
             try:
@@ -659,25 +590,19 @@ def get_articles(
                 elif sort == "older":
                     articles = articles.order_by("created_at")
                 else:
-                    articles = articles.order_by(
-                        "-created_at"
-                    )  # Default sort by latest
+                    articles = articles.order_by("-created_at")  # Default sort by latest
             else:
                 articles = articles.order_by("-created_at")  # Default sort by latest
         except Exception as e:
             logger.error(f"Error sorting or filtering articles: {e}")
-            return 500, {
-                "message": "Error sorting or filtering articles. Please try again."
-            }
+            return 500, {"message": "Error sorting or filtering articles. Please try again."}
 
         try:
             paginator = Paginator(articles, per_page)
             paginated_articles = paginator.get_page(page)
         except Exception as e:
             logger.error(f"Error with pagination parameters: {e}")
-            return 400, {
-                "message": "Error with pagination parameters. Please try different values."
-            }
+            return 400, {"message": "Error with pagination parameters. Please try different values."}
         try:
             article_ids = [article.id for article in paginated_articles]
 
@@ -690,17 +615,15 @@ def get_articles(
 
             review_ratings = {
                 item["article_id"]: round(item["avg_rating"] or 0, 1)
-                for item in Review.objects.filter(review_filter)
-                .values("article_id")
-                .annotate(avg_rating=Avg("rating"))
+                for item in Review.objects.filter(review_filter).values("article_id").annotate(avg_rating=Avg("rating"))
             }
 
             # CommunityArticle bulk fetch (for community only)
             community_articles = {}
             if community:
-                ca_qs = CommunityArticle.objects.filter(
-                    article_id__in=article_ids, community=community
-                ).select_related("community", "article")
+                ca_qs = CommunityArticle.objects.filter(article_id__in=article_ids, community=community).select_related(
+                    "community", "article"
+                )
                 for ca in ca_qs:
                     community_articles[ca.article.id] = ca
 
@@ -825,9 +748,7 @@ def get_article_official_stats(request, article_slug: str):
             reviews_count = Review.objects.filter(article=article).count()
 
             # Get recent reviews
-            recent_reviews = Review.objects.filter(article=article).order_by(
-                "-created_at"
-            )[:3]
+            recent_reviews = Review.objects.filter(article=article).order_by("-created_at")[:3]
 
             # Get reviews and likes over time (last 7 days)
             end_date = timezone.now().date()
@@ -836,16 +757,12 @@ def get_article_official_stats(request, article_slug: str):
 
             # Reviews over time
             reviews_over_time = (
-                Review.objects.filter(
-                    article=article, created_at__date__range=[start_date, end_date]
-                )
+                Review.objects.filter(article=article, created_at__date__range=[start_date, end_date])
                 .values("created_at__date")
                 .annotate(count=Count("id"))
             )
 
-            reviews_dict = {
-                item["created_at__date"]: item["count"] for item in reviews_over_time
-            }
+            reviews_dict = {item["created_at__date"]: item["count"] for item in reviews_over_time}
 
             reviews_over_time = [
                 DateCount(
@@ -867,9 +784,7 @@ def get_article_official_stats(request, article_slug: str):
                 .annotate(count=Count("id"))
             )
 
-            likes_dict = {
-                item["created_at__date"]: item["count"] for item in likes_over_time
-            }
+            likes_dict = {item["created_at__date"]: item["count"] for item in likes_over_time}
 
             likes_over_time = [
                 DateCount(
@@ -880,9 +795,7 @@ def get_article_official_stats(request, article_slug: str):
             ]
 
             # Get average rating
-            average_rating = Review.objects.filter(article=article).aggregate(
-                Avg("rating")
-            )["rating__avg"]
+            average_rating = Review.objects.filter(article=article).aggregate(Avg("rating"))["rating__avg"]
 
             response_data = OfficialArticleStatsResponse(
                 title=article.title,
@@ -892,9 +805,7 @@ def get_article_official_stats(request, article_slug: str):
                 likes=likes_count,
                 reviews_count=reviews_count,
                 recent_reviews=[
-                    ReviewExcerpt(
-                        excerpt=review.content[:100], date=review.created_at.date()
-                    )
+                    ReviewExcerpt(excerpt=review.content[:100], date=review.created_at.date())
                     for review in recent_reviews
                 ],
                 reviews_over_time=reviews_over_time,
@@ -905,9 +816,7 @@ def get_article_official_stats(request, article_slug: str):
             return 200, response_data
         except Exception as e:
             logger.error(f"Error retrieving article statistics: {e}")
-            return 500, {
-                "message": "Error retrieving article statistics. Please try again."
-            }
+            return 500, {"message": "Error retrieving article statistics. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -947,15 +856,11 @@ def get_community_article_stats(request, article_slug: str):
                 submission_date = article.created_at
         except Exception as e:
             logger.error(f"Error retrieving community information: {e}")
-            return 500, {
-                "message": "Error retrieving community information. Please try again."
-            }
+            return 500, {"message": "Error retrieving community information. Please try again."}
 
         try:
             # Get discussions count
-            discussions_count = Discussion.objects.filter(
-                article=article, community=community
-            ).count()
+            discussions_count = Discussion.objects.filter(article=article, community=community).count()
 
             # Get likes count
             likes_count = Reaction.objects.filter(
@@ -981,9 +886,7 @@ def get_community_article_stats(request, article_slug: str):
                 .annotate(count=Count("id"))
             )
 
-            reviews_dict = {
-                item["created_at__date"]: item["count"] for item in reviews_over_time
-            }
+            reviews_dict = {item["created_at__date"]: item["count"] for item in reviews_over_time}
 
             reviews_over_time = [
                 DateCount(
@@ -1005,9 +908,7 @@ def get_community_article_stats(request, article_slug: str):
                 .annotate(count=Count("id"))
             )
 
-            likes_dict = {
-                item["created_at__date"]: item["count"] for item in likes_over_time
-            }
+            likes_dict = {item["created_at__date"]: item["count"] for item in likes_over_time}
 
             likes_over_time = [
                 DateCount(
@@ -1018,9 +919,7 @@ def get_community_article_stats(request, article_slug: str):
             ]
 
             # Get average rating
-            average_rating = round(
-                reviews.aggregate(Avg("rating"))["rating__avg"] or 0, 1
-            )
+            average_rating = round(reviews.aggregate(Avg("rating"))["rating__avg"] or 0, 1)
 
             response_data = CommunityArticleStatsResponse(
                 title=article.title,
@@ -1031,9 +930,7 @@ def get_community_article_stats(request, article_slug: str):
                 likes=likes_count,
                 reviews_count=reviews_count,
                 recent_reviews=[
-                    ReviewExcerpt(
-                        excerpt=review.content[:100], date=review.created_at.date()
-                    )
+                    ReviewExcerpt(excerpt=review.content[:100], date=review.created_at.date())
                     for review in recent_reviews
                 ],
                 reviews_over_time=reviews_over_time,
@@ -1044,9 +941,7 @@ def get_community_article_stats(request, article_slug: str):
             return 200, response_data
         except Exception as e:
             logger.error(f"Error retrieving community article statistics: {e}")
-            return 500, {
-                "message": "Error retrieving community article statistics. Please try again."
-            }
+            return 500, {"message": "Error retrieving community article statistics. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -1062,9 +957,7 @@ Relevant Articles Endpoint
     response={200: List[ArticleBasicOut], codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
-def get_relevant_articles(
-    request, article_id: int, filters: ArticleFilters = Query(...)
-):
+def get_relevant_articles(request, article_id: int, filters: ArticleFilters = Query(...)):
     try:
         try:
             base_article = Article.objects.get(id=article_id)
@@ -1079,15 +972,11 @@ def get_relevant_articles(
             base_hashtags = base_article.hashtags.values_list("hashtag_id", flat=True)
 
             # Query for relevant articles
-            queryset = Article.objects.exclude(id=article_id).exclude(
-                communityarticle__community__type="hidden"
-            )
+            queryset = Article.objects.exclude(id=article_id).exclude(communityarticle__community__type="hidden")
 
             # Calculate relevance score based on shared hashtagsY
             queryset = queryset.annotate(
-                relevance_score=Count(
-                    "hashtags", filter=Q(hashtags__hashtag_id__in=base_hashtags)
-                )
+                relevance_score=Count("hashtags", filter=Q(hashtags__hashtag_id__in=base_hashtags))
             ).filter(relevance_score__gt=0)
 
             if filters.community_id:
@@ -1098,14 +987,12 @@ def get_relevant_articles(
                     )
                 except Exception as e:
                     logger.error(f"Error filtering by community: {e}")
-                    return 500, {
-                        "message": "Error filtering by community. Please try again."
-                    }
+                    return 500, {"message": "Error filtering by community. Please try again."}
 
             if filters.filter_type == FilterType.POPULAR:
-                queryset = queryset.annotate(
-                    popularity_score=Count("reviews") + Count("discussions")
-                ).order_by("-popularity_score", "-relevance_score")
+                queryset = queryset.annotate(popularity_score=Count("reviews") + Count("discussions")).order_by(
+                    "-popularity_score", "-relevance_score"
+                )
             elif filters.filter_type == FilterType.RECENT:
                 queryset = queryset.order_by("-created_at", "-relevance_score")
             else:  # "relevant" is the default
@@ -1117,21 +1004,48 @@ def get_relevant_articles(
                 return 400, {"message": "Invalid pagination parameters."}
 
             try:
-                result = [
-                    ArticleBasicOut.from_orm_with_custom_fields(article, request.auth)
-                    for article in articles
-                ]
+                articles_list = list(articles)
+                article_ids = [a.id for a in articles_list]
+                submitter_ids = {a.submitter_id for a in articles_list}
+
+                review_counts = dict(
+                    Review.objects.filter(article_id__in=article_ids)
+                    .values("article_id")
+                    .annotate(count=Count("id"))
+                    .values_list("article_id", "count")
+                )
+                discussion_counts = dict(
+                    Discussion.objects.filter(article_id__in=article_ids)
+                    .values("article_id")
+                    .annotate(count=Count("id"))
+                    .values_list("article_id", "count")
+                )
+                reputation_map = {r.user_id: r for r in Reputation.objects.filter(user_id__in=submitter_ids)}
+
+                result = []
+                for article in articles_list:
+                    user_stats = UserStats.from_model(article.submitter, basic_details=True)
+                    rep = reputation_map.get(article.submitter_id)
+                    if rep:
+                        user_stats.reputation_score = rep.score
+                        user_stats.reputation_level = rep.level
+
+                    result.append(
+                        ArticleBasicOut.from_orm_with_custom_fields(
+                            article,
+                            request.auth,
+                            total_reviews=review_counts.get(article.id, 0),
+                            total_discussions=discussion_counts.get(article.id, 0),
+                            user_stats=user_stats,
+                        )
+                    )
                 return 200, result
             except Exception as e:
                 logger.error(f"Error formatting article data: {e}")
-                return 500, {
-                    "message": "Error formatting article data. Please try again."
-                }
+                return 500, {"message": "Error formatting article data. Please try again."}
         except Exception as e:
             logger.error(f"Error retrieving relevant articles: {e}")
-            return 500, {
-                "message": "Error retrieving relevant articles. Please try again."
-            }
+            return 500, {"message": "Error retrieving relevant articles. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}

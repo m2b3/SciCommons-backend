@@ -71,9 +71,7 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = "users.User"
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
+    "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
 }
 
 SIMPLE_JWT = {
@@ -85,7 +83,6 @@ SIMPLE_JWT = {
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.common.CommonMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -210,12 +207,8 @@ FRONTEND_URL = config("FRONTEND_URL")
 AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
-AWS_S3_ENDPOINT_URL = config(
-    "AWS_S3_ENDPOINT_URL", default="https://object-arbutus.cloud.computecanada.ca"
-)
-AWS_S3_REGION_NAME = config(
-    "AWS_S3_REGION_NAME", default=""
-)  # Arbutus doesn't require region
+AWS_S3_ENDPOINT_URL = config("AWS_S3_ENDPOINT_URL", default="https://object-arbutus.cloud.computecanada.ca")
+AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME", default="")  # Arbutus doesn't require region
 AWS_S3_CUSTOM_DOMAIN = config(
     "AWS_S3_CUSTOM_DOMAIN",
     default=f"{config('AWS_STORAGE_BUCKET_NAME', default='cdn.scicommons.org')}",
@@ -256,10 +249,7 @@ STORAGES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": (
-            "django.contrib.auth.password_validation."
-            "UserAttributeSimilarityValidator"
-        ),
+        "NAME": ("django.contrib.auth.password_validation." "UserAttributeSimilarityValidator"),
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
@@ -299,9 +289,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Celery Configurations
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config(
-    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
-)
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
 print("redis: ", CELERY_BROKER_URL, CELERY_RESULT_BACKEND)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
@@ -313,9 +301,7 @@ CELERY_WORKER_CONCURRENCY = 5
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": config(
-            "REDIS_HOST_URL", default="redis://localhost:6379/1"
-        ),  # Use DB 1 for Django cache
+        "LOCATION": config("REDIS_HOST_URL", default="redis://localhost:6379/1"),  # Use DB 1 for Django cache
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             # "PARSER_CLASS": "redis.connection.HiredisParser",
@@ -332,7 +318,7 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 # SESSION_CACHE_ALIAS = "default"
 
 # -------------------- Logging Configuration --------------------
-LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(pathname)s - %(message)s"
+LOG_FORMAT = "[%(levelname)s] - %(asctime)s - %(name)s - %(message)s"
 
 if DEBUG:
     LOGGING = {
@@ -341,7 +327,7 @@ if DEBUG:
         "formatters": {
             "detailed": {
                 "format": LOG_FORMAT,
-                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
             },
         },
         "handlers": {
@@ -363,6 +349,7 @@ if DEBUG:
             "myapp.middleware": {
                 "handlers": ["console"],
                 "level": "INFO",
+                "propagate": False,
             },
         },
     }
@@ -377,7 +364,7 @@ else:
         "formatters": {
             "detailed": {
                 "format": LOG_FORMAT,
-                "datefmt": "%Y-%m-%d %H:%M:%S,%f",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
             },
         },
         "handlers": {
@@ -408,9 +395,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [
-                config("REDIS_HOST_URL", default="redis://localhost:6379/2")
-            ],  # Use DB 2 for channels
+            "hosts": [config("REDIS_HOST_URL", default="redis://localhost:6379/2")],  # Use DB 2 for channels
         },
     },
 }

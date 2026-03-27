@@ -6,7 +6,7 @@ from decouple import config
 from django.conf import settings
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
-from django.utils.html import strip_tags
+from django.utils.html import escape, strip_tags
 from django.utils.safestring import mark_safe
 
 from users.settings_cache import is_email_notifications_enabled
@@ -32,7 +32,7 @@ def send_email_task(
 
         if is_html:
             html_content = render_to_string(html_template_name, context)
-            text_content = strip_tags(html_content)
+            strip_tags(html_content)
 
             # Use EmailMessage for better control over headers
             from django.core.mail import EmailMessage
@@ -87,9 +87,7 @@ def send_review_notification_email(article, review, community):
     try:
         recipient = article.submitter
         if not recipient or not recipient.email:
-            logger.warning(
-                f"Cannot send review notification: recipient has no email for article {article.id}"
-            )
+            logger.warning(f"Cannot send review notification: recipient has no email for article {article.id}")
             return
 
         # Don't send email if reviewer is the submitter
@@ -98,27 +96,21 @@ def send_review_notification_email(article, review, community):
 
         # Check if recipient has email notifications enabled (early exit to avoid unnecessary work)
         if not is_email_notifications_enabled(recipient.id):
-            logger.debug(
-                f"Email notifications disabled for user {recipient.id}, skipping review notification"
-            )
+            logger.debug(f"Email notifications disabled for user {recipient.id}, skipping review notification")
             return
 
         domain = get_frontend_domain()
         article_link = f"{domain}/community/{quote(community.name, safe='')}/articles/{article.slug}"
 
         # Truncate content for preview (first 200 characters)
-        content_preview = (
-            review.content[:200] + "..."
-            if len(review.content) > 200
-            else review.content
-        )
+        content_preview = review.content[:200] + "..." if len(review.content) > 200 else review.content
 
         context = {
             "recipient_name": recipient.first_name or recipient.username,
             "notification_type": "New Review on Your Article",
-            "message_text": mark_safe(
-                f"<b>{review.user.username}</b> has posted a new review on your article "
-                f'<em>"{article.title}"</em> in the <b>{community.name}</b> community.'
+            "message_text": mark_safe(  # nosec B308 B703 - user input is escaped
+                f"<b>{escape(review.user.username)}</b> has posted a new review on your article "
+                f'<em>"{escape(article.title)}"</em> in the <b>{escape(community.name)}</b> community.'
             ),
             "content_preview": content_preview,
             "article_link": article_link,
@@ -161,41 +153,33 @@ def send_comment_notification_email(comment, review, article, community):
                 return
 
         if not recipient or not recipient.email:
-            logger.warning(
-                f"Cannot send comment notification: recipient has no email for comment {comment.id}"
-            )
+            logger.warning(f"Cannot send comment notification: recipient has no email for comment {comment.id}")
             return
 
         # Check if recipient has email notifications enabled (early exit to avoid unnecessary work)
         if not is_email_notifications_enabled(recipient.id):
-            logger.debug(
-                f"Email notifications disabled for user {recipient.id}, skipping comment notification"
-            )
+            logger.debug(f"Email notifications disabled for user {recipient.id}, skipping comment notification")
             return
 
         # Build notification content after all early-exit checks pass
         if comment.parent:
             notification_type = "New Reply to Your Comment"
-            message_text = mark_safe(
-                f"<b>{comment.author.username}</b> has replied to your comment on the review "
-                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
+            message_text = mark_safe(  # nosec B308 B703 - user input is escaped
+                f"<b>{escape(comment.author.username)}</b> has replied to your comment on the review "
+                f'of <em>"{escape(article.title)}"</em> in the <b>{escape(community.name)}</b> community.'
             )
         else:
             notification_type = "New Comment on Your Review"
-            message_text = mark_safe(
-                f"<b>{comment.author.username}</b> has commented on your review "
-                f'of <em>"{article.title}"</em> in the <b>{community.name}</b> community.'
+            message_text = mark_safe(  # nosec B308 B703 - user input is escaped
+                f"<b>{escape(comment.author.username)}</b> has commented on your review "
+                f'of <em>"{escape(article.title)}"</em> in the <b>{escape(community.name)}</b> community.'
             )
 
         domain = get_frontend_domain()
         article_link = f"{domain}/community/{quote(community.name, safe='')}/articles/{article.slug}"
 
         # Truncate content for preview (first 200 characters)
-        content_preview = (
-            comment.content[:200] + "..."
-            if len(comment.content) > 200
-            else comment.content
-        )
+        content_preview = comment.content[:200] + "..." if len(comment.content) > 200 else comment.content
 
         context = {
             "recipient_name": recipient.first_name or recipient.username,
@@ -225,9 +209,7 @@ def send_join_request_approved_email(user, community):
     """
     try:
         if not user or not user.email:
-            logger.warning(
-                f"Cannot send join request approved email: user has no email"
-            )
+            logger.warning(f"Cannot send join request approved email: user has no email")
             return
 
         domain = get_frontend_domain()
@@ -237,15 +219,13 @@ def send_join_request_approved_email(user, community):
         community_description = None
         if community.description:
             community_description = (
-                community.description[:150] + "..."
-                if len(community.description) > 150
-                else community.description
+                community.description[:150] + "..." if len(community.description) > 150 else community.description
             )
 
         recipient_name = user.first_name or user.username
-        message_text = mark_safe(
-            f"Hi <b>{recipient_name}</b>, your request to join the "
-            f"<b>{community.name}</b> community has been approved. "
+        message_text = mark_safe(  # nosec B308 B703 - user input is escaped
+            f"Hi <b>{escape(recipient_name)}</b>, your request to join the "
+            f"<b>{escape(community.name)}</b> community has been approved. "
             f"You are now a member and can participate in community activities."
         )
 

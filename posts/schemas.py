@@ -21,9 +21,9 @@ class PostOut(ModelSchema):
     hashtags: List[str] = Field(default_factory=list)
     is_author: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Post
-        model_fields = ["id", "title", "content", "created_at"]
+        fields = ["id", "title", "content", "created_at"]
 
     @staticmethod
     def resolve_post(post: Post, current_user: Optional[User]):
@@ -67,9 +67,9 @@ class CommentOut(ModelSchema):
     upvotes: int
     is_author: bool = Field(False)
 
-    class Config:
+    class Meta:
         model = Comment
-        model_fields = ["id", "content", "created_at"]
+        fields = ["id", "content", "created_at"]
 
     @staticmethod
     def from_orm_with_replies(comment: Comment, current_user: Optional[User]):

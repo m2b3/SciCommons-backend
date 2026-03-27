@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy Poetry dependencies and lockfile
 COPY pyproject.toml poetry.lock /app/
 
-# Install Poetry (pin to avoid CLI changes and keep compat with install flags)
-RUN pip install poetry==1.7.1
+# Install Poetry (match local version for lock file compatibility)
+RUN pip install poetry==2.1.3
 
 # Install Python dependencies from lockfile (no sync to avoid removing Poetry)
 RUN poetry config virtualenvs.create false \
