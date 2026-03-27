@@ -1,19 +1,20 @@
+from collections import defaultdict
 from datetime import date, datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Avg, Sum
+from django.db.models import Avg, Count
 from ninja import Field, ModelSchema, Schema
 
 from articles.models import (
     AnonymousIdentity,
     Article,
-    ArticlePDF,
     Discussion,
     DiscussionComment,
     DiscussionSubscription,
     DiscussionSummary,
+    Reaction,
     Review,
     ReviewComment,
     ReviewCommentRating,
@@ -21,7 +22,7 @@ from articles.models import (
 )
 from communities.models import Community, CommunityArticle
 from myapp.schemas import DateCount, FilterType, FlagType, UserStats
-from users.models import HashtagRelation, User
+from users.models import Reputation, User
 
 """
 Article Related Schemas for serialization and deserialization
@@ -58,9 +59,7 @@ class CommunityArticleForList(Schema):
     community: ArticleCommunityDetails
 
     @classmethod
-    def from_orm(
-        cls, community_article: CommunityArticle, current_user: Optional[User]
-    ):
+    def from_orm(cls, community_article: CommunityArticle, current_user: Optional[User]):
         community_obj = (
             ArticleCommunityDetails.from_orm(community_article.community)
             if hasattr(community_article, "community")
@@ -103,28 +102,25 @@ class CommunityArticleOut(ModelSchema):
 
     @classmethod
     def from_orm(
-        cls, community_article: CommunityArticle, current_user: Optional[User]
+        cls,
+        community_article: CommunityArticle,
+        current_user: Optional[User],
+        is_admin: Optional[bool] = None,
+        reviewer_ids: Optional[list] = None,
     ):
-        # Safety: ensure prefetching/optimization was done
-        if (
-            not hasattr(community_article, "_prefetched_objects_cache")
-            or "assigned_reviewers" not in community_article._prefetched_objects_cache
-        ):
-            # Optional: Log warning in development
-            # logger.warning("assigned_reviewers not prefetched for CommunityArticle id=%s", community_article.id)
-            pass
+        if reviewer_ids is None:
+            if (
+                not hasattr(community_article, "_prefetched_objects_cache")
+                or "assigned_reviewers" not in community_article._prefetched_objects_cache
+            ):
+                pass
+            reviewer_ids = (
+                list(community_article.assigned_reviewers.values_list("id", flat=True))
+                if hasattr(community_article, "assigned_reviewers")
+                else []
+            )
 
-        reviewer_ids = (
-            list(community_article.assigned_reviewers.values_list("id", flat=True))
-            if hasattr(community_article, "assigned_reviewers")
-            else []
-        )
-
-        moderator_id = (
-            community_article.assigned_moderator.id
-            if community_article.assigned_moderator
-            else None
-        )
+        moderator_id = community_article.assigned_moderator.id if community_article.assigned_moderator else None
 
         community_obj = (
             ArticleCommunityDetails.from_orm(community_article.community)
@@ -132,11 +128,12 @@ class CommunityArticleOut(ModelSchema):
             else None
         )
 
-        is_admin = (
-            community_article.community.is_admin(current_user)
-            if current_user and not isinstance(current_user, bool)
-            else False
-        )
+        if is_admin is None:
+            is_admin = (
+                community_article.community.is_admin(current_user)
+                if current_user and not isinstance(current_user, bool)
+                else False
+            )
 
         return cls(
             id=community_article.id,
@@ -182,9 +179,7 @@ class ArticlesListOut(ModelSchema):
             abstract=article.abstract,
             authors=article.authors,
             community_article=(
-                CommunityArticleForList.from_orm(community_article, None)
-                if community_article
-                else None
+                CommunityArticleForList.from_orm(community_article, None) if community_article else None
             ),
             user=UserStats.from_model(article.submitter, basic_details=True),
             article_image_url=article.article_image_url,
@@ -237,9 +232,7 @@ class ArticleOut(ModelSchema):
         is_pseudonymous = False
         community_article_out = None
         if community_article:
-            community_article_out = CommunityArticleOut.from_orm(
-                community_article, current_user
-            )
+            community_article_out = CommunityArticleOut.from_orm(community_article, current_user)
             is_pseudonymous = community_article_out.is_pseudonymous
 
         return cls(
@@ -260,9 +253,7 @@ class ArticleOut(ModelSchema):
             total_discussions=total_discussions,
             total_comments=total_comments,
             community_article=community_article_out,
-            user=UserStats.from_model(
-                article.submitter, basic_details_with_reputation=True
-            ),
+            user=UserStats.from_model(article.submitter, basic_details_with_reputation=True),
             is_submitter=(article.submitter == current_user) if current_user else False,
             is_pseudonymous=is_pseudonymous,
             is_bookmarked=is_bookmarked,
@@ -286,13 +277,19 @@ class ArticleBasicOut(ModelSchema):
 
     @classmethod
     def from_orm_with_custom_fields(
-        cls, article: Article, current_user: Optional[User]
+        cls,
+        article: Article,
+        current_user: Optional[User],
+        total_reviews: Optional[int] = None,
+        total_discussions: Optional[int] = None,
+        user_stats: Optional[UserStats] = None,
     ):
-        total_reviews = Review.objects.filter(article=article).count()
-        total_discussions = Discussion.objects.filter(article=article).count()
-        user = UserStats.from_model(
-            article.submitter, basic_details_with_reputation=True
-        )
+        if total_reviews is None:
+            total_reviews = Review.objects.filter(article=article).count()
+        if total_discussions is None:
+            total_discussions = Discussion.objects.filter(article=article).count()
+        if user_stats is None:
+            user_stats = UserStats.from_model(article.submitter, basic_details_with_reputation=True)
 
         return cls(
             id=article.id,
@@ -301,7 +298,7 @@ class ArticleBasicOut(ModelSchema):
             article_image_url=article.article_image_url,
             total_reviews=total_reviews,
             total_discussions=total_discussions,
-            user=user,
+            user=user_stats,
             is_submitter=(article.submitter == current_user) if current_user else False,
         )
 
@@ -433,13 +430,8 @@ class ReviewOut(ModelSchema):
         current_user: Optional[User],
         flags: Optional[List[str]] = None,
     ):
-        comments_count = ReviewComment.objects.filter(
-            review=review, is_deleted=False
-        ).count()
-        versions = [
-            ReviewVersionSchema.from_orm(version)
-            for version in review.versions.all().order_by("-version")[:3]
-        ]
+        comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
+        versions = [ReviewVersionSchema.from_orm(version) for version in review.versions.all().order_by("-version")[:3]]
         is_pseudonymous = review.is_pseudonymous
         # if is_pseudonymous:
         #     pseudonym = AnonymousIdentity.objects.get(
@@ -460,20 +452,12 @@ class ReviewOut(ModelSchema):
 
         community_article = None
 
-        if CommunityArticle.objects.filter(
-            article=review.article, community=review.community
-        ).exists():
-            community_article = CommunityArticle.objects.get(
-                article=review.article, community=review.community
-            )
-            community_article = CommunityArticleOut.from_orm(
-                community_article, current_user
-            )
+        if CommunityArticle.objects.filter(article=review.article, community=review.community).exists():
+            community_article = CommunityArticle.objects.get(article=review.article, community=review.community)
+            community_article = CommunityArticleOut.from_orm(community_article, current_user)
 
         comments_ratings = round(
-            ReviewCommentRating.objects.filter(
-                review=review, community=review.community
-            )
+            ReviewCommentRating.objects.filter(review=review, community=review.community)
             .exclude(user=review.user)
             .aggregate(rating=Avg("rating"))["rating"]
             or 0,
@@ -544,12 +528,9 @@ class ReviewCommentOut(ModelSchema):
 
     @staticmethod
     def from_orm_with_replies(comment: ReviewComment, current_user: Optional[User]):
-        author = UserStats.from_model(
-            comment.author, basic_details_with_reputation=True
-        )
+        author = UserStats.from_model(comment.author, basic_details_with_reputation=True)
         replies = [
-            ReviewCommentOut.from_orm_with_replies(reply, current_user)
-            for reply in comment.review_replies.all()
+            ReviewCommentOut.from_orm_with_replies(reply, current_user) for reply in comment.review_replies.all()
         ]
         is_pseudonymous = comment.is_pseudonymous
         # if is_pseudonymous:
@@ -589,9 +570,7 @@ class ReviewCommentOut(ModelSchema):
 class ReviewCommentCreateSchema(Schema):
     content: str
     rating: int
-    parent_id: Optional[int] = Field(
-        None, description="ID of the parent review comment if it's a reply"
-    )
+    parent_id: Optional[int] = Field(None, description="ID of the parent review comment if it's a reply")
 
 
 class ReviewCommentUpdateSchema(Schema):
@@ -661,9 +640,7 @@ class DiscussionOut(ModelSchema):
         # else:
         #     anonymous_name = None
         #     avatar = None
-        user = UserStats.from_model(
-            discussion.author, basic_details_with_reputation=True
-        )
+        user = UserStats.from_model(discussion.author, basic_details_with_reputation=True)
         if is_pseudonymous:
             pseudonym = AnonymousIdentity.objects.get(
                 article=discussion.article,
@@ -750,13 +727,9 @@ class DiscussionCommentOut(ModelSchema):
             flags: Direct list of flags to use (for realtime events where flags are known).
                    Takes precedence over flags_by_comment_id if provided.
         """
-        author = UserStats.from_model(
-            comment.author, basic_details_with_reputation=True
-        )
+        author = UserStats.from_model(comment.author, basic_details_with_reputation=True)
         replies = [
-            DiscussionCommentOut.from_orm_with_replies(
-                reply, current_user, flags_by_comment_id
-            )
+            DiscussionCommentOut.from_orm_with_replies(reply, current_user, flags_by_comment_id)
             for reply in DiscussionComment.objects.filter(parent=comment)
         ]
         # pseudonym = AnonymousIdentity.objects.get(
@@ -796,12 +769,122 @@ class DiscussionCommentOut(ModelSchema):
             flags=final_flags,
         )
 
+    @staticmethod
+    def bulk_from_orm(
+        discussion: Discussion,
+        current_user: Optional[User],
+        flags_by_comment_id: Optional[dict] = None,
+    ) -> list["DiscussionCommentOut"]:
+        """
+        Serialize all root-level comments (with nested replies) for a discussion
+        using bulk queries instead of recursive per-comment queries.
+
+        Returns a list of DiscussionCommentOut for root comments (parent=None),
+        ordered by -created_at, with replies attached as a tree.
+        """
+        all_comments = list(
+            DiscussionComment.objects.filter(discussion=discussion).select_related("author").order_by("created_at")
+        )
+        if not all_comments:
+            return []
+
+        all_comment_ids = [c.id for c in all_comments]
+        author_ids = list({c.author_id for c in all_comments})
+
+        # Bulk fetch reputation for all authors
+        rep_map = {}
+        for rep in Reputation.objects.filter(user_id__in=author_ids):
+            rep_map[rep.user_id] = rep
+
+        # Bulk fetch upvote counts via Reaction (GenericRelation)
+        ct = ContentType.objects.get_for_model(DiscussionComment)
+        upvote_map = dict(
+            Reaction.objects.filter(
+                content_type=ct,
+                object_id__in=all_comment_ids,
+                vote=1,
+            )
+            .values("object_id")
+            .annotate(count=Count("id"))
+            .values_list("object_id", "count")
+        )
+
+        # Bulk fetch pseudonyms for pseudonymous comments
+        pseudonym_map = {}
+        pseudonymous_comments = [c for c in all_comments if c.is_pseudonymous]
+        if pseudonymous_comments:
+            pseudo_user_ids = {c.author_id for c in pseudonymous_comments}
+            article_id = discussion.article_id
+            community_id = discussion.community_id
+            for p in AnonymousIdentity.objects.filter(
+                article_id=article_id,
+                community_id=community_id,
+                user_id__in=pseudo_user_ids,
+            ):
+                pseudonym_map[(p.user_id, p.article_id, p.community_id)] = p
+
+        if flags_by_comment_id is None:
+            flags_by_comment_id = {}
+
+        # Build serialized map for every comment (flat)
+        comment_out_map: dict[int, DiscussionCommentOut] = {}
+        for c in all_comments:
+            rep = rep_map.get(c.author_id)
+            author = UserStats(
+                id=c.author.id,
+                username=c.author.username,
+                profile_pic_url=c.author.profile_pic_url,
+                reputation_score=rep.score if rep else None,
+                reputation_level=rep.level if rep else None,
+            )
+
+            if c.is_pseudonymous:
+                key = (c.author_id, discussion.article_id, discussion.community_id)
+                pseudonym = pseudonym_map.get(key)
+                if pseudonym:
+                    author.username = pseudonym.fake_name
+                    author.profile_pic_url = pseudonym.identicon
+
+            comment_out_map[c.id] = DiscussionCommentOut(
+                id=c.id,
+                author=author,
+                content=c.content,
+                created_at=c.created_at,
+                upvotes=upvote_map.get(c.id, 0),
+                replies=[],
+                is_author=(c.author_id == current_user.id) if current_user else False,
+                is_pseudonymous=c.is_pseudonymous,
+                flags=flags_by_comment_id.get(c.id, []),
+            )
+
+        # Build tree: attach children to their parents
+        children_map: dict[int, list[int]] = defaultdict(list)
+        root_ids: list[int] = []
+        for c in all_comments:
+            if c.parent_id is None:
+                root_ids.append(c.id)
+            else:
+                children_map[c.parent_id].append(c.id)
+
+        def attach_replies(comment_id: int):
+            node = comment_out_map[comment_id]
+            child_ids = children_map.get(comment_id, [])
+            node.replies = []
+            for child_id in child_ids:
+                attach_replies(child_id)
+                node.replies.append(comment_out_map[child_id])
+
+        for rid in root_ids:
+            attach_replies(rid)
+
+        # Return root comments in reverse chronological order
+        root_ids.reverse()
+        return [comment_out_map[rid] for rid in root_ids]
+
 
 class DiscussionCommentCreateSchema(Schema):
     content: str
-    parent_id: Optional[int] = Field(
-        None, description="ID of the parent discussion comment if it's a reply"
-    )
+    parent_id: Optional[int] = Field(None, description="ID of the parent discussion comment if it's a reply")
 
 
 class DiscussionCommentUpdateSchema(Schema):
@@ -933,9 +1016,7 @@ class DiscussionSummaryOut(ModelSchema):
             created_by = UserStats.from_model(summary.created_by, basic_details=True)
 
         if summary.last_updated_by_id and hasattr(summary, "last_updated_by"):
-            last_updated_by = UserStats.from_model(
-                summary.last_updated_by, basic_details=True
-            )
+            last_updated_by = UserStats.from_model(summary.last_updated_by, basic_details=True)
 
         return cls(
             id=summary.id,

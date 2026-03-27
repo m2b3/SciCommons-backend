@@ -2,14 +2,12 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
-from django.contrib.contenttypes.models import ContentType
 from ninja import ModelSchema, Schema
 
 from articles.schemas import ArticleBasicOut
 from communities.models import Community, CommunityArticle, JoinRequest
-from myapp.constants import COMMUNITY_SETTINGS
 from myapp.schemas import DateCount, FilterType
-from users.models import HashtagRelation, User
+from users.models import User
 
 """
 Community management schemas for serialization and validation.
@@ -65,9 +63,7 @@ class CommunityListOut(ModelSchema):
         org: Optional[str] = None,
         is_bookmarked: Optional[bool] = None,
     ):
-        num_published_articles = CommunityArticle.objects.filter(
-            community=community, status="published"
-        ).count()
+        num_published_articles = CommunityArticle.objects.filter(community=community, status="published").count()
         num_members = community.members.count()
         response_data = {
             "id": community.id,
@@ -147,10 +143,12 @@ class CommunityOut(ModelSchema):
         user: Optional[User] = None,
         is_bookmarked: Optional[bool] = None,
         member_usernames: Optional[List[str]] = None,
+        is_member: Optional[bool] = None,
+        is_admin: Optional[bool] = None,
+        is_moderator: Optional[bool] = None,
+        is_reviewer: Optional[bool] = None,
     ):
-        num_published_articles = CommunityArticle.objects.filter(
-            community=community, status="published"
-        ).count()
+        num_published_articles = CommunityArticle.objects.filter(community=community, status="published").count()
         num_articles = CommunityArticle.objects.filter(community=community).count()
 
         response_data = {
@@ -179,35 +177,27 @@ class CommunityOut(ModelSchema):
         if community.banner_pic_url:
             response_data["banner_pic_url"] = community.banner_pic_url.url
 
-        # if tags
-        # tags = [
-        #     relation.hashtag.name
-        #     for relation in HashtagRelation.objects.filter(
-        #         content_type=ContentType.objects.get_for_model(Community),
-        #         object_id=community.id,
-        #     )
-        # ]
-        # tags = []
-
         if user and not isinstance(user, bool):
-            if community.is_member(user):
+            member_flag = is_member if is_member is not None else community.is_member(user)
+            if member_flag:
                 response_data.update(
                     {
                         "is_member": True,
-                        "is_moderator": community.moderators.filter(
-                            id=user.id
-                        ).exists(),
-                        "is_reviewer": community.reviewers.filter(id=user.id).exists(),
-                        "is_admin": community.is_admin(user),
+                        "is_moderator": (
+                            is_moderator
+                            if is_moderator is not None
+                            else community.moderators.filter(id=user.id).exists()
+                        ),
+                        "is_reviewer": (
+                            is_reviewer if is_reviewer is not None else community.reviewers.filter(id=user.id).exists()
+                        ),
+                        "is_admin": (is_admin if is_admin is not None else community.is_admin(user)),
                         "rules": community.rules if community.rules else None,
                     }
                 )
 
             else:
-                # Checking if the user has a latest join request
-                join_request = JoinRequest.objects.filter(
-                    community=community, user=user
-                ).order_by("-id")
+                join_request = JoinRequest.objects.filter(community=community, user=user).order_by("-id")
 
                 if join_request.exists():
                     response_data["join_request_status"] = join_request.first().status
@@ -433,17 +423,17 @@ class CommunityBasicOut(Schema):
     total_members: int
 
     @staticmethod
-    def from_orm(community: Community):
+    def from_orm(community: Community, total_published_articles=None, total_members=None):
         return CommunityBasicOut(
             id=community.id,
             name=community.name,
-            profile_pic_url=(
-                community.profile_pic_url.url if community.profile_pic_url else None
+            profile_pic_url=(community.profile_pic_url.url if community.profile_pic_url else None),
+            total_published_articles=(
+                total_published_articles
+                if total_published_articles is not None
+                else CommunityArticle.objects.filter(community=community, status="published").count()
             ),
-            total_published_articles=CommunityArticle.objects.filter(
-                community=community, status="published"
-            ).count(),
-            total_members=community.members.count(),
+            total_members=(total_members if total_members is not None else community.members.count()),
         )
 
 

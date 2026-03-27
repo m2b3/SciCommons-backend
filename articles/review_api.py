@@ -44,7 +44,7 @@ from myapp.services.send_emails import (
 )
 from myapp.upload_api import process_content_images_async
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import User
+from users.models import Reputation, User
 
 router = Router(tags=["Reviews"])
 
@@ -82,9 +82,7 @@ def create_review(
             existing_review = Review.objects.filter(article=article, user=user)
         except Exception as e:
             logger.error(f"Error checking existing reviews: {e}")
-            return 500, {
-                "message": "Error checking existing reviews. Please try again."
-            }
+            return 500, {"message": "Error checking existing reviews. Please try again."}
 
         is_pseudonymous = False
         community = None
@@ -103,16 +101,12 @@ def create_review(
                 return 403, {"message": "You are not a member of this community."}
 
             try:
-                community_article = CommunityArticle.objects.get(
-                    article=article, community=community
-                )
+                community_article = CommunityArticle.objects.get(article=article, community=community)
             except CommunityArticle.DoesNotExist:
                 return 404, {"message": "Article not found in this community."}
             except Exception as e:
                 logger.error(f"Error retrieving community article: {e}")
-                return 500, {
-                    "message": "Error retrieving community article. Please try again."
-                }
+                return 500, {"message": "Error retrieving community article. Please try again."}
 
             # Future implementation code commented out
             # if community_article.assigned_reviewers.filter(id=user.id).exists():
@@ -152,14 +146,10 @@ def create_review(
 
             try:
                 if existing_review.filter(community=community).exists():
-                    return 400, {
-                        "message": "You have already reviewed this article in this community."
-                    }
+                    return 400, {"message": "You have already reviewed this article in this community."}
             except Exception as e:
                 logger.error(f"Error checking existing reviews: {e}")
-                return 500, {
-                    "message": "Error checking existing reviews. Please try again."
-                }
+                return 500, {"message": "Error checking existing reviews. Please try again."}
 
         else:
             try:
@@ -167,9 +157,7 @@ def create_review(
                     return 400, {"message": "You have already reviewed this article."}
             except Exception as e:
                 logger.error(f"Error checking existing reviews: {e}")
-                return 500, {
-                    "message": "Error checking existing reviews. Please try again."
-                }
+                return 500, {"message": "Error checking existing reviews. Please try again."}
 
             review_type = Review.PUBLIC
 
@@ -195,7 +183,6 @@ def create_review(
             except Exception as e:
                 logger.error(f"Error creating anonymous name for review: {e}")
                 # Continue even if anonymous name creation fails
-                pass
 
         # Send notifications to article submitter (only if subscribed for community articles)
         try:
@@ -259,9 +246,7 @@ def create_review(
     response={200: PaginatedReviewSchema, codes_4xx: Message, codes_5xx: Message},
     auth=OptionalJWTAuth,
 )
-def list_reviews(
-    request, article_id: int, community_id: int = None, page: int = 1, size: int = 10
-):
+def list_reviews(request, article_id: int, community_id: int = None, page: int = 1, size: int = 10):
     try:
         try:
             article = Article.objects.get(id=article_id)
@@ -310,9 +295,7 @@ def list_reviews(
             paginator = Paginator(reviews, size)
             page_obj = paginator.page(page)
         except Exception:
-            return 400, {
-                "message": "Invalid pagination parameters. Please check page number and size."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
 
         current_user: Optional[User] = None if not request.auth else request.auth
 
@@ -326,9 +309,7 @@ def list_reviews(
             # Bulk fetch related data to avoid N+1 queries
             review_ids = [r.id for r in reviews_list]
             review_user_ids = {r.user_id for r in reviews_list}
-            review_community_ids = {
-                r.community_id for r in reviews_list if r.community_id
-            }
+            review_community_ids = {r.community_id for r in reviews_list if r.community_id}
 
             comments_count_map = dict(
                 ReviewComment.objects.filter(review_id__in=review_ids, is_deleted=False)
@@ -340,9 +321,7 @@ def list_reviews(
             comments_ratings_map = dict(
                 ReviewCommentRating.objects.filter(
                     review_id__in=review_ids,
-                    community_id__in=(
-                        review_community_ids if review_community_ids else [None]
-                    ),
+                    community_id__in=(review_community_ids if review_community_ids else [None]),
                 )
                 .exclude(user_id__in=review_user_ids)
                 .values("review_id")
@@ -353,18 +332,25 @@ def list_reviews(
             # Fetch and map anonymous identities in bulk
             pseudonyms = {
                 (anon.article_id, anon.user_id, anon.community_id): anon
-                for anon in AnonymousIdentity.objects.filter(
-                    article_id=article.id, user_id__in=review_user_ids
-                )
+                for anon in AnonymousIdentity.objects.filter(article_id=article.id, user_id__in=review_user_ids)
             }
 
-            # Bulk fetch CommunityArticles if needed
+            # Bulk fetch CommunityArticles with prefetched reviewers
             ca_map = {
                 (ca.article_id, ca.community_id): ca
                 for ca in CommunityArticle.objects.filter(
                     article_id=article.id, community_id__in=review_community_ids
-                )
+                ).prefetch_related("assigned_reviewers")
             }
+
+            # Batch reputation lookups (1 query instead of N get_or_create calls)
+            reputation_map = {r.user_id: r for r in Reputation.objects.filter(user_id__in=review_user_ids)}
+
+            # Pre-compute is_admin per community (1 query per unique community, not per review)
+            is_admin_map = {}
+            if current_user and not isinstance(current_user, bool):
+                for cid in review_community_ids:
+                    is_admin_map[cid] = Community.objects.filter(id=cid, admins=current_user).exists()
 
             # Prefetch all flags for reviews in one query (avoids N+1)
             flags_by_review_id = {}
@@ -378,14 +364,14 @@ def list_reviews(
             # Build the response
             items = []
             for review in reviews_list:
-                user = UserStats.from_model(
-                    review.user, basic_details_with_reputation=True
-                )
+                user = UserStats.from_model(review.user, basic_details=True)
+                rep = reputation_map.get(review.user_id)
+                if rep:
+                    user.reputation_score = rep.score
+                    user.reputation_level = rep.level
 
                 if review.is_pseudonymous:
-                    pseudonym = pseudonyms.get(
-                        (article.id, review.user_id, review.community_id)
-                    )
+                    pseudonym = pseudonyms.get((article.id, review.user_id, review.community_id))
                     if pseudonym:
                         user.username = pseudonym.fake_name
                         user.profile_pic_url = pseudonym.identicon
@@ -393,11 +379,14 @@ def list_reviews(
                 community_article = None
                 ca = ca_map.get((article.id, review.community_id))
                 if ca:
-                    community_article = CommunityArticleOut.from_orm(ca, current_user)
+                    community_article = CommunityArticleOut.from_orm(
+                        ca,
+                        current_user,
+                        is_admin=is_admin_map.get(review.community_id, False),
+                    )
 
                 versions = [
-                    ReviewVersionSchema.from_orm(version)
-                    for version in getattr(review, "prefetched_versions", [])[:3]
+                    ReviewVersionSchema.from_orm(version) for version in getattr(review, "prefetched_versions", [])[:3]
                 ]
 
                 comments_rating = round(comments_ratings_map.get(review.id, 0) or 0, 1)
@@ -419,8 +408,7 @@ def list_reviews(
                         updated_at=review.updated_at,
                         deleted_at=review.deleted_at,
                         comments_count=comments_count_map.get(review.id, 0),
-                        is_author=review.user_id
-                        == (current_user.id if current_user else None),
+                        is_author=review.user_id == (current_user.id if current_user else None),
                         is_approved=review.is_approved,
                         versions=versions,
                         is_pseudonymous=review.is_pseudonymous,
@@ -430,9 +418,7 @@ def list_reviews(
                     )
                 )
 
-            return 200, PaginatedReviewSchema(
-                items=items, total=paginator.count, page=page, size=size
-            )
+            return 200, PaginatedReviewSchema(items=items, total=paginator.count, page=page, size=size)
         except Exception as e:
             logger.error(f"Error formatting review data: {e}")
             return 500, {"message": "Error formatting review data. Please try again."}
@@ -601,9 +587,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 return 404, {"message": "Parent comment not found."}
             except Exception as e:
                 logger.error(f"Error retrieving parent comment: {e}")
-                return 500, {
-                    "message": "Error retrieving parent comment. Please try again."
-                }
+                return 500, {"message": "Error retrieving parent comment. Please try again."}
 
             if parent_comment.is_deleted:
                 return 400, {"message": "You can't reply to a deleted comment."}
@@ -615,9 +599,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 nesting_level += 1
                 current_parent = current_parent.parent
                 if nesting_level >= MAX_NESTING_LEVEL:
-                    return 400, {
-                        "message": f"Exceeded maximum comment nesting level of {MAX_NESTING_LEVEL}"
-                    }
+                    return 400, {"message": f"Exceeded maximum comment nesting level of {MAX_NESTING_LEVEL}"}
 
         # if payload.rating == 0:
         #     previous_comment = ReviewComment.objects.filter(review=review, author=user, rating__isnull=False).first()
@@ -642,9 +624,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 is_pseudonymous = True
         except Exception as e:
             logger.error(f"Error checking article pseudonymity: {e}")
-            return 500, {
-                "message": "Error checking article pseudonymity. Please try again."
-            }
+            return 500, {"message": "Error checking article pseudonymity. Please try again."}
 
         try:
             comment = ReviewComment.objects.create(
@@ -667,7 +647,6 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
             except Exception as e:
                 logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
-                pass
 
         # Send notification to review author and article author (only if subscribed for community articles)
         try:
@@ -724,11 +703,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
                 )
 
             # If this is a reply, notify the parent comment author (if subscribed)
-            if (
-                parent_comment
-                and parent_comment.author_id != user.id
-                and is_user_subscribed(parent_comment.author_id)
-            ):
+            if parent_comment and parent_comment.author_id != user.id and is_user_subscribed(parent_comment.author_id):
                 NotificationService.send_to_user(
                     user_id=parent_comment.author_id,
                     notification_type=NotificationType.REVIEW_COMMENT,
@@ -744,9 +719,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
         # Send email notification if comment is in a community
         if review.community:
             try:
-                send_comment_notification_email(
-                    comment, review, review.article, review.community
-                )
+                send_comment_notification_email(comment, review, review.article, review.community)
             except Exception as e:
                 logger.error(f"Error sending comment notification email: {e}")
 
@@ -761,9 +734,7 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
             return 201, ReviewCommentOut.from_orm_with_replies(comment, user)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
-            return 500, {
-                "message": "Comment created but error retrieving comment data."
-            }
+            return 500, {"message": "Comment created but error retrieving comment data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -787,11 +758,7 @@ def get_comment(request, comment_id: int):
 
         current_user: Optional[User] = None if not request.auth else request.auth
 
-        if (
-            comment.community
-            and not comment.community.is_member(current_user)
-            and comment.community.type == "hidden"
-        ):
+        if comment.community and not comment.community.is_member(current_user) and comment.community.type == "hidden":
             return 403, {"message": "You are not a member of this community."}
 
         try:
@@ -813,9 +780,7 @@ def list_review_comments(request, review_id: int):
     try:
         try:
             # review = Review.objects.get(id=review_id)
-            review = Review.objects.select_related("article", "community").get(
-                id=review_id
-            )
+            review = Review.objects.select_related("article", "community").get(id=review_id)
         except Review.DoesNotExist:
             return 404, {"message": "Review not found."}
         except Exception as e:
@@ -824,11 +789,7 @@ def list_review_comments(request, review_id: int):
 
         current_user: Optional[User] = None if not request.auth else request.auth
 
-        if (
-            review.community
-            and not review.community.is_member(current_user)
-            and review.community.type == "hidden"
-        ):
+        if review.community and not review.community.is_member(current_user) and review.community.type == "hidden":
             return 403, {"message": "You are not a member of this community."}
 
         # try:
@@ -847,16 +808,12 @@ def list_review_comments(request, review_id: int):
                 ReviewComment.objects.filter(review=review, parent=None)
                 .filter(Q(is_deleted=False) | Q(review_replies__isnull=False))
                 .select_related("author")
-                .prefetch_related(
-                    "review_replies__author", "reactions", "review_replies__reactions"
-                )
+                .prefetch_related("review_replies__author", "reactions", "review_replies__reactions")
                 .order_by("-created_at")
             )
 
             # Collect all comments and replies
-            all_comments = root_comments + [
-                reply for rc in root_comments for reply in rc.review_replies.all()
-            ]
+            all_comments = root_comments + [reply for rc in root_comments for reply in rc.review_replies.all()]
             all_comment_ids = [c.id for c in all_comments]
 
             upvote_map = dict(
@@ -887,9 +844,7 @@ def list_review_comments(request, review_id: int):
                     community=review.community,
                     user_id__in={uid for uid, _, _ in pseudonymous_authors},
                 )
-                pseudonym_map = {
-                    (p.user_id, p.article_id, p.community_id): p for p in pseudonyms
-                }
+                pseudonym_map = {(p.user_id, p.article_id, p.community_id): p for p in pseudonyms}
 
             def serialize_comment(comment: ReviewComment) -> ReviewCommentOut:
                 user = UserStats.from_model(comment.author, basic_details=True)
@@ -902,19 +857,13 @@ def list_review_comments(request, review_id: int):
 
                 return ReviewCommentOut(
                     id=comment.id,
-                    rating=(
-                        comment.rating if review.user_id != comment.author_id else None
-                    ),
+                    rating=(comment.rating if review.user_id != comment.author_id else None),
                     author=user,
                     content=comment.content,
                     created_at=comment.created_at,
                     upvotes=upvote_map.get(comment.id, 0),
                     replies=[],  # to be filled later
-                    is_author=(
-                        (comment.author_id == current_user.id)
-                        if current_user
-                        else False
-                    ),
+                    is_author=((comment.author_id == current_user.id) if current_user else False),
                     is_deleted=comment.is_deleted,
                     is_pseudonymous=comment.is_pseudonymous,
                 )
@@ -925,9 +874,7 @@ def list_review_comments(request, review_id: int):
             # Assign replies
             for root in root_comments:
                 root_out = comment_map[root.id]
-                root_out.replies = [
-                    comment_map[reply.id] for reply in root.review_replies.all()
-                ]
+                root_out.replies = [comment_map[reply.id] for reply in root.review_replies.all()]
 
             return 200, [comment_map[rc.id] for rc in root_comments]
         except Exception as e:
@@ -954,9 +901,7 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
             return 500, {"message": "Error retrieving comment. Please try again."}
 
         if comment.author != request.auth:
-            return 403, {
-                "message": "You do not have permission to update this comment."
-            }
+            return 403, {"message": "You do not have permission to update this comment."}
 
         if comment.community and not comment.community.is_member(request.auth):
             return 403, {"message": "You are not a member of this community."}
@@ -992,9 +937,7 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
             return 200, ReviewCommentOut.from_orm_with_replies(comment, request.auth)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
-            return 500, {
-                "message": "Comment updated but error retrieving comment data."
-            }
+            return 500, {"message": "Comment updated but error retrieving comment data."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -1018,24 +961,18 @@ def delete_comment(request, comment_id: int):
 
         # Check if the user is the owner of the comment or has permission to delete it
         if comment.author != user:
-            return 403, {
-                "message": "You do not have permission to delete this comment."
-            }
+            return 403, {"message": "You do not have permission to delete this comment."}
 
         try:
             # Delete reactions associated with the comment
-            Reaction.objects.filter(
-                content_type__model="reviewcomment", object_id=comment.id
-            ).delete()
+            Reaction.objects.filter(content_type__model="reviewcomment", object_id=comment.id).delete()
 
             comment_rating = ReviewCommentRating.objects.filter(
                 review=comment.review, user=user, community=comment.community
             ).first()
             if comment_rating and comment_rating.rating == comment.rating:
                 last_comment = (
-                    ReviewComment.objects.filter(
-                        review=comment.review, author=comment.author, is_deleted=False
-                    )
+                    ReviewComment.objects.filter(review=comment.review, author=comment.author, is_deleted=False)
                     .exclude(id=comment.id)
                     .exclude(rating=0)
                     .order_by("-created_at")
@@ -1089,9 +1026,7 @@ def get_rating(request, review_id: int):
 
         try:
             comment = (
-                ReviewComment.objects.filter(
-                    review=review, author=user, is_deleted=False
-                )
+                ReviewComment.objects.filter(review=review, author=user, is_deleted=False)
                 .exclude(rating=0)
                 .order_by("-created_at")
                 .only("id", "rating")

@@ -8,9 +8,10 @@ from enum import Enum
 from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Max
 from ninja import ModelSchema, Schema
 
-from articles.models import Article, Review, ReviewComment
+from articles.models import Review, ReviewComment
 from users.config_constants import UserConfigKey, UserConfigType
 from users.models import HashtagRelation, Reputation, User
 
@@ -175,27 +176,63 @@ class UserArticleSchema(Schema):
     date: date
 
     @staticmethod
-    def resolve_status(article: Article):
-        if ReviewComment.objects.filter(review__article=article).exists():
-            return "Commented"
-        elif Review.objects.filter(article=article).exists():
-            return "Reviewed"
-        else:
-            return "Submitted"
-
-    @staticmethod
-    def resolve_date(article: Article):
-        comment = (
-            ReviewComment.objects.filter(review__article=article)
-            .order_by("-created_at")
-            .first()
+    def from_orm_bulk(articles, article_ids: list) -> list["UserArticleSchema"]:
+        """
+        Batch-resolve status and date for all articles using 4 bulk queries
+        instead of 4 queries per article.
+        """
+        has_comment = set(
+            ReviewComment.objects.filter(review__article_id__in=article_ids)
+            .values_list("review__article_id", flat=True)
+            .distinct()
         )
-        if comment:
-            return comment.created_at.date()
-        review = Review.objects.filter(article=article).order_by("-created_at").first()
-        if review:
-            return review.created_at.date()
-        return article.created_at.date()
+
+        has_review = set(
+            Review.objects.filter(article_id__in=article_ids).values_list("article_id", flat=True).distinct()
+        )
+
+        latest_comment_dates = dict(
+            ReviewComment.objects.filter(review__article_id__in=article_ids)
+            .values("review__article_id")
+            .annotate(latest=Max("created_at"))
+            .values_list("review__article_id", "latest")
+        )
+
+        latest_review_dates = dict(
+            Review.objects.filter(article_id__in=article_ids)
+            .values("article_id")
+            .annotate(latest=Max("created_at"))
+            .values_list("article_id", "latest")
+        )
+
+        results = []
+        for article in articles:
+            aid = article.id
+            if aid in has_comment:
+                status = "Commented"
+            elif aid in has_review:
+                status = "Reviewed"
+            else:
+                status = "Submitted"
+
+            comment_date = latest_comment_dates.get(aid)
+            review_date = latest_review_dates.get(aid)
+            if comment_date:
+                resolved_date = comment_date.date()
+            elif review_date:
+                resolved_date = review_date.date()
+            else:
+                resolved_date = article.created_at.date()
+
+            results.append(
+                UserArticleSchema(
+                    title=article.title,
+                    slug=article.slug,
+                    status=status,
+                    date=resolved_date,
+                )
+            )
+        return results
 
 
 class UserCommunitySchema(Schema):

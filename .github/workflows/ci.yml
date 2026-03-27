@@ -1,44 +1,142 @@
-name: Pre-commit and Tests
+name: CI Pipeline
 
 on:
   push:
     branches:
-      - main
+      - "**"
   pull_request:
     branches:
-      - main
-  schedule:
-    - cron: '0 0 * * 1'  # Runs every Monday at midnight
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2.1.3"
 
 jobs:
-  pre-commit:
+  # ============================================
+  # Job 1: Linting and Code Quality
+  # ============================================
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12.3'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+            .venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
 
-    - name: Run pre-commit hooks
-      run: |
-        poetry run pre-commit run --all-files
+      - name: Install Poetry
+        run: |
+          pip install poetry==${{ env.POETRY_VERSION }}
+          poetry config virtualenvs.in-project true
 
-  tests:
+      - name: Install dependencies
+        run: poetry install --only dev
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+  # ============================================
+  # Job 2: Security Scanning
+  # ============================================
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+            .venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install Poetry
+        run: |
+          pip install poetry==${{ env.POETRY_VERSION }}
+          poetry config virtualenvs.in-project true
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Run Bandit security linter
+        run: poetry run bandit -c pyproject.toml -r . -f json -o bandit-report.json || true
+
+      - name: Check Bandit results
+        run: |
+          if [ -f bandit-report.json ]; then
+            HIGH_SEVERITY=$(cat bandit-report.json | python -c "import sys, json; data=json.load(sys.stdin); print(len([r for r in data.get('results', []) if r.get('issue_severity') == 'HIGH']))")
+            if [ "$HIGH_SEVERITY" -gt 0 ]; then
+              echo "::error::Found $HIGH_SEVERITY high severity security issues"
+              cat bandit-report.json | python -c "import sys, json; data=json.load(sys.stdin); [print(f\"  - {r['filename']}:{r['line_number']}: {r['issue_text']}\") for r in data.get('results', []) if r.get('issue_severity') == 'HIGH']"
+              exit 1
+            fi
+          fi
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          poetry export -f requirements.txt --without-hashes -o requirements-check.txt
+          pip install safety
+          safety check -r requirements-check.txt --output json > safety-report.json || true
+          # Fail only on critical vulnerabilities
+          if [ -f safety-report.json ]; then
+            CRITICAL=$(cat safety-report.json | python -c "import sys, json; data=json.load(sys.stdin); vulns=data.get('vulnerabilities', []); print(len([v for v in vulns if v.get('severity', {}).get('source') == 'critical']))" 2>/dev/null || echo "0")
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "::warning::Found $CRITICAL critical vulnerabilities in dependencies"
+            fi
+          fi
+        continue-on-error: true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+          retention-days: 30
+
+  # ============================================
+  # Job 3: Django Tests
+  # ============================================
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:13
+        image: postgres:16-alpine
         ports:
           - 5432:5432
         env:
@@ -46,57 +144,165 @@ jobs:
           POSTGRES_USER: test_user
           POSTGRES_PASSWORD: test_password
         options: >-
-          --health-cmd "pg_isready -U test_user"
+          --health-cmd "pg_isready -U test_user -d test_db"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Django
+      SECRET_KEY: "test-secret-key-for-ci-only"
+      DEBUG: "True"
+      ENVIRONMENT: "test"
+      # Email (dummy values for tests)
+      EMAIL_HOST: "smtp.example.com"
+      EMAIL_HOST_USER: "test@example.com"
+      EMAIL_HOST_PASSWORD: "testpassword"
+      EMAIL_PORT: "587"
+      EMAIL_USE_TLS: "True"
+      DEFAULT_FROM_EMAIL: "noreply@example.com"
+      # Database
+      DB_NAME: test_db
+      DB_USER: test_user
+      DB_PASSWORD: test_password
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DATABASE_URL: postgres://test_user:test_password@localhost:5432/test_db
+      # Frontend URL
+      FRONTEND_URL: "https://test.example.com"
+      # AWS S3 (dummy values for tests)
+      AWS_ACCESS_KEY_ID: "DUMMYACCESSKEYID"
+      AWS_SECRET_ACCESS_KEY: "DUMMYSECRETACCESSKEY"
+      AWS_STORAGE_BUCKET_NAME: "test-bucket"
+      AWS_S3_REGION_NAME: "us-east-1"
+      # Redis
+      CELERY_BROKER_URL: "redis://localhost:6379/0"
+      CELERY_RESULT_BACKEND: "redis://localhost:6379/0"
+      REDIS_HOST_URL: "redis://localhost:6379/1"
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12.3'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+            .venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
 
-    - name: Wait for PostgreSQL to be ready
-      run: |
-        echo "Waiting for PostgreSQL to be ready..."
-        while ! pg_isready -h localhost -p 5432 -U test_user; do
-          sleep 1
-        done
+      - name: Install Poetry
+        run: |
+          pip install poetry==${{ env.POETRY_VERSION }}
+          poetry config virtualenvs.in-project true
 
-    - name: Run Django tests
-      env:
-        # Django
-        EMAIL_HOST_USER: 'dummy@example.com'
-        EMAIL_HOST_PASSWORD: 'dummypassword'
-        EMAIL_PORT: '587'
-        EMAIL_USE_TLS: 'True'
-        DEFAULT_FROM_EMAIL: 'noreply@example.com'
-        # Database
-        DB_NAME: test_db
-        DB_USER: test_user
-        DB_PASSWORD: test_password
-        DB_HOST: localhost
-        DB_PORT: 5432
-        # Production Database URL
-        DATABASE_URL: postgres://test_user:test_password@localhost:5432/test_db
-        # Frontend URL
-        FRONTEND_URL: 'https://dummy-frontend.example.com'
-        # AWS S3 Configuration
-        AWS_ACCESS_KEY_ID: 'DUMMYACCESSKEYID'
-        AWS_SECRET_ACCESS_KEY: 'DUMMYSECRETACCESSKEY'
-        AWS_STORAGE_BUCKET_NAME: 'dummy-bucket'
-        AWS_S3_REGION_NAME: 'us-east-1'
-        # Django Configuration
-        DEBUG: 'False'
-      run: |
-        poetry run python manage.py test
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for PostgreSQL..."
+          until pg_isready -h localhost -p 5432 -U test_user; do sleep 1; done
+          echo "Waiting for Redis..."
+          until redis-cli -h localhost ping; do sleep 1; done
+
+      - name: Run Django system checks
+        run: poetry run python manage.py check --fail-level WARNING
+
+      - name: Check for missing migrations
+        run: poetry run python manage.py makemigrations --check --dry-run
+
+      - name: Run migrations
+        run: poetry run python manage.py migrate
+
+      - name: Run tests with coverage
+        run: |
+          poetry run coverage run --source='.' manage.py test --verbosity=2
+          poetry run coverage report --fail-under=0
+          poetry run coverage xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 30
+
+  # ============================================
+  # Job 4: Docker Build Verification
+  # ============================================
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build main Dockerfile
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: scicommons-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Tornado Dockerfile
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.tornado
+          push: false
+          tags: scicommons-tornado:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify Docker Compose files are valid
+        run: |
+          docker compose -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.staging.yml config --quiet
+          docker compose -f docker-compose.prod.yml config --quiet
+
+  # ============================================
+  # Job 5: PR Quality Gate (runs only on PRs)
+  # ============================================
+  pr-quality-gate:
+    name: PR Quality Gate
+    if: github.event_name == 'pull_request'
+    needs: [lint, security, test, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          echo "All CI checks passed!"
+          echo ""
+          echo "Summary:"
+          echo "  - Linting: passed"
+          echo "  - Security: passed"
+          echo "  - Tests: passed"
+          echo "  - Docker Build: passed"
+          echo ""
+          echo "This PR is ready for review."

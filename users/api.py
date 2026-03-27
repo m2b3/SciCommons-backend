@@ -104,45 +104,30 @@ def update_user(
             user.home_page_url = payload.details.home_page_url
             user.linkedin_url = payload.details.linkedin_url
             user.github_url = payload.details.github_url
-            user.academic_statuses = [
-                academic_status.dict()
-                for academic_status in payload.details.academic_statuses
-            ]
+            user.academic_statuses = [academic_status.dict() for academic_status in payload.details.academic_statuses]
         except Exception as e:
             logger.error(f"Error updating profile information: {e}")
-            return 500, {
-                "message": "Error updating profile information. Please try again."
-            }
+            return 500, {"message": "Error updating profile information. Please try again."}
 
         if profile_image:
             try:
                 user.profile_pic_url = profile_image
             except Exception as e:
                 logger.error(f"Error updating profile image: {e}")
-                return 500, {
-                    "message": "Error updating profile image. Please try again."
-                }
+                return 500, {"message": "Error updating profile image. Please try again."}
 
         if payload.details.research_interests:
             try:
                 # Use hashtags to store research interests
                 content_type = ContentType.objects.get_for_model(User)
-                HashtagRelation.objects.filter(
-                    content_type=content_type, object_id=user.id
-                ).delete()
+                HashtagRelation.objects.filter(content_type=content_type, object_id=user.id).delete()
 
                 for hashtag_name in payload.details.research_interests:
-                    hashtag, created = Hashtag.objects.get_or_create(
-                        name=hashtag_name.lower()
-                    )
-                    HashtagRelation.objects.create(
-                        hashtag=hashtag, content_type=content_type, object_id=user.id
-                    )
+                    hashtag, created = Hashtag.objects.get_or_create(name=hashtag_name.lower())
+                    HashtagRelation.objects.create(hashtag=hashtag, content_type=content_type, object_id=user.id)
             except Exception as e:
                 logger.error(f"Error updating research interests: {e}")
-                return 500, {
-                    "message": "Error updating research interests. Please try again."
-                }
+                return 500, {"message": "Error updating research interests. Please try again."}
 
         try:
             user.save()
@@ -186,7 +171,8 @@ def get_my_articles(request: HttpRequest):
         user = request.auth
         try:
             articles = Article.objects.filter(submitter=user).order_by("-created_at")
-            return 200, articles
+            article_ids = [a.id for a in articles]
+            return 200, UserArticleSchema.from_orm_bulk(articles, article_ids)
         except Exception as e:
             logger.error(f"Error retrieving your articles: {e}")
             return 500, {"message": "Error retrieving your articles. Please try again."}
@@ -206,13 +192,9 @@ def get_my_articles(request: HttpRequest):
     summary="Get My Articles",
     auth=JWTAuth(),
 )
-def list_my_articles(
-    request, page: int = 1, per_page: int = 10, search: Optional[str] = None
-):
+def list_my_articles(request, page: int = 1, per_page: int = 10, search: Optional[str] = None):
     try:
-        articles = Article.objects.filter(submitter=request.auth).order_by(
-            "-created_at"
-        )
+        articles = Article.objects.filter(submitter=request.auth).order_by("-created_at")
     except Exception as e:
         logger.error(f"Error retrieving articles: {e}")
         return 500, {"message": "Error retrieving articles. Please try again."}
@@ -224,9 +206,7 @@ def list_my_articles(
         paginator = Paginator(articles, per_page)
         paginated_articles = paginator.get_page(page)
     except Exception:
-        return 400, {
-            "message": "Error with pagination parameters. Please try different values."
-        }
+        return 400, {"message": "Error with pagination parameters. Please try different values."}
 
     try:
         article_ids = [article.id for article in paginated_articles]
@@ -311,10 +291,7 @@ def list_my_communities(
             else:
                 # Default: return all communities the user is part of
                 communities = Community.objects.filter(
-                    Q(members=user)
-                    | Q(admins=user)
-                    | Q(moderators=user)
-                    | Q(reviewers=user)
+                    Q(members=user) | Q(admins=user) | Q(moderators=user) | Q(reviewers=user)
                 ).distinct()
         except Exception as e:
             logger.error(f"Error retrieving communities: {e}")
@@ -325,9 +302,7 @@ def list_my_communities(
             if search:
                 search = search.strip()
                 if len(search) > 0:
-                    communities = communities.filter(
-                        Q(name__icontains=search) | Q(description__icontains=search)
-                    )
+                    communities = communities.filter(Q(name__icontains=search) | Q(description__icontains=search))
         except Exception as e:
             logger.error(f"Error processing search query: {e}")
             return 500, {"message": "Error processing search query. Please try again."}
@@ -355,20 +330,14 @@ def list_my_communities(
             paginator = Paginator(communities, per_page)
             paginated_communities = paginator.get_page(page)
         except Exception:
-            return 400, {
-                "message": "Invalid pagination parameters. Please check page number and size."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
 
         try:
-            community_ids = [
-                community.id for community in paginated_communities.object_list
-            ]
+            community_ids = [community.id for community in paginated_communities.object_list]
 
             # Bulk counts for published articles
             articles_count = dict(
-                CommunityArticle.objects.filter(
-                    community_id__in=community_ids, status="published"
-                )
+                CommunityArticle.objects.filter(community_id__in=community_ids, status="published")
                 .values("community_id")
                 .annotate(count=Count("id"))
                 .values_list("community_id", "count")
@@ -381,6 +350,9 @@ def list_my_communities(
                 .annotate(count=Count("id"))
                 .values_list("community_id", "count")
             )
+
+            # Bulk fetch user roles (4 queries instead of up to 4 x N)
+            roles_map = Community.get_user_roles_bulk(user, community_ids)
 
             # Prepare response
             results = []
@@ -395,7 +367,7 @@ def list_my_communities(
                         created_at=community.created_at,
                         num_members=members_count.get(community.id, 0),
                         num_published_articles=articles_count.get(community.id, 0),
-                        role=community.get_user_role(user),
+                        role=roles_map.get(community.id),
                     )
                 )
 
@@ -408,9 +380,7 @@ def list_my_communities(
             )
         except Exception as e:
             logger.error(f"Error formatting community data: {e}")
-            return 500, {
-                "message": "Error formatting community data. Please try again."
-            }
+            return 500, {"message": "Error formatting community data. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -429,9 +399,7 @@ def get_my_communities(request):
 
         try:
             # Get communities where the user is an admin
-            admin_communities = user.admin_communities.annotate(
-                members_count=Count("members")
-            )
+            admin_communities = user.admin_communities.annotate(members_count=Count("members"))
             for community in admin_communities:
                 communities.append(
                     {
@@ -442,15 +410,11 @@ def get_my_communities(request):
                 )
         except Exception as e:
             logger.error(f"Error retrieving admin communities: {e}")
-            return 500, {
-                "message": "Error retrieving admin communities. Please try again."
-            }
+            return 500, {"message": "Error retrieving admin communities. Please try again."}
 
         try:
             # Get communities where the user is a reviewer
-            reviewer_communities = user.reviewer_communities.annotate(
-                members_count=Count("members")
-            )
+            reviewer_communities = user.reviewer_communities.annotate(members_count=Count("members"))
             for community in reviewer_communities:
                 if community.name not in [c["name"] for c in communities]:
                     communities.append(
@@ -462,15 +426,11 @@ def get_my_communities(request):
                     )
         except Exception as e:
             logger.error(f"Error retrieving reviewer communities: {e}")
-            return 500, {
-                "message": "Error retrieving reviewer communities. Please try again."
-            }
+            return 500, {"message": "Error retrieving reviewer communities. Please try again."}
 
         try:
             # Get communities where the user is a moderator
-            moderator_communities = user.moderator_communities.annotate(
-                members_count=Count("members")
-            )
+            moderator_communities = user.moderator_communities.annotate(members_count=Count("members"))
             for community in moderator_communities:
                 if community.name not in [c["name"] for c in communities]:
                     communities.append(
@@ -482,15 +442,11 @@ def get_my_communities(request):
                     )
         except Exception as e:
             logger.error(f"Error retrieving moderator communities: {e}")
-            return 500, {
-                "message": "Error retrieving moderator communities. Please try again."
-            }
+            return 500, {"message": "Error retrieving moderator communities. Please try again."}
 
         try:
             # Get communities where the user is a member
-            member_communities = user.member_communities.annotate(
-                members_count=Count("members")
-            )
+            member_communities = user.member_communities.annotate(members_count=Count("members"))
             for community in member_communities:
                 if community.name not in [c["name"] for c in communities]:
                     communities.append(
@@ -502,9 +458,7 @@ def get_my_communities(request):
                     )
         except Exception as e:
             logger.error(f"Error retrieving member communities: {e}")
-            return 500, {
-                "message": "Error retrieving member communities. Please try again."
-            }
+            return 500, {"message": "Error retrieving member communities. Please try again."}
 
         return 200, communities
     except Exception as e:
@@ -521,9 +475,7 @@ def get_my_posts(request):
     try:
         user = request.auth
         try:
-            posts = Post.objects.filter(author=user, is_deleted=False).order_by(
-                "-created_at"
-            )
+            posts = Post.objects.filter(author=user, is_deleted=False).order_by("-created_at")
         except Exception as e:
             logger.error(f"Error retrieving your posts: {e}")
             return 500, {"message": "Error retrieving your posts. Please try again."}
@@ -544,11 +496,7 @@ def get_my_posts(request):
                 ).count()
 
                 # Determine the most recent action (creation or comment)
-                latest_comment = (
-                    post.post_comments.filter(is_deleted=False)
-                    .order_by("-created_at")
-                    .first()
-                )
+                latest_comment = post.post_comments.filter(is_deleted=False).order_by("-created_at").first()
                 if latest_comment and latest_comment.created_at > post.created_at:
                     action = "Commented"
                     action_date = latest_comment.created_at
@@ -601,9 +549,7 @@ def get_my_favorites(request):
             liked_items = Reaction.objects.filter(user=user, vote=Reaction.LIKE)
         except Exception as e:
             logger.error(f"Error retrieving your favorite items: {e}")
-            return 500, {
-                "message": "Error retrieving your favorite items. Please try again."
-            }
+            return 500, {"message": "Error retrieving your favorite items. Please try again."}
 
         for item in liked_items:
             try:
@@ -669,21 +615,15 @@ def get_notifications(
     article_slug: Optional[str] = Query(None, description="Filter by article slug"),
     community_id: Optional[int] = Query(None, description="Filter by community ID"),
     post_id: Optional[int] = Query(None, description="Filter by post ID"),
-    limit: Optional[int] = Query(
-        None, description="Limit number of notifications returned"
-    ),
-    status: Optional[NotificationStatusFilter] = Query(
-        None, description="Filter by status: 'read' or 'unread'"
-    ),
+    limit: Optional[int] = Query(None, description="Limit number of notifications returned"),
+    status: Optional[NotificationStatusFilter] = Query(None, description="Filter by status: 'read' or 'unread'"),
 ):
     try:
         try:
             user_notifications = Notification.objects.filter(user=request.auth)
         except Exception as e:
             logger.error(f"Error retrieving your notifications: {e}")
-            return 500, {
-                "message": "Error retrieving your notifications. Please try again."
-            }
+            return 500, {"message": "Error retrieving your notifications. Please try again."}
 
         try:
             # Apply filters based on query parameters
@@ -737,9 +677,7 @@ def get_notifications(
             return 200, notifications_list
         except Exception as e:
             logger.error(f"Error formatting notification data: {e}")
-            return 500, {
-                "message": "Error formatting notification data. Please try again."
-            }
+            return 500, {"message": "Error formatting notification data. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -803,9 +741,7 @@ def get_user_settings(request):
 
         # Get user's existing settings
         user_settings = UserSetting.objects.filter(user=user)
-        user_settings_dict = {
-            setting.config_name: setting.value for setting in user_settings
-        }
+        user_settings_dict = {setting.config_name: setting.value for setting in user_settings}
 
         # Merge with defaults (user settings override defaults)
         all_settings = []
@@ -866,9 +802,7 @@ def update_user_settings(request, payload: UserSettingsBulkUpdateSchema):
                 updated_count += 1
             except Exception as e:
                 logger.error(f"Error updating setting {config_name}: {e}")
-                return 500, {
-                    "message": f"Error updating setting {config_name}. Please try again."
-                }
+                return 500, {"message": f"Error updating setting {config_name}. Please try again."}
 
         # Invalidate cache immediately so changes take effect right away
         invalidate_user_settings_cache(user.id)

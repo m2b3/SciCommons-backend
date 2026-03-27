@@ -36,8 +36,9 @@ services:
     build: .
     restart: unless-stopped
     command: >
-      sh -c "redis-server --daemonize yes && 
-              poetry run python manage.py migrate && 
+      sh -c "redis-server --daemonize yes &&
+              poetry run python manage.py migrate &&
+              poetry run python manage.py collectstatic --noinput &&
               poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers"
     networks:
       - proxy

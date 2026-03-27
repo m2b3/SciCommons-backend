@@ -38,7 +38,86 @@ tornado = "^6.5.5"
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
 flake8 = "^7.3.0"
+bandit = {extras = ["toml"], version = "^1.7.8"}
+safety = "^3.2.0"
+coverage = {extras = ["toml"], version = "^7.4.0"}
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+# Bandit security linter configuration
+[tool.bandit]
+exclude_dirs = [
+    "tests",
+    "*/tests/*",
+    "venv",
+    "env",
+    ".venv",
+    "virtual",
+    "environment",
+    "Create",
+    "named",
+    "#",
+    "*/site-packages/*",
+    "*/migrations/*",
+    "admin",
+    "static",
+]
+skips = [
+    "B101",  # assert_used - acceptable in tests
+    "B104",  # hardcoded_bind_all_interfaces - acceptable for containerized apps
+]
+
+# isort configuration
+[tool.isort]
+profile = "black"
+skip = ["migrations", "venv", "env", ".venv", "virtual", "environment", "Create"]
+
+# black configuration
+[tool.black]
+line-length = 120
+target-version = ["py310", "py311", "py312"]
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | venv
+    | env
+    | virtual
+    | environment
+    | Create
+    | migrations
+    | __pycache__
+)/
+'''
+
+# Coverage configuration
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "manage.py",
+    "myapp/asgi.py",
+    "myapp/wsgi.py",
+    "venv/*",
+    "env/*",
+    ".venv/*",
+    "virtual/*",
+    "environment/*",
+    "Create/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true

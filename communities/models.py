@@ -22,9 +22,7 @@ class Community(models.Model):
         # Get file extension
         ext = filename.split(".")[-1]
         # Generate unique filename using article ID and timestamp
-        unique_filename = (
-            f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
-        )
+        unique_filename = f"{instance.id}_{uuid.uuid4().hex[:8]}_{int(time.time())}.{ext}"
         return f"community_images/{settings.ENVIRONMENT}/{unique_filename}"
 
     name = models.CharField(max_length=100, unique=True)
@@ -42,9 +40,7 @@ class Community(models.Model):
     admins = models.ManyToManyField(User, related_name="admin_communities")
     reviewers = models.ManyToManyField(User, related_name="reviewer_communities")
     moderators = models.ManyToManyField(User, related_name="moderator_communities")
-    members = models.ManyToManyField(
-        User, related_name="member_communities", through="Membership"
-    )
+    members = models.ManyToManyField(User, related_name="member_communities", through="Membership")
 
     hashtags = GenericRelation(HashtagRelation, related_query_name="communities")
 
@@ -70,6 +66,28 @@ class Community(models.Model):
         if self.members.filter(pk=user.pk).exists():
             return "member"
         return None
+
+    @staticmethod
+    def get_user_roles_bulk(user, community_ids):
+        """Return dict {community_id: role_string} using 4 bulk queries
+        instead of up to 4 queries per community."""
+        if not community_ids:
+            return {}
+        admin_ids = set(Community.objects.filter(id__in=community_ids, admins=user).values_list("id", flat=True))
+        mod_ids = set(Community.objects.filter(id__in=community_ids, moderators=user).values_list("id", flat=True))
+        reviewer_ids = set(Community.objects.filter(id__in=community_ids, reviewers=user).values_list("id", flat=True))
+        member_ids = set(Community.objects.filter(id__in=community_ids, members=user).values_list("id", flat=True))
+        roles = {}
+        for cid in community_ids:
+            if cid in admin_ids:
+                roles[cid] = "admin"
+            elif cid in mod_ids:
+                roles[cid] = "moderator"
+            elif cid in reviewer_ids:
+                roles[cid] = "reviewer"
+            elif cid in member_ids:
+                roles[cid] = "member"
+        return roles
 
     def __str__(self):
         return self.name
@@ -143,19 +161,13 @@ class CommunityArticle(models.Model):
         (UNPUBLISHED, "Unpublished"),
     ]
 
-    article = models.ForeignKey(
-        "articles.Article", on_delete=models.CASCADE, db_index=True
-    )
+    article = models.ForeignKey("articles.Article", on_delete=models.CASCADE, db_index=True)
     community = models.ForeignKey(Community, on_delete=models.CASCADE, db_index=True)
-    status = models.CharField(
-        max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED, db_index=True
-    )
+    status = models.CharField(max_length=20, choices=SUBMISSION_STATUS, default=SUBMITTED, db_index=True)
     submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
-    assigned_reviewers = models.ManyToManyField(
-        User, related_name="assigned_reviews", blank=True
-    )
+    assigned_reviewers = models.ManyToManyField(User, related_name="assigned_reviews", blank=True)
     assigned_moderator = models.ForeignKey(
         User,
         related_name="assigned_moderations",
@@ -173,7 +185,4 @@ class CommunityArticle(models.Model):
         ]
 
     def __str__(self):
-        return (
-            f"{self.article.title} in {self.community.name} - "
-            f"{self.get_status_display()}"
-        )
+        return f"{self.article.title} in {self.community.name} - " f"{self.get_status_display()}"
