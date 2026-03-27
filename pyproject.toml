@@ -11,29 +11,29 @@ post_install = "scripts.post_install:main"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-django = "^5.0.4"
-django-ninja = "^1.4.1"
+django = "^5.2"
+django-ninja = "^1.6.2"
 python-decouple = "^3.8"
-psycopg2-binary = "^2.9.9"
-djangorestframework-simplejwt = "^5.3.1"
-django-cors-headers = "^4.3.1"
-pillow = "^10.3.0"
-django-storages = {extras = ["boto3"], version = "^1.14.3"}
-gunicorn = "^22.0.0"
-waitress = "^3.0.0"
-whitenoise = "^6.7.0"
+psycopg2-binary = "^2.9.11"
+djangorestframework-simplejwt = "^5.5.1"
+django-cors-headers = "^4.9.0"
+pillow = "^12.1.1"
+django-storages = {extras = ["boto3"], version = "^1.14.6"}
+gunicorn = "^25.2.0"
+waitress = "^3.0.2"
+whitenoise = "^6.12.0"
 dj-database-url = "^2.2.0"
 faker = "^26.0.0"
 django-ratelimit = "^4.1.0"
-celery = "^5.4.0"
-redis = {extras = ["hiredis"], version = "^5.2.1"}
+celery = "^5.6.3"
+redis = {extras = ["hiredis"], version = "^7.4.0"}
 pydenticon = "^0.3.1"
-django-redis = "^5.4.0"
-channels = "^4.0.0"
-uvicorn = {extras = ["standard"], version = "^0.27.1"}
-daphne = "^4.1.0"
-channels-redis = "^4.2.0"
-tornado = "^6.4"
+django-redis = "^6.0.0"
+channels = "^4.3.2"
+uvicorn = {extras = ["standard"], version = "^0.42.0"}
+daphne = "^4.2.1"
+channels-redis = "^4.3.0"
+tornado = "^6.5.5"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
