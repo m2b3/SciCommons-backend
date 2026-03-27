@@ -1,9 +1,6 @@
 name: CI Pipeline
 
 on:
-  push:
-    branches:
-      - "**"
   pull_request:
     branches:
       - "**"
@@ -287,11 +284,10 @@ jobs:
           docker compose -f docker-compose.prod.yml config --quiet
 
   # ============================================
-  # Job 5: PR Quality Gate (runs only on PRs)
+  # Job 5: PR Quality Gate
   # ============================================
   pr-quality-gate:
     name: PR Quality Gate
-    if: github.event_name == 'pull_request'
     needs: [lint, security, test, docker]
     runs-on: ubuntu-latest
     steps:
