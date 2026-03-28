@@ -1,10 +1,17 @@
+import logging
+
 from django.core.cache import caches
 from django.core.cache.backends.base import InvalidCacheBackendError
 from django_redis import get_redis_connection
 
+logger = logging.getLogger(__name__)
+
 
 class CacheOperationError(Exception):
-    pass
+    """
+    Exception for cache operations.
+    Messages should be safe for logging but not contain sensitive data.
+    """
 
 
 def get_cache(key, default=None, version=None, cache_name="default"):
@@ -14,9 +21,9 @@ def get_cache(key, default=None, version=None, cache_name="default"):
             raise ValueError("Cache key must be string")
 
         return caches[cache_name].get(key, default=default, version=version)
-    except InvalidCacheBackendError as e:
+    except InvalidCacheBackendError:
         return default
-    except Exception as e:
+    except Exception:
         return default
 
 
@@ -29,12 +36,11 @@ def set_cache(key, value, timeout=None, version=None, cache_name="default"):
         caches[cache_name].set(key, value, timeout=timeout, version=version)
         return True
     except Exception as e:
-        raise CacheOperationError(f"Cache set failed: {str(e)}")
+        logger.error(f"Cache set failed for key '{key}': {type(e).__name__}: {e}")
+        raise CacheOperationError("Cache set operation failed")
 
 
-def set_cache_with_tags(
-    key, value, timeout=None, version=None, cache_name="default", tags=None
-):
+def set_cache_with_tags(key, value, timeout=None, version=None, cache_name="default", tags=None):
     """Set cache with article IDs as tags."""
     try:
         if not isinstance(key, str):
@@ -55,11 +61,14 @@ def set_cache_with_tags(
         return True
 
     except InvalidCacheBackendError as e:
-        raise CacheOperationError(f"Invalid cache backend: {str(e)}")
+        logger.error(f"Invalid cache backend: {type(e).__name__}: {e}")
+        raise CacheOperationError("Invalid cache backend configuration")
     except ValueError as e:
-        raise CacheOperationError(f"Value error: {str(e)}")
+        logger.error(f"Cache value error: {type(e).__name__}: {e}")
+        raise CacheOperationError("Invalid cache value or key")
     except Exception as e:
-        raise CacheOperationError(f"Cache operation failed: {str(e)}")
+        logger.error(f"Cache operation failed: {type(e).__name__}: {e}")
+        raise CacheOperationError("Cache operation failed")
 
 
 def delete_cache(key, version=None, cache_name="default"):
@@ -67,7 +76,7 @@ def delete_cache(key, version=None, cache_name="default"):
     try:
         caches[cache_name].delete(key, version=version)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -90,8 +99,11 @@ def invalidate_cache_with_tags(tags, cache_name="default"):
         return True
 
     except InvalidCacheBackendError as e:
-        raise CacheOperationError(f"Invalid cache backend: {str(e)}")
+        logger.error(f"Invalid cache backend for invalidation: {type(e).__name__}: {e}")
+        raise CacheOperationError("Invalid cache backend configuration")
     except ValueError as e:
-        raise CacheOperationError(f"Value error: {str(e)}")
+        logger.error(f"Cache invalidation value error: {type(e).__name__}: {e}")
+        raise CacheOperationError("Invalid tags format")
     except Exception as e:
-        raise CacheOperationError(f"Cache invalidation failed: {str(e)}")
+        logger.error(f"Cache invalidation failed: {type(e).__name__}: {e}")
+        raise CacheOperationError("Cache invalidation failed")

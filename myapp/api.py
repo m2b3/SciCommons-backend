@@ -1,5 +1,7 @@
-from django.conf import settings
+import logging
+
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import DatabaseError, IntegrityError, OperationalError
 from django_ratelimit.exceptions import Ratelimited
 from ninja import NinjaAPI, Router
 from ninja.errors import AuthenticationError, HttpError, HttpRequest, ValidationError
@@ -12,18 +14,23 @@ from communities.api_invitation import router as communities_invitation_router
 from communities.api_join import router as communities_join_router
 from communities.articles_api import router as communities_posts_router
 from communities.members_api import router as communities_admin_router
+from myapp.exceptions import SafeErrorMessages, log_exception
 from myapp.flags_api import router as flags_router
 from myapp.realtime_api import router as realtime_router
 from myapp.upload_api import router as upload_router
-from posts.api import router as posts_router
 from users.api import router as users_general_router
 from users.api_auth import router as users_router
 from users.common_api import router as users_common_router
+
+logger = logging.getLogger(__name__)
 
 api = NinjaAPI(docs_url="docs/", title="MyApp API", urls_namespace="api_v1")
 
 """
 Global Exception Handlers (Error Handlers)
+
+These handlers ensure that sensitive information (database connection strings,
+internal paths, SQL queries, etc.) is never exposed to API clients.
 """
 
 
@@ -40,16 +47,14 @@ def custom_authentication_error_handler(request, exc):
 def ratelimit_exceeded_handler(request, exc):
     return api.create_response(
         request,
-        {"message": "Too many requests. Please try again later."},
+        {"message": SafeErrorMessages.RATE_LIMITED},
         status=429,
     )
 
 
 @api.exception_handler(HttpError)
 def custom_http_error_handler(request, exc):
-    return api.create_response(
-        request, {"message": exc.message}, status=exc.status_code
-    )
+    return api.create_response(request, {"message": exc.message}, status=exc.status_code)
 
 
 @api.exception_handler(ValidationError)
@@ -59,18 +64,31 @@ def validation_error_handler(request: HttpRequest, exc: ValidationError):
 
 @api.exception_handler(ObjectDoesNotExist)
 def object_not_found_handler(request, exc):
-    # Return a 404 response if the object is not found
-    return api.create_response(request, {"message": exc.args[0]}, status=404)
+    return api.create_response(request, {"message": SafeErrorMessages.RESOURCE_NOT_FOUND}, status=404)
+
+
+@api.exception_handler(IntegrityError)
+def integrity_error_handler(request: HttpRequest, exc: IntegrityError):
+    log_exception(exc, "Database integrity error", logger)
+    return api.create_response(request, {"message": SafeErrorMessages.DATA_CONFLICT}, status=409)
+
+
+@api.exception_handler(OperationalError)
+def operational_error_handler(request: HttpRequest, exc: OperationalError):
+    log_exception(exc, "Database operational error", logger)
+    return api.create_response(request, {"message": SafeErrorMessages.SERVICE_UNAVAILABLE}, status=503)
+
+
+@api.exception_handler(DatabaseError)
+def database_error_handler(request: HttpRequest, exc: DatabaseError):
+    log_exception(exc, "Database error", logger)
+    return api.create_response(request, {"message": SafeErrorMessages.SERVICE_UNAVAILABLE}, status=503)
 
 
 @api.exception_handler(Exception)
 def generic_error_handler(request: HttpRequest, exc: Exception):
-    if settings.DEBUG:
-        error_message = str(exc)
-    else:
-        error_message = "Internal Server Error"
-
-    return api.create_response(request, {"message": error_message}, status=500)
+    log_exception(exc, "Unhandled exception", logger)
+    return api.create_response(request, {"message": SafeErrorMessages.INTERNAL_ERROR}, status=500)
 
 
 """
