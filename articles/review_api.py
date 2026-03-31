@@ -10,12 +10,12 @@ from ninja.responses import codes_4xx, codes_5xx
 from articles.models import (
     AnonymousIdentity,
     Article,
+    EntityFlag,
     Reaction,
     Review,
     ReviewComment,
     ReviewCommentRating,
     ReviewVersion,
-    UserFlag,
 )
 from articles.schemas import (
     CommunityArticleOut,
@@ -355,10 +355,10 @@ def list_reviews(request, article_id: int, community_id: int = None, page: int =
             # Prefetch all flags for reviews in one query (avoids N+1)
             flags_by_review_id = {}
             if current_user:
-                flags_by_review_id = UserFlag.objects.get_flags_for_entities(
-                    user_id=current_user.id,
+                flags_by_review_id = EntityFlag.objects.get_flags_for_entities(
                     entity_type="review",
                     entity_ids=review_ids,
+                    user_id=current_user.id,
                 )
 
             # Build the response
@@ -451,10 +451,10 @@ def get_review(request, review_id: int):
             # Get all flags for this review
             flags = []
             if user:
-                flags_dict = UserFlag.objects.get_flags_for_entities(
-                    user_id=user.id,
+                flags_dict = EntityFlag.objects.get_flags_for_entities(
                     entity_type="review",
                     entity_ids=[review.id],
+                    user_id=user.id,
                 )
                 flags = flags_dict.get(review.id, [])
 

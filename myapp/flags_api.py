@@ -18,7 +18,7 @@ from typing import List
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
-from articles.models import Discussion, DiscussionComment, Review, UserFlag
+from articles.models import Discussion, DiscussionComment, EntityFlag, Review
 from myapp.schemas import EntityType, FlagType
 from users.auth import JWTAuth
 
@@ -62,27 +62,16 @@ class FlagModifyOut(Schema):
 # Helper Functions
 # ============================================================================
 
+# Virtual flags are computed at query time, not stored in the database
+NON_STORABLE_FLAGS = {FlagType.UNREAD_COMMENT}
 
-def validate_flag_type(flag_type: FlagType) -> None:
-    """Validate that the flag type is supported for storage.
 
-    Note: 'unread_comment' is a virtual flag computed from comment unread states,
-    not a storable flag type. Use 'unread' on individual comments instead.
-    """
-    flag_value = flag_type.value if isinstance(flag_type, FlagType) else str(flag_type)
-    if flag_value not in UserFlag.VALID_FLAG_TYPES:
+def validate_storable_flag(flag_type: FlagType) -> None:
+    """Validate that the flag type can be stored (not a virtual/computed flag)."""
+    if flag_type in NON_STORABLE_FLAGS:
         raise HttpError(
             400,
-            f"Invalid flag_type '{flag_value}'. Must be one of: {', '.join(UserFlag.VALID_FLAG_TYPES)}",
-        )
-
-
-def validate_entity_type(entity_type: str) -> None:
-    """Validate that the entity type is supported"""
-    if entity_type not in UserFlag.VALID_ENTITY_TYPES:
-        raise HttpError(
-            400,
-            f"Invalid entity_type '{entity_type}'. Must be one of: {', '.join(UserFlag.VALID_ENTITY_TYPES)}",
+            f"'{flag_type.value}' is a virtual flag and cannot be stored directly.",
         )
 
 
@@ -98,9 +87,7 @@ def authorize_entity_access(user, entity_type: str, entity_ids: List[int]) -> Li
 
     if entity_type == "discussion":
         # Get discussions and check community membership
-        discussions = Discussion.objects.filter(id__in=entity_ids).select_related(
-            "community"
-        )
+        discussions = Discussion.objects.filter(id__in=entity_ids).select_related("community")
         accessible_ids = []
         for discussion in discussions:
             # If no community or public community, allow access
@@ -111,9 +98,7 @@ def authorize_entity_access(user, entity_type: str, entity_ids: List[int]) -> Li
 
     elif entity_type == "comment":
         # Get comments and check community membership via discussion
-        comments = DiscussionComment.objects.filter(id__in=entity_ids).select_related(
-            "discussion__community"
-        )
+        comments = DiscussionComment.objects.filter(id__in=entity_ids).select_related("discussion__community")
         accessible_ids = []
         for comment in comments:
             community = comment.discussion.community
@@ -137,6 +122,12 @@ def authorize_entity_access(user, entity_type: str, entity_ids: List[int]) -> Li
             if not review.community or review.community.is_member(user):
                 accessible_ids.append(review.id)
         return accessible_ids
+
+    elif entity_type == "article":
+        from articles.models import Article
+
+        # Articles are public by default; access controlled at community level
+        return list(Article.objects.filter(id__in=entity_ids).values_list("id", flat=True))
 
     # Default: return all (for future entity types, add authorization logic)
     return list(entity_ids)
@@ -172,19 +163,12 @@ def get_flags(
         entity_ids: Comma-separated list of entity IDs (e.g., "1,2,3")
     """
     user = request.auth
-
-    # Validate inputs
-    validate_flag_type(flag_type)
-    validate_entity_type(entity_type)
+    validate_storable_flag(flag_type)
 
     # Parse entity_ids from comma-separated string
     try:
-        parsed_entity_ids = [
-            int(id.strip()) for id in entity_ids.split(",") if id.strip()
-        ]
+        parsed_entity_ids = [int(id.strip()) for id in entity_ids.split(",") if id.strip()]
     except ValueError:
-        from ninja.errors import HttpError
-
         raise HttpError(400, "entity_ids must be comma-separated integers")
 
     if not parsed_entity_ids:
@@ -196,12 +180,12 @@ def get_flags(
     if not accessible_ids:
         return FlagGetOut(flagged_entity_ids=[])
 
-    # Get flagged entity IDs
-    flagged_ids = UserFlag.objects.get_flagged_entity_ids(
-        user_id=user.id,
+    # Get flagged entity IDs (user-specific only for this endpoint)
+    flagged_ids = EntityFlag.objects.get_flagged_entity_ids(
         flag_type=flag_type,
         entity_type=entity_type,
         entity_ids=accessible_ids,
+        user_id=user.id,
     )
 
     return FlagGetOut(flagged_entity_ids=list(flagged_ids))
@@ -222,10 +206,7 @@ def add_flags(request, payload: FlagRequestIn):
     for an entity, it's ignored (idempotent operation).
     """
     user = request.auth
-
-    # Validate inputs
-    validate_flag_type(payload.flag_type)
-    validate_entity_type(payload.entity_type)
+    validate_storable_flag(payload.flag_type)
 
     if not payload.entity_ids:
         return FlagModifyOut(
@@ -235,9 +216,7 @@ def add_flags(request, payload: FlagRequestIn):
         )
 
     # Authorize access to entities
-    accessible_ids = authorize_entity_access(
-        user, payload.entity_type, payload.entity_ids
-    )
+    accessible_ids = authorize_entity_access(user, payload.entity_type, payload.entity_ids)
 
     if not accessible_ids:
         return FlagModifyOut(
@@ -246,14 +225,14 @@ def add_flags(request, payload: FlagRequestIn):
             entity_ids=[],
         )
 
-    # Add flags for each entity
+    # Add flags for each entity (user-specific)
     affected_entity_ids = []
     for entity_id in accessible_ids:
-        flags = UserFlag.objects.bulk_create_flags(
-            user_ids=[user.id],
+        flags = EntityFlag.objects.bulk_create_flags(
             flag_type=payload.flag_type,
             entity_type=payload.entity_type,
             entity_id=entity_id,
+            user_ids=[user.id],
         )
         if flags:
             affected_entity_ids.append(entity_id)
@@ -285,10 +264,7 @@ def remove_flags(request, payload: FlagRequestIn):
     for an entity, it's ignored (idempotent operation).
     """
     user = request.auth
-
-    # Validate inputs
-    validate_flag_type(payload.flag_type)
-    validate_entity_type(payload.entity_type)
+    validate_storable_flag(payload.flag_type)
 
     if not payload.entity_ids:
         return FlagModifyOut(
@@ -298,9 +274,7 @@ def remove_flags(request, payload: FlagRequestIn):
         )
 
     # Authorize access to entities
-    accessible_ids = authorize_entity_access(
-        user, payload.entity_type, payload.entity_ids
-    )
+    accessible_ids = authorize_entity_access(user, payload.entity_type, payload.entity_ids)
 
     if not accessible_ids:
         return FlagModifyOut(
@@ -311,20 +285,20 @@ def remove_flags(request, payload: FlagRequestIn):
 
     # Get IDs that actually have flags before removing (to return accurate entity_ids)
     existing_flagged_ids = list(
-        UserFlag.objects.get_flagged_entity_ids(
-            user_id=user.id,
+        EntityFlag.objects.get_flagged_entity_ids(
             flag_type=payload.flag_type,
             entity_type=payload.entity_type,
             entity_ids=accessible_ids,
+            user_id=user.id,
         )
     )
 
-    # Remove flags
-    UserFlag.objects.remove_flags(
-        user_id=user.id,
+    # Remove flags (user-specific only)
+    EntityFlag.objects.remove_flags(
         flag_type=payload.flag_type,
         entity_type=payload.entity_type,
         entity_ids=accessible_ids,
+        user_id=user.id,
     )
 
     logger.info(

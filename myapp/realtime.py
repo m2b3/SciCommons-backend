@@ -5,14 +5,11 @@ Handles event publishing to Tornado server via Redis
 
 import json
 import logging
-import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
 import redis
 from decouple import config
-from django.conf import settings
-from django.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +87,9 @@ class RealtimeEventPublisher:
             }
 
             redis_client = get_redis_client()
-            result = redis_client.publish(
-                "discussion_events", json.dumps(event, default=serialize_json)
-            )
+            result = redis_client.publish("discussion_events", json.dumps(event, default=serialize_json))
 
-            logger.info(
-                f"Published {event_type} event for communities {community_ids}. Subscribers: {result}"
-            )
+            logger.info(f"Published {event_type} event for communities {community_ids}. Subscribers: {result}")
             logger.debug(f"Event data: {event}")
 
         except Exception as e:
@@ -105,7 +98,7 @@ class RealtimeEventPublisher:
     @staticmethod
     def publish_discussion_created(discussion, community_ids: Set[int]):
         """Publish event when a new discussion is created"""
-        from articles.models import UserFlag
+        from articles.models import EntityFlag
         from articles.schemas import DiscussionOut
         from communities.models import CommunityArticle
 
@@ -116,54 +109,40 @@ class RealtimeEventPublisher:
                 community_article = CommunityArticle.objects.get(
                     article=discussion.article, community=discussion.community
                 )
-                subscriber_ids = get_discussion_subscribers(
-                    community_article, discussion.community
-                )
+                subscriber_ids = get_discussion_subscribers(community_article, discussion.community)
             except CommunityArticle.DoesNotExist:
-                logger.warning(
-                    f"No community article found for discussion {discussion.id}"
-                )
+                logger.warning(f"No community article found for discussion {discussion.id}")
             except Exception as e:
                 logger.error(f"Error getting subscribers for discussion created: {e}")
 
-        # Create UserFlag entries (unread flags) for all subscribers (except author)
+        # Create EntityFlag entries (unread flags) for all subscribers (except author)
         # Presence of flag = entity is unread
         if subscriber_ids:
             try:
                 # Exclude the discussion author from receiving their own event
                 recipient_ids = subscriber_ids - {discussion.author.id}
                 if recipient_ids:
-                    UserFlag.objects.bulk_create_flags(
-                        user_ids=recipient_ids,
+                    EntityFlag.objects.bulk_create_flags(
                         flag_type="unread",
                         entity_type="discussion",
                         entity_id=discussion.id,
+                        user_ids=recipient_ids,
                     )
-                    logger.debug(
-                        f"Created {len(recipient_ids)} UserFlag entries for discussion {discussion.id}"
-                    )
+                    logger.debug(f"Created {len(recipient_ids)} EntityFlag entries for discussion {discussion.id}")
             except Exception as e:
-                logger.error(
-                    f"Error creating UserFlag entries for discussion {discussion.id}: {e}"
-                )
+                logger.error(f"Error creating EntityFlag entries for discussion {discussion.id}: {e}")
 
         # Create discussion output schema with unread flag for recipients
         # New discussions are unread for all recipients (author is excluded from event)
-        discussion_data = DiscussionOut.from_orm(
-            discussion, None, flags=["unread"]
-        ).dict()
+        discussion_data = DiscussionOut.from_orm(discussion, None, flags=["unread"]).dict()
 
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.NEW_DISCUSSION,
             data={
                 "discussion": discussion_data,
                 "article_id": discussion.article.id,
-                "community_id": (
-                    discussion.community.id if discussion.community else None
-                ),
-                "subscriber_ids": list(
-                    subscriber_ids
-                ),  # Include subscriber IDs in the event
+                "community_id": (discussion.community.id if discussion.community else None),
+                "subscriber_ids": list(subscriber_ids),  # Include subscriber IDs in the event
             },
             community_ids=community_ids,
             exclude_user_id=discussion.author.id,  # Exclude the discussion author
@@ -172,7 +151,7 @@ class RealtimeEventPublisher:
     @staticmethod
     def publish_comment_created(comment, community_ids: Set[int]):
         """Publish event when a new comment is created"""
-        from articles.models import UserFlag
+        from articles.models import EntityFlag
         from articles.schemas import DiscussionCommentOut
         from communities.models import CommunityArticle
 
@@ -202,32 +181,26 @@ class RealtimeEventPublisher:
             except Exception as e:
                 logger.error(f"Error getting subscribers for comment created: {e}")
 
-        # Create UserFlag entries (unread flags) for all subscribers (except author)
+        # Create EntityFlag entries (unread flags) for all subscribers (except author)
         # Presence of flag = entity is unread
         if subscriber_ids:
             try:
                 # Exclude the comment author from receiving their own event
                 recipient_ids = subscriber_ids - {comment.author.id}
                 if recipient_ids:
-                    UserFlag.objects.bulk_create_flags(
-                        user_ids=recipient_ids,
+                    EntityFlag.objects.bulk_create_flags(
                         flag_type="unread",
                         entity_type="comment",
                         entity_id=comment.id,
+                        user_ids=recipient_ids,
                     )
-                    logger.debug(
-                        f"Created {len(recipient_ids)} UserFlag entries for comment {comment.id}"
-                    )
+                    logger.debug(f"Created {len(recipient_ids)} EntityFlag entries for comment {comment.id}")
             except Exception as e:
-                logger.error(
-                    f"Error creating UserFlag entries for comment {comment.id}: {e}"
-                )
+                logger.error(f"Error creating EntityFlag entries for comment {comment.id}: {e}")
 
         # Create comment output schema with unread flag for recipients
         # New comments are unread for all recipients (author is excluded from event)
-        comment_data = DiscussionCommentOut.from_orm_with_replies(
-            comment, None, flags=["unread"]
-        ).dict()
+        comment_data = DiscussionCommentOut.from_orm_with_replies(comment, None, flags=["unread"]).dict()
 
         RealtimeEventPublisher.publish_event(
             event_type=EventTypes.NEW_COMMENT,
@@ -240,9 +213,7 @@ class RealtimeEventPublisher:
                 "parent_id": comment.parent.id if comment.parent else None,
                 "is_reply": comment.parent is not None,
                 "reply_depth": reply_depth,
-                "subscriber_ids": list(
-                    subscriber_ids
-                ),  # Include subscriber IDs in the event
+                "subscriber_ids": list(subscriber_ids),  # Include subscriber IDs in the event
             },
             community_ids=community_ids,
             exclude_user_id=comment.author.id,  # Exclude the comment author
@@ -260,9 +231,7 @@ class RealtimeEventPublisher:
             data={
                 "discussion": discussion_data,
                 "article_id": discussion.article.id,
-                "community_id": (
-                    discussion.community.id if discussion.community else None
-                ),
+                "community_id": (discussion.community.id if discussion.community else None),
             },
             community_ids=community_ids,
             exclude_user_id=discussion.author.id,  # Exclude the discussion author
@@ -370,9 +339,7 @@ class RealtimeQueueManager:
             if response.status_code == 200:
                 return response.json()
             else:
-                logger.error(
-                    f"Failed to register queue: {response.status_code} - {response.text}"
-                )
+                logger.error(f"Failed to register queue: {response.status_code} - {response.text}")
                 return None
 
         except Exception as e:
@@ -429,14 +396,10 @@ class RealtimeQueueManager:
             )
 
             if response.status_code == 200:
-                logger.info(
-                    f"Updated subscriptions for user {user_id}: {community_ids}"
-                )
+                logger.info(f"Updated subscriptions for user {user_id}: {community_ids}")
                 return True
             else:
-                logger.warning(
-                    f"Failed to update subscriptions for user {user_id}: {response.status_code}"
-                )
+                logger.warning(f"Failed to update subscriptions for user {user_id}: {response.status_code}")
                 return False
 
         except Exception as e:
@@ -503,15 +466,13 @@ def get_user_subscribed_community_articles(user) -> Set[int]:
         from articles.models import DiscussionSubscription
 
         subscribed_article_ids = set(
-            DiscussionSubscription.objects.filter(
-                user=user, is_active=True
-            ).values_list("community_article_id", flat=True)
+            DiscussionSubscription.objects.filter(user=user, is_active=True).values_list(
+                "community_article_id", flat=True
+            )
         )
         return subscribed_article_ids
     except Exception as e:
-        logger.error(
-            f"Error getting subscribed community articles for user {user.id}: {e}"
-        )
+        logger.error(f"Error getting subscribed community articles for user {user.id}: {e}")
         return set()
 
 
@@ -542,9 +503,7 @@ def get_discussion_subscribers(community_article, community) -> Set[int]:
         return set()
 
 
-def get_comment_subscribers(
-    community_article, community, include_reply_notifications=False
-) -> Set[int]:
+def get_comment_subscribers(community_article, community, include_reply_notifications=False) -> Set[int]:
     """
     Get all user IDs who are subscribed to comment notifications for a specific community article
     Simplified - all active subscribers get all notifications (discussions, comments, replies)
@@ -574,9 +533,7 @@ def get_comment_subscribers(
         return set()
 
 
-def should_user_receive_event(
-    user_id: int, community_id: int, subscriber_ids: Set[int] = None
-) -> bool:
+def should_user_receive_event(user_id: int, community_id: int, subscriber_ids: Set[int] = None) -> bool:
     """
     Check if a user should receive an event based on community membership and subscriptions
 
