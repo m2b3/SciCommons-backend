@@ -9,7 +9,7 @@ from urllib.parse import unquote
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count
 from ninja import Query, Router
 from ninja.errors import HttpRequest
 from ninja.responses import codes_4xx, codes_5xx
@@ -72,9 +72,7 @@ def check_permission(
             if resource_id:
                 resource_id = unquote(resource_id)
         except Exception:
-            return 400, {
-                "message": "Invalid resource ID format. Please check and try again."
-            }
+            return 400, {"message": "Invalid resource ID format. Please check and try again."}
 
         try:
             if dashboard_type == "article":
@@ -85,9 +83,7 @@ def check_permission(
                     return 404, {"message": "Article not found."}
                 except Exception as e:
                     logger.error(f"Error retrieving article: {e}")
-                    return 500, {
-                        "message": "Error retrieving article. Please try again."
-                    }
+                    return 500, {"message": "Error retrieving article. Please try again."}
             elif dashboard_type == "community":
                 try:
                     community = Community.objects.get(name=resource_id)
@@ -96,9 +92,7 @@ def check_permission(
                     return 404, {"message": "Community not found."}
                 except Exception as e:
                     logger.error(f"Error retrieving community: {e}")
-                    return 500, {
-                        "message": "Error retrieving community. Please try again."
-                    }
+                    return 500, {"message": "Error retrieving community. Please try again."}
             else:
                 has_permission = False
 
@@ -139,11 +133,9 @@ def get_content_type(content_type_value: str) -> ContentType:
     except ValueError:
         raise ValueError("Invalid content type format. Must be 'app_label.model'")
     except ContentType.DoesNotExist:
-        raise ContentType.DoesNotExist(
-            f"Content type {content_type_value} does not exist"
-        )
-    except Exception as e:
-        raise Exception(f"Error retrieving content type: {str(e)}")
+        raise ContentType.DoesNotExist("Content type does not exist")
+    except Exception:
+        raise Exception("Error retrieving content type")
 
 
 def get_content_type_for_model(model_class) -> ContentType:
@@ -191,13 +183,9 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
         try:
             content_type = get_content_type(data.content_type.value)
         except ValueError:
-            return 400, {
-                "message": "Invalid content type format. Please check and try again."
-            }
+            return 400, {"message": "Invalid content type format. Please check and try again."}
         except ContentType.DoesNotExist:
-            return 400, {
-                "message": "Content type does not exist. Please check and try again."
-            }
+            return 400, {"message": "Content type does not exist. Please check and try again."}
         except Exception as e:
             logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
@@ -205,8 +193,8 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
         # Validate the object exists before creating bookmark
         try:
             _validate_bookmarkable_object(data.content_type.value, data.object_id)
-        except (Article.DoesNotExist, Community.DoesNotExist) as e:
-            return 404, {"message": str(e)}
+        except (Article.DoesNotExist, Community.DoesNotExist):
+            return 404, {"message": "The requested item was not found."}
         except Exception as e:
             logger.error(f"Error validating object: {e}")
             return 500, {"message": "Error validating object. Please try again."}
@@ -216,9 +204,7 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
             with transaction.atomic():
                 # Lock the row to prevent concurrent modifications
                 bookmark = (
-                    Bookmark.objects.filter(
-                        user=user, content_type=content_type, object_id=data.object_id
-                    )
+                    Bookmark.objects.filter(user=user, content_type=content_type, object_id=data.object_id)
                     .select_for_update()
                     .first()
                 )
@@ -232,18 +218,14 @@ def toggle_bookmark(request, data: BookmarkToggleSchema):
                     }
                 else:
                     # Create new bookmark
-                    Bookmark.objects.create(
-                        user=user, content_type=content_type, object_id=data.object_id
-                    )
+                    Bookmark.objects.create(user=user, content_type=content_type, object_id=data.object_id)
                     return 200, {
                         "message": "Bookmark added successfully",
                         "is_bookmarked": True,
                     }
         except Exception as e:
             logger.error(f"Error processing bookmark operation: {e}")
-            return 500, {
-                "message": "Error processing bookmark operation. Please try again."
-            }
+            return 500, {"message": "Error processing bookmark operation. Please try again."}
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
@@ -265,11 +247,7 @@ def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_i
     try:
         # OptionalJWTAuth returns True (boolean) when no token is provided,
         # so we need to check for both falsy values and boolean instances
-        user: Optional[User] = (
-            request.auth
-            if request.auth and not isinstance(request.auth, bool)
-            else None
-        )
+        user: Optional[User] = request.auth if request.auth and not isinstance(request.auth, bool) else None
 
         if not user:
             return 200, {"is_bookmarked": None}
@@ -277,13 +255,9 @@ def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_i
         try:
             content_type_obj = get_content_type(content_type.value)
         except ValueError:
-            return 400, {
-                "message": "Invalid content type format. Please check and try again."
-            }
+            return 400, {"message": "Invalid content type format. Please check and try again."}
         except ContentType.DoesNotExist:
-            return 400, {
-                "message": "Content type does not exist. Please check and try again."
-            }
+            return 400, {"message": "Content type does not exist. Please check and try again."}
         except Exception as e:
             logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
@@ -315,9 +289,7 @@ def get_bookmark_status(request, content_type: BookmarkContentTypeEnum, object_i
 )
 def get_my_bookmarks(
     request,
-    filter_type: BookmarkFilterTypeEnum = Query(
-        BookmarkFilterTypeEnum.ALL, description="Filter by bookmark type"
-    ),
+    filter_type: BookmarkFilterTypeEnum = Query(BookmarkFilterTypeEnum.ALL, description="Filter by bookmark type"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
 ):
@@ -330,9 +302,7 @@ def get_my_bookmarks(
 
         # Build base query - uses index: bookmark_user_created or bookmark_user_type_created
         try:
-            bookmarks_qs = Bookmark.objects.filter(user=user).select_related(
-                "content_type"
-            )
+            bookmarks_qs = Bookmark.objects.filter(user=user).select_related("content_type")
 
             # Filter by type if specified
             if filter_type == BookmarkFilterTypeEnum.ARTICLE:
@@ -355,9 +325,7 @@ def get_my_bookmarks(
             page_obj = paginator.get_page(page)
         except Exception as e:
             logger.error(f"Error paginating bookmarks: {e}")
-            return 400, {
-                "message": "Invalid pagination parameters. Please check and try again."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check and try again."}
 
         # Batch fetch related objects for efficiency
         try:
@@ -379,18 +347,14 @@ def get_my_bookmarks(
             article_ids = [b.object_id for b in article_bookmarks]
             articles_map = {}
             if article_ids:
-                articles = Article.objects.filter(id__in=article_ids).select_related(
-                    "submitter"
-                )
+                articles = Article.objects.filter(id__in=article_ids).select_related("submitter")
                 articles_map = {a.id: a for a in articles}
 
             # Batch fetch communities with member count
             community_ids = [b.object_id for b in community_bookmarks]
             communities_map = {}
             if community_ids:
-                communities = Community.objects.filter(id__in=community_ids).annotate(
-                    member_count=Count("members")
-                )
+                communities = Community.objects.filter(id__in=community_ids).annotate(member_count=Count("members"))
                 communities_map = {c.id: c for c in communities}
 
             # Build response
@@ -458,13 +422,9 @@ def post_reaction(request, reaction: ReactionIn):
         try:
             content_type = get_content_type(reaction.content_type.value)
         except ValueError:
-            return 400, {
-                "message": "Invalid content type format. Please check and try again."
-            }
+            return 400, {"message": "Invalid content type format. Please check and try again."}
         except ContentType.DoesNotExist:
-            return 400, {
-                "message": "Content type does not exist. Please check and try again."
-            }
+            return 400, {"message": "Content type does not exist. Please check and try again."}
         except Exception as e:
             logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
@@ -477,9 +437,7 @@ def post_reaction(request, reaction: ReactionIn):
             ).first()
         except Exception as e:
             logger.error(f"Error checking existing reactions: {e}")
-            return 500, {
-                "message": "Error checking existing reactions. Please try again."
-            }
+            return 500, {"message": "Error checking existing reactions. Please try again."}
 
         if existing_reaction:
             if existing_reaction.vote == reaction.vote.value:
@@ -495,9 +453,7 @@ def post_reaction(request, reaction: ReactionIn):
                     )
                 except Exception as e:
                     logger.error(f"Error removing reaction: {e}")
-                    return 500, {
-                        "message": "Error removing reaction. Please try again."
-                    }
+                    return 500, {"message": "Error removing reaction. Please try again."}
             else:
                 # User is changing their reaction from like to dislike or vice versa
                 try:
@@ -512,9 +468,7 @@ def post_reaction(request, reaction: ReactionIn):
                     )
                 except Exception as e:
                     logger.error(f"Error updating reaction: {e}")
-                    return 500, {
-                        "message": "Error updating reaction. Please try again."
-                    }
+                    return 500, {"message": "Error updating reaction. Please try again."}
         else:
             # User is reacting for the first time
             try:
@@ -549,21 +503,15 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
         try:
             content_type = get_content_type(content_type.value)
         except ValueError:
-            return 400, {
-                "message": "Invalid content type format. Please check and try again."
-            }
+            return 400, {"message": "Invalid content type format. Please check and try again."}
         except ContentType.DoesNotExist:
-            return 400, {
-                "message": "Content type does not exist. Please check and try again."
-            }
+            return 400, {"message": "Content type does not exist. Please check and try again."}
         except Exception as e:
             logger.error(f"Error retrieving content type: {e}")
             return 500, {"message": "Error retrieving content type. Please try again."}
 
         try:
-            reactions = Reaction.objects.filter(
-                content_type=content_type, object_id=object_id
-            )
+            reactions = Reaction.objects.filter(content_type=content_type, object_id=object_id)
         except Exception as e:
             logger.error(f"Error retrieving reactions: {e}")
             return 500, {"message": "Error retrieving reactions. Please try again."}
@@ -578,11 +526,7 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
         # Check if the authenticated user is the author
         # OptionalJWTAuth returns True (boolean) when no token is provided,
         # so we need to check for both falsy values and boolean instances
-        current_user: Optional[User] = (
-            request.auth
-            if request.auth and not isinstance(request.auth, bool)
-            else None
-        )
+        current_user: Optional[User] = request.auth if request.auth and not isinstance(request.auth, bool) else None
         user_reaction = None
 
         if current_user:
@@ -593,7 +537,6 @@ def get_reaction_count(request, content_type: ContentTypeEnum, object_id: int):
             except Exception as e:
                 logger.error(f"Error retrieving user's reaction: {e}")
                 # Continue even if we can't get user's reaction
-                pass
 
         return 200, ReactionCountOut(
             likes=likes,
@@ -654,15 +597,11 @@ def get_hashtags(
             page_obj = paginator.get_page(page)
         except Exception as e:
             logger.error(f"Error paginating hashtags: {e}")
-            return 400, {
-                "message": "Invalid pagination parameters. Please check page number and size."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
 
         try:
             return 200, PaginatedHashtagOut(
-                items=[
-                    HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list
-                ],
+                items=[HashtagOut(name=h.name, count=h.count) for h in page_obj.object_list],
                 total=paginator.count,
                 page=page_obj.number,
                 per_page=per_page,
@@ -702,11 +641,7 @@ def list_my_posts(
         # Apply hashtag filtering
         if hashtag:
             try:
-                hashtag_id = (
-                    Hashtag.objects.filter(name=hashtag)
-                    .values_list("id", flat=True)
-                    .first()
-                )
+                hashtag_id = Hashtag.objects.filter(name=hashtag).values_list("id", flat=True).first()
                 if hashtag_id:
                     post_ids = HashtagRelation.objects.filter(
                         hashtag_id=hashtag_id,
@@ -715,9 +650,7 @@ def list_my_posts(
                     posts = posts.filter(id__in=post_ids)
             except Exception as e:
                 logger.error(f"Error filtering posts by hashtag: {e}")
-                return 500, {
-                    "message": "Error filtering posts by hashtag. Please try again."
-                }
+                return 500, {"message": "Error filtering posts by hashtag. Please try again."}
 
         try:
             # Todo: Add Filter for sorting by post reactions
@@ -732,9 +665,7 @@ def list_my_posts(
             paginator = Paginator(posts, size)
             page_obj = paginator.get_page(page)
         except Exception:
-            return 400, {
-                "message": "Invalid pagination parameters. Please check page number and size."
-            }
+            return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
 
         try:
             return 200, PaginatedPostsResponse(

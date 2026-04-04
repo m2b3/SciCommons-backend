@@ -14,8 +14,8 @@ from articles.models import (
     DiscussionComment,
     DiscussionSubscription,
     DiscussionSummary,
+    EntityFlag,
     Reaction,
-    UserFlag,
 )
 from articles.schemas import (
     CommunitySubscriptionOut,
@@ -250,10 +250,10 @@ def list_discussions(request, article_id: int, community_id: int = None, page: i
             discussions_with_unread_comments = set()
             if current_user:
                 discussion_ids = [d.id for d in discussions_list]
-                flags_by_discussion_id = UserFlag.objects.get_flags_for_entities(
-                    user_id=current_user.id,
+                flags_by_discussion_id = EntityFlag.objects.get_flags_for_entities(
                     entity_type="discussion",
                     entity_ids=discussion_ids,
+                    user_id=current_user.id,
                 )
 
                 # Check for unread comments within these discussions
@@ -271,11 +271,11 @@ def list_discussions(request, article_id: int, community_id: int = None, page: i
 
                 # Get unread comment IDs in one query
                 if all_comment_ids:
-                    unread_comment_ids = UserFlag.objects.get_flagged_entity_ids(
-                        user_id=current_user.id,
+                    unread_comment_ids = EntityFlag.objects.get_flagged_entity_ids(
                         flag_type="unread",
                         entity_type="comment",
                         entity_ids=all_comment_ids,
+                        user_id=current_user.id,
                     )
 
                     # Map unread comments back to their discussions
@@ -401,11 +401,11 @@ def get_user_subscriptions(request):
 
             # Get unread discussion IDs
             unread_discussion_ids = (
-                UserFlag.objects.get_flagged_entity_ids(
-                    user_id=user.id,
+                EntityFlag.objects.get_flagged_entity_ids(
                     flag_type="unread",
                     entity_type="discussion",
                     entity_ids=discussion_ids,
+                    user_id=user.id,
                 )
                 if discussion_ids
                 else set()
@@ -413,11 +413,11 @@ def get_user_subscriptions(request):
 
             # Get unread comment IDs
             unread_comment_ids = (
-                UserFlag.objects.get_flagged_entity_ids(
-                    user_id=user.id,
+                EntityFlag.objects.get_flagged_entity_ids(
                     flag_type="unread",
                     entity_type="comment",
                     entity_ids=comment_ids,
+                    user_id=user.id,
                 )
                 if comment_ids
                 else set()
@@ -640,10 +640,10 @@ def get_discussion(request, discussion_id: int):
             # Get all flags for this discussion
             flags = []
             if user:
-                flags_dict = UserFlag.objects.get_flags_for_entities(
-                    user_id=user.id,
+                flags_dict = EntityFlag.objects.get_flags_for_entities(
                     entity_type="discussion",
                     entity_ids=[discussion.id],
+                    user_id=user.id,
                 )
                 flags = flags_dict.get(discussion.id, [])
 
@@ -996,10 +996,10 @@ def get_comment(request, comment_id: int):
                 all_comment_ids = [comment.id] + list(
                     DiscussionComment.objects.filter(discussion=comment.discussion).values_list("id", flat=True)
                 )
-                flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
-                    user_id=current_user.id,
+                flags_by_comment_id = EntityFlag.objects.get_flags_for_entities(
                     entity_type="comment",
                     entity_ids=all_comment_ids,
+                    user_id=current_user.id,
                 )
 
             return 200, DiscussionCommentOut.from_orm_with_replies(comment, current_user, flags_by_comment_id)
@@ -1041,10 +1041,10 @@ def list_discussion_comments(request, discussion_id: int, page: int = 1, size: i
                 all_comment_ids = list(
                     DiscussionComment.objects.filter(discussion=discussion).values_list("id", flat=True)
                 )
-                flags_by_comment_id = UserFlag.objects.get_flags_for_entities(
-                    user_id=current_user.id,
+                flags_by_comment_id = EntityFlag.objects.get_flags_for_entities(
                     entity_type="comment",
                     entity_ids=all_comment_ids,
+                    user_id=current_user.id,
                 )
 
             return 200, DiscussionCommentOut.bulk_from_orm(discussion, current_user, flags_by_comment_id)
