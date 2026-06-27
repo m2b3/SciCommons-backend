@@ -55,6 +55,12 @@ class EventTypes:
     UPDATED_COMMENT = "updated_comment"
     DELETED_DISCUSSION = "deleted_discussion"
     DELETED_COMMENT = "deleted_comment"
+    NEW_REVIEW = "new_review"
+    UPDATED_REVIEW = "updated_review"
+    DELETED_REVIEW = "deleted_review"
+    NEW_REVIEW_COMMENT = "new_review_comment"
+    UPDATED_REVIEW_COMMENT = "updated_review_comment"
+    DELETED_REVIEW_COMMENT = "deleted_review_comment"
 
 
 class RealtimeEventPublisher:
@@ -309,6 +315,132 @@ class RealtimeEventPublisher:
             },
             community_ids=community_ids,
             exclude_user_id=author_id,  # Exclude the comment author if provided
+        )
+
+    @staticmethod
+    def publish_review_created(review, community_ids: Set[int]):
+        """Publish event when a new private-community review is created"""
+        from articles.schemas import ReviewOut
+
+        review_data = ReviewOut.from_orm(review, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.NEW_REVIEW,
+            data={
+                "review": review_data,
+                "review_id": review.id,
+                "article_id": review.article.id,
+                "community_id": review.community.id if review.community else None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=review.user.id,
+        )
+
+    @staticmethod
+    def publish_review_updated(review, community_ids: Set[int]):
+        """Publish event when a private-community review is updated"""
+        from articles.schemas import ReviewOut
+
+        review_data = ReviewOut.from_orm(review, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.UPDATED_REVIEW,
+            data={
+                "review": review_data,
+                "review_id": review.id,
+                "article_id": review.article.id,
+                "community_id": review.community.id if review.community else None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=review.user.id,
+        )
+
+    @staticmethod
+    def publish_review_deleted(review, community_ids: Set[int]):
+        """Publish event when a private-community review is logically deleted"""
+        from articles.schemas import ReviewOut
+
+        review_data = ReviewOut.from_orm(review, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.DELETED_REVIEW,
+            data={
+                "review": review_data,
+                "review_id": review.id,
+                "article_id": review.article.id,
+                "community_id": review.community.id if review.community else None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=review.user.id,
+        )
+
+    @staticmethod
+    def publish_review_comment_created(comment, community_ids: Set[int]):
+        """Publish event when a new private-community review comment is created"""
+        from articles.schemas import ReviewCommentOut
+
+        comment_data = ReviewCommentOut.from_orm_with_replies(comment, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.NEW_REVIEW_COMMENT,
+            data={
+                "review_comment": comment_data,
+                "comment": comment_data,
+                "comment_id": comment.id,
+                "review_id": comment.review.id,
+                "article_id": comment.review.article.id,
+                "community_id": comment.community.id if comment.community else None,
+                "parent_id": comment.parent.id if comment.parent else None,
+                "is_reply": comment.parent is not None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=comment.author.id,
+        )
+
+    @staticmethod
+    def publish_review_comment_updated(comment, community_ids: Set[int]):
+        """Publish event when a private-community review comment is updated"""
+        from articles.schemas import ReviewCommentOut
+
+        comment_data = ReviewCommentOut.from_orm_with_replies(comment, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.UPDATED_REVIEW_COMMENT,
+            data={
+                "review_comment": comment_data,
+                "comment": comment_data,
+                "comment_id": comment.id,
+                "review_id": comment.review.id,
+                "article_id": comment.review.article.id,
+                "community_id": comment.community.id if comment.community else None,
+                "parent_id": comment.parent.id if comment.parent else None,
+                "is_reply": comment.parent is not None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=comment.author.id,
+        )
+
+    @staticmethod
+    def publish_review_comment_deleted(comment, community_ids: Set[int]):
+        """Publish event when a private-community review comment is logically deleted"""
+        from articles.schemas import ReviewCommentOut
+
+        comment_data = ReviewCommentOut.from_orm_with_replies(comment, None).dict()
+
+        RealtimeEventPublisher.publish_event(
+            event_type=EventTypes.DELETED_REVIEW_COMMENT,
+            data={
+                "review_comment": comment_data,
+                "comment": comment_data,
+                "comment_id": comment.id,
+                "review_id": comment.review.id,
+                "article_id": comment.review.article.id,
+                "community_id": comment.community.id if comment.community else None,
+                "parent_id": comment.parent.id if comment.parent else None,
+                "is_reply": comment.parent is not None,
+            },
+            community_ids=community_ids,
+            exclude_user_id=comment.author.id,
         )
 
 
