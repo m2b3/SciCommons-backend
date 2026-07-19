@@ -359,3 +359,42 @@ class UploadedImage(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.object_key} (refs: {self.ref_count})"
+
+
+class ExtensionAuthCode(models.Model):
+    """
+    One-time authorization code for first-party browser extension sign-in.
+
+    The raw code is only shown once to the authenticated web session. The
+    extension exchanges it with a PKCE verifier to receive API tokens.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="extension_auth_codes")
+    client_id = models.CharField(max_length=100, db_index=True)
+    code_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    code_challenge = models.CharField(max_length=128)
+    code_challenge_method = models.CharField(max_length=10, default="S256")
+    redirect_uri = models.URLField(max_length=500)
+    state = models.CharField(max_length=255)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "extension_auth_code"
+        indexes = [
+            models.Index(fields=["client_id", "expires_at"], name="ext_auth_client_expiry"),
+            models.Index(fields=["user", "-created_at"], name="ext_auth_user_created"),
+        ]
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+
+    @property
+    def is_expired(self) -> bool:
+        return now() >= self.expires_at
+
+    def mark_used(self):
+        self.used_at = now()
+        self.save(update_fields=["used_at"])

@@ -107,9 +107,23 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-# CORS_ALLOWED_ORIGIN_REGEXES = [
-#     r"^https://[a-zA-Z0-9-]+\.scicommons\.org$",
-# ]
+EXTENSION_CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in config("EXTENSION_CORS_ALLOWED_ORIGINS", default="").split(",")
+    if origin.strip()
+]
+CORS_ALLOWED_ORIGINS += EXTENSION_CORS_ALLOWED_ORIGINS
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^chrome-extension://[a-p]{32}$",
+]
+
+EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES = [
+    prefix.strip()
+    for prefix in config("EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES", default="").split(",")
+    if prefix.strip()
+]
+EXTENSION_AUTH_CODE_TTL_SECONDS = config("EXTENSION_AUTH_CODE_TTL_SECONDS", default=300, cast=int)
 
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True

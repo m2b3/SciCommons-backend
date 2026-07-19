@@ -10,6 +10,9 @@ DEBUG=True
 ENVIRONMENT=local
 FRONTEND_URL=http://localhost:3000
 COOKIE_DOMAIN=localhost
+EXTENSION_AUTH_CODE_TTL_SECONDS=300
+EXTENSION_CORS_ALLOWED_ORIGINS=
+EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES=
 
 # Database Configuration
 DB_NAME=your_database_name
@@ -58,6 +61,12 @@ JWT_REFRESH_TOKEN_LIFETIME=86400
 # CORS Configuration (for development)
 CORS_ALLOW_ALL_ORIGINS=True
 ```
+
+## Browser Extension Integration Variables
+
+1. **EXTENSION_AUTH_CODE_TTL_SECONDS** - lifetime for one-time extension login codes, default `300`.
+2. **EXTENSION_CORS_ALLOWED_ORIGINS** - comma-separated exact extension origins if you want to pin unpacked/packed extension IDs.
+3. **EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES** - comma-separated redirect URI prefixes for non-Chrome test clients. Chrome extension redirects through `https://<extension-id>.chromiumapp.org/...` are allowed by default.
 
 ## New Environment Variables for Real-time System
 
