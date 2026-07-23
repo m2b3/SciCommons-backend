@@ -63,8 +63,8 @@ INSTALLED_APPS = [
     "users",
     "communities",
     "articles",
-    "posts",
     "integrations",
+    "posts",
     "storages",
     "channels",
 ]
@@ -146,6 +146,20 @@ EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES = [
     if prefix.strip()
 ]
 EXTENSION_AUTH_CODE_TTL_SECONDS = config("EXTENSION_AUTH_CODE_TTL_SECONDS", default=300, cast=int)
+
+# The generalised integrations layer (#168) reads INTEGRATION_*, while the extension work
+# (#167) shipped EXTENSION_*. Default each new name to the corresponding extension value so a
+# deployment that has already set the EXTENSION_* env vars keeps working untouched.
+INTEGRATION_AUTH_CODE_TTL_SECONDS = config(
+    "INTEGRATION_AUTH_CODE_TTL_SECONDS", default=EXTENSION_AUTH_CODE_TTL_SECONDS, cast=int
+)
+INTEGRATION_DEVICE_CODE_TTL_SECONDS = config("INTEGRATION_DEVICE_CODE_TTL_SECONDS", default=900, cast=int)
+INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS = config("INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS", default=5, cast=int)
+INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES = [
+    prefix.strip()
+    for prefix in config("INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES", default="").split(",")
+    if prefix.strip()
+] or EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES
 
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True
@@ -395,7 +409,7 @@ if DEBUG:
     }
 else:
     # Ensure /logs directory (mounted from host) exists inside container
-    LOG_DIR = Path("/logs")
+    LOG_DIR = Path(config("LOG_DIR", default="/logs"))
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
     LOGGING = {

@@ -22,7 +22,9 @@ class Article(models.Model):
     doi = models.CharField(max_length=255, null=True, blank=True, unique=True, db_index=True)
     pmid = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
     arxiv_id = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
-    canonical_url = models.URLField(null=True, blank=True, db_index=True)
+    # 1000 rather than the URLField default of 200: publisher landing URLs routinely exceed 200
+    # characters. Widened here (from #168) on top of the identifier fields added by #167.
+    canonical_url = models.URLField(max_length=1000, null=True, blank=True, db_index=True)
 
     def get_upload_path(instance, filename):
         # Get file extension
