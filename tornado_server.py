@@ -7,13 +7,10 @@ Handles long-polling, queue management, and event delivery
 import asyncio
 import json
 import logging
-import os
 import signal
 import sys
-import time
 import uuid
-from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set
 
 import redis.asyncio as redis
@@ -26,16 +23,13 @@ from decouple import config
 from tornado.log import enable_pretty_logging
 
 from myapp.feature_flags import (
-    HEARTBEAT_INTERVAL_SECONDS,
     MAX_EVENTS_PER_QUEUE,
     POLL_TIMEOUT_SECONDS,
     QUEUE_TTL_MINUTES,
 )
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -57,17 +51,15 @@ class QueueManager:
     """Manages user queues and their lifecycle"""
 
     @staticmethod
-    def create_queue(
-        queue_id: str, user_id: int, community_ids: Set[int], last_event_id: int
-    ) -> Dict:
+    def create_queue(queue_id: str, user_id: int, community_ids: Set[int], last_event_id: int) -> Dict:
         """Create a new queue for a user"""
         queue_data = {
             "queue_id": queue_id,
             "user_id": user_id,
             "events": [],
             "last_event_id": last_event_id,
-            "created_at": datetime.utcnow(),
-            "last_heartbeat": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "last_heartbeat": datetime.now(timezone.utc),
             "community_ids": community_ids,
         }
 
@@ -75,9 +67,7 @@ class QueueManager:
         user_communities[queue_id] = community_ids
         user_to_queue[user_id] = queue_id  # Track user -> queue mapping
 
-        logger.info(
-            f"Created queue {queue_id} for user {user_id} with communities {community_ids}"
-        )
+        logger.info(f"Created queue {queue_id} for user {user_id} with communities {community_ids}")
         return queue_data
 
     @staticmethod
@@ -98,15 +88,11 @@ class QueueManager:
         """Update the heartbeat timestamp for a queue"""
         if queue_id in user_queues:
             old_heartbeat = user_queues[queue_id]["last_heartbeat"]
-            user_queues[queue_id]["last_heartbeat"] = datetime.utcnow()
-            logger.debug(
-                f"Updated heartbeat for queue {queue_id} (was {old_heartbeat})"
-            )
+            user_queues[queue_id]["last_heartbeat"] = datetime.now(timezone.utc)
+            logger.debug(f"Updated heartbeat for queue {queue_id} (was {old_heartbeat})")
             return True
         else:
-            logger.warning(
-                f"Attempted to update heartbeat for non-existent queue {queue_id}"
-            )
+            logger.warning(f"Attempted to update heartbeat for non-existent queue {queue_id}")
             return False
 
     @staticmethod
@@ -131,10 +117,18 @@ class QueueManager:
         global_event_id += 1
 
         event["event_id"] = global_event_id
-        event["timestamp"] = datetime.utcnow().isoformat()
+        event["timestamp"] = datetime.now(timezone.utc).isoformat()
 
         # Get the user to exclude (the author of the event)
         exclude_user_id = event.get("exclude_user_id")
+        event_data = event.get("data")
+        if not isinstance(event_data, dict):
+            event_data = {}
+
+        # A missing subscriber_ids field means community-wide routing. A present
+        # but empty list intentionally has no recipients.
+        subscriber_filter_requested = "subscriber_ids" in event_data
+        event_subscriber_ids = set(event_data.get("subscriber_ids") or [])
 
         added_to_queues = 0
         excluded_author = False
@@ -145,9 +139,7 @@ class QueueManager:
             # Skip if this is the author's queue
             if exclude_user_id and user_id == exclude_user_id:
                 excluded_author = True
-                logger.debug(
-                    f"Excluding author (user {user_id}) from receiving their own event"
-                )
+                logger.debug(f"Excluding author (user {user_id}) from receiving their own event")
                 continue
 
             # Determine if user should receive this event
@@ -161,7 +153,10 @@ class QueueManager:
             elif target_community_ids:
                 user_community_ids = user_communities.get(queue_id, set())
                 if target_community_ids.intersection(user_community_ids):
-                    should_receive = True
+                    if subscriber_filter_requested:
+                        should_receive = user_id in event_subscriber_ids
+                    else:
+                        should_receive = True
 
             if should_receive:
                 # Add event to queue
@@ -179,17 +174,9 @@ class QueueManager:
                     if not future.done():
                         future.set_result(True)
 
-        author_info = (
-            f" (excluded author: user {exclude_user_id})" if excluded_author else ""
-        )
-        routing_info = (
-            f"users {target_user_ids}"
-            if target_user_ids
-            else f"communities {target_community_ids}"
-        )
-        logger.info(
-            f"Added event {global_event_id} to {added_to_queues} queues for {routing_info}{author_info}"
-        )
+        author_info = f" (excluded author: user {exclude_user_id})" if excluded_author else ""
+        routing_info = f"users {target_user_ids}" if target_user_ids else f"communities {target_community_ids}"
+        logger.info(f"Added event {global_event_id} to {added_to_queues} queues for {routing_info}{author_info}")
 
     @staticmethod
     def get_events_since(queue_id: str, last_event_id: int) -> List[Dict]:
@@ -209,13 +196,11 @@ class QueueManager:
     @staticmethod
     def cleanup_expired_queues():
         """Remove expired queues based on TTL with race condition protection"""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         ttl_threshold = current_time - timedelta(minutes=QUEUE_TTL_MINUTES)
 
         # Add 30-second buffer to prevent race conditions with active polls
-        buffer_threshold = current_time - timedelta(
-            minutes=QUEUE_TTL_MINUTES, seconds=30
-        )
+        buffer_threshold = current_time - timedelta(minutes=QUEUE_TTL_MINUTES, seconds=30)
 
         expired_queues = []
         active_queues_info = []
@@ -235,15 +220,11 @@ class QueueManager:
         if active_queues_info:
             logger.debug(f"Active queues: {len(active_queues_info)} queues")
             for queue_id, user_id, age in active_queues_info:
-                logger.debug(
-                    f"  Queue {queue_id[:8]}... (user {user_id}): {age:.1f} min old"
-                )
+                logger.debug(f"  Queue {queue_id[:8]}... (user {user_id}): {age:.1f} min old")
 
         # Cleanup expired queues
         for queue_id, user_id, age_minutes in expired_queues:
-            logger.info(
-                f"Expiring queue {queue_id[:8]}... (user {user_id}) - idle for {age_minutes:.1f} minutes"
-            )
+            logger.info(f"Expiring queue {queue_id[:8]}... (user {user_id}) - idle for {age_minutes:.1f} minutes")
 
             user_queues.pop(queue_id, None)
             user_communities.pop(queue_id, None)
@@ -254,16 +235,12 @@ class QueueManager:
                 future = pending_polls.pop(queue_id)
                 if not future.done():
                     future.set_result(False)
-                logger.debug(
-                    f"Cancelled pending poll for expired queue {queue_id[:8]}..."
-                )
+                logger.debug(f"Cancelled pending poll for expired queue {queue_id[:8]}...")
 
         if expired_queues:
             logger.info(f"Cleaned up {len(expired_queues)} expired queues")
         elif len(user_queues) > 0:
-            logger.debug(
-                f"No queues to cleanup. {len(user_queues)} active queues remaining."
-            )
+            logger.debug(f"No queues to cleanup. {len(user_queues)} active queues remaining.")
 
 
 class HealthHandler(tornado.web.RequestHandler):
@@ -273,7 +250,7 @@ class HealthHandler(tornado.web.RequestHandler):
         self.write(
             {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "active_queues": len(user_queues),
                 "pending_polls": len(pending_polls),
                 "user_mappings": len(user_to_queue),
@@ -291,9 +268,7 @@ class RegisterHandler(tornado.web.RequestHandler):
             "Access-Control-Allow-Headers",
             "x-requested-with, content-type, authorization",
         )
-        self.set_header(
-            "Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS"
-        )
+        self.set_header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
 
     def options(self):
         self.set_status(204)
@@ -321,9 +296,7 @@ class RegisterHandler(tornado.web.RequestHandler):
                 existing_queue["community_ids"] = community_ids
                 user_communities[existing_queue["queue_id"]] = community_ids
 
-                logger.info(
-                    f"Returning existing queue {existing_queue['queue_id']} for user {user_id}"
-                )
+                logger.info(f"Returning existing queue {existing_queue['queue_id']} for user {user_id}")
 
                 self.write(
                     {
@@ -364,9 +337,7 @@ class HeartbeatHandler(tornado.web.RequestHandler):
             "Access-Control-Allow-Headers",
             "x-requested-with, content-type, authorization",
         )
-        self.set_header(
-            "Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS"
-        )
+        self.set_header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
 
     def options(self):
         self.set_status(204)
@@ -406,9 +377,7 @@ class PollHandler(tornado.web.RequestHandler):
             "Access-Control-Allow-Headers",
             "x-requested-with, content-type, authorization",
         )
-        self.set_header(
-            "Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS"
-        )
+        self.set_header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
 
     def options(self):
         self.set_status(204)
@@ -416,7 +385,13 @@ class PollHandler(tornado.web.RequestHandler):
 
     async def get(self):
         queue_id = self.get_argument("queue_id", None)
-        last_event_id = int(self.get_argument("last_event_id", 0))
+        raw_last_event_id = self.get_argument("last_event_id", "0")
+        try:
+            last_event_id = int(raw_last_event_id)
+        except (TypeError, ValueError):
+            self.set_status(400)
+            self.write({"error": "last_event_id must be an integer"})
+            return
 
         if not queue_id:
             self.set_status(400)
@@ -481,13 +456,9 @@ async def redis_event_listener():
             if message["type"] == "message":
                 try:
                     channel = (
-                        message["channel"].decode()
-                        if isinstance(message["channel"], bytes)
-                        else message["channel"]
+                        message["channel"].decode() if isinstance(message["channel"], bytes) else message["channel"]
                     )
-                    logger.info(
-                        f"Received Redis message on {channel}: {message['data']}"
-                    )
+                    logger.info(f"Received Redis message on {channel}: {message['data']}")
                     event_data = json.loads(message["data"])
 
                     if channel == "notification_events":
@@ -497,13 +468,9 @@ async def redis_event_listener():
                             logger.info(
                                 f"Processing notification event for users {target_user_ids}: {event_data.get('type', 'unknown')}"
                             )
-                            QueueManager.add_event_to_queues(
-                                event_data, target_user_ids=target_user_ids
-                            )
+                            QueueManager.add_event_to_queues(event_data, target_user_ids=target_user_ids)
                         else:
-                            logger.warning(
-                                f"Notification event missing target_user_ids: {event_data}"
-                            )
+                            logger.warning(f"Notification event missing target_user_ids: {event_data}")
                     else:
                         # Community-based routing for discussions/comments
                         community_ids = set()
@@ -516,22 +483,16 @@ async def redis_event_listener():
                             logger.info(
                                 f"Processing event for communities {community_ids}: {event_data.get('type', 'unknown')}"
                             )
-                            QueueManager.add_event_to_queues(
-                                event_data, target_community_ids=community_ids
-                            )
+                            QueueManager.add_event_to_queues(event_data, target_community_ids=community_ids)
                         else:
-                            logger.warning(
-                                f"Event missing community information: {event_data}"
-                            )
+                            logger.warning(f"Event missing community information: {event_data}")
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode Redis message: {e}")
                 except Exception as e:
                     logger.error(f"Error processing Redis event: {e}")
             elif message["type"] == "subscribe":
-                logger.info(
-                    f"Successfully subscribed to Redis channel: {message['channel']}"
-                )
+                logger.info(f"Successfully subscribed to Redis channel: {message['channel']}")
 
     except Exception as e:
         logger.error(f"Redis connection error: {e}")

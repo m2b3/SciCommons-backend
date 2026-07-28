@@ -414,3 +414,294 @@ The next sequence should be:
 4. Run focused tests and the full local Docker stack.
 5. Review the diff.
 6. Merge locally only after the port branch passes.
+
+## 2026-07-27 23:01:15 -04:00
+
+`portingbranch` is correctly based on `test`.
+
+```text
+origin/test:    2b28b99
+local test:     b0303b8
+portingbranch:  b0303b8
+```
+
+Commit `b0303b8` contains only `AGENTS.md` and `codexOutput.md`. There are currently no application-code differences from `origin/test`, so this is a clean point from which to port.
+
+The three sure-shot ports are:
+
+1. Corrected subscriber-level realtime filtering.
+2. Invalid `last_event_id` validation.
+3. Timezone-aware UTC timestamps.
+
+The catch-up feature is deliberately excluded because it needs the larger backend/frontend protocol redesign described earlier.
+
+### Files to change
+
+The implementation can be kept to:
+
+```text
+tornado_server.py
+tests/__init__.py
+tests/test_tornado_server.py
+```
+
+No model, migration, dependency, settings, Docker, or frontend change is required.
+
+### Port 1: corrected subscriber filtering
+
+Current `test` receives `subscriber_ids` in Django-produced event payloads but ignores them while Tornado distributes community events.
+
+In `QueueManager.add_event_to_queues`, inspect `event["data"]` once before iterating through queues. The implementation must preserve the distinction between an absent field and a present-but-empty list:
+
+```python
+event_data = event.get("data")
+if not isinstance(event_data, dict):
+    event_data = {}
+
+subscriber_filter_requested = "subscriber_ids" in event_data
+event_subscriber_ids = set(event_data.get("subscriber_ids") or [])
+```
+
+Keep direct user-targeted routing as the first-priority mode:
+
+```python
+if target_user_ids and user_id in target_user_ids:
+    should_receive = True
+```
+
+For community routing, require community membership first, then apply the optional filter:
+
+```python
+elif target_community_ids:
+    user_community_ids = user_communities.get(queue_id, set())
+    if target_community_ids.intersection(user_community_ids):
+        if subscriber_filter_requested:
+            should_receive = user_id in event_subscriber_ids
+        else:
+            should_receive = True
+```
+
+This gives the intended semantics:
+
+| Payload | Result |
+|---|---|
+| No `subscriber_ids` field | Broadcast to eligible community members |
+| `"subscriber_ids": []` | Deliver to nobody |
+| `"subscriber_ids": [1, 4]` | Deliver only to users 1 and 4 who are also community members |
+| Direct `target_user_ids` notification | Continue using direct-user routing |
+
+This corrects the flaw in `sureshBack`, where an empty subscriber list is falsey and accidentally falls back to a community broadcast.
+
+### Port 2: validate `last_event_id`
+
+Current `PollHandler.get` calls `int(...)` directly. A request such as:
+
+```text
+/realtime/poll?queue_id=abc&last_event_id=not-a-number
+```
+
+raises `ValueError` and becomes an internal server failure.
+
+Wrap only the conversion:
+
+```python
+raw_last_event_id = self.get_argument("last_event_id", "0")
+try:
+    last_event_id = int(raw_last_event_id)
+except (TypeError, ValueError):
+    self.set_status(400)
+    self.write({"error": "last_event_id must be an integer"})
+    return
+```
+
+Valid integer cursors and the missing-parameter default remain unchanged. Rejecting negative integers could be added later, but it is an additional behavior decision and is not necessary for this contained port.
+
+### Port 3: timezone-aware UTC timestamps
+
+Replace every `datetime.utcnow()` use in `tornado_server.py`:
+
+- Queue `created_at`.
+- Queue `last_heartbeat`.
+- Heartbeat updates.
+- Event timestamps.
+- Queue cleanup's current time.
+- Health-response timestamps.
+
+Do **not** copy `from datetime import UTC` directly from `sureshBack`. `pyproject.toml` still declares Python `^3.10`, while `datetime.UTC` was added in Python 3.11.
+
+Use the Python 3.10-compatible form:
+
+```python
+from datetime import datetime, timedelta, timezone
+```
+
+and:
+
+```python
+datetime.now(timezone.utc)
+```
+
+Serialized timestamps will include an explicit `+00:00` offset, eliminating naive UTC datetimes and avoiding the Python 3.12 `utcnow()` deprecation.
+
+### Focused test design
+
+Add `tests/test_tornado_server.py`. Clear these module globals before and after each test:
+
+```python
+user_queues
+user_communities
+user_to_queue
+pending_polls
+global_event_id
+```
+
+Subscriber-routing tests:
+
+1. Field absent broadcasts to all members of the target community.
+2. Empty subscriber list delivers to no queues.
+3. Non-empty list delivers only to listed community members.
+4. A listed user outside the target community receives nothing.
+5. `exclude_user_id` still prevents author delivery.
+6. Direct `target_user_ids` delivery still works even when subscriber filtering is present.
+
+Cursor-validation test:
+
+- Use Tornado's `AsyncHTTPTestCase` with `make_app()`.
+- Request `/realtime/poll?queue_id=test&last_event_id=invalid`.
+- Assert HTTP 400 and the exact JSON error.
+- This request fails before queue lookup, so it does not enter long polling.
+
+UTC tests:
+
+1. `create_queue` produces aware `created_at` and `last_heartbeat` values with a zero UTC offset.
+2. `update_heartbeat` preserves an aware UTC timestamp.
+3. An added event has an ISO timestamp parseable by `datetime.fromisoformat` with a zero UTC offset.
+4. The health endpoint returns an aware ISO UTC timestamp.
+
+### Fast compile check on Windows
+
+After implementing the port, the quickest syntax/import-independent check is:
+
+```powershell
+python -m py_compile tornado_server.py tests\test_tornado_server.py
+```
+
+No output means compilation succeeded. This catches syntax and indentation errors but does not prove dependencies or behavior.
+
+Run the focused tests:
+
+```powershell
+python -m unittest -v tests.test_tornado_server
+```
+
+If your host Python environment does not have the project dependencies installed, use Docker instead.
+
+### Exact-runtime Docker validation
+
+From `portingbranch`:
+
+```powershell
+# Validate the Compose model
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local config --quiet
+
+# Rebuild against the current lockfile and Dockerfiles
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local build
+
+# Start the complete backend
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local up -d
+
+# Compile inside the actual backend runtime
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local exec -T web poetry run python -m py_compile tornado_server.py tests/test_tornado_server.py
+
+# Run only the new focused tests
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local exec -T web poetry run python -m unittest -v tests.test_tornado_server
+
+# Run Django checks and the complete existing test suite
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local exec -T web poetry run python manage.py check --fail-level WARNING
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local exec -T web poetry run python manage.py makemigrations --check --dry-run
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local exec -T web poetry run python manage.py test
+
+# Verify service state and inspect logs
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local ps
+docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local logs --tail=100 web celery tornado
+```
+
+Finally check:
+
+```text
+http://localhost:8000/api/docs/
+http://localhost:8888/health
+```
+
+The validation levels are:
+
+```text
+py_compile             → syntax compiles
+focused unit tests     → the three ports behave correctly
+manage.py check/tests  → Django remains sound
+Docker build/up        → exact container runtime works
+API + health URLs      → full local smoke test passes
+```
+
+Suggested commit boundary after implementation:
+
+```text
+Port safe Tornado routing and timestamp fixes
+```
+
+No port code has been applied yet; this is the implementation and validation design only.
+
+## 2026-07-27 23:25:03 -04:00
+
+Implemented and runtime-validated the three sure-shot ports on `portingbranch`.
+
+Changes made:
+
+- Subscriber-level Tornado filtering now distinguishes a missing `subscriber_ids` field from an explicitly empty list, while preserving direct-user routing and author exclusion.
+- Invalid `last_event_id` values now return HTTP 400 with `{"error": "last_event_id must be an integer"}`.
+- Queue, heartbeat, event, cleanup, and health timestamps now use Python 3.10-compatible timezone-aware UTC.
+- Added nine focused tests in `tests/test_tornado_server.py`.
+
+Green validation:
+
+- All repository pre-commit hooks passed, including Black, flake8, and Bandit.
+- Host virtual-environment compilation passed.
+- All nine focused tests passed on Windows and again inside Docker.
+- Docker Compose configuration resolved successfully.
+- The `web`, `celery`, and `tornado` images built successfully.
+- The complete `local-db` stack started; all five services remain running, with Postgres and Tornado healthy.
+- `manage.py check --fail-level WARNING` passed.
+- `makemigrations --check --dry-run` reported no changes.
+- `http://localhost:8000/api/docs/` returned HTTP 200.
+- `http://localhost:8888/health` returned HTTP 200 with a raw `+00:00` timestamp.
+- A live invalid-cursor request returned HTTP 400 with the expected JSON.
+- No `Traceback`, `ERROR`, or `CRITICAL` entry appeared in the last 200 web/Celery/Tornado log lines.
+
+One repository-wide validation item is still red: `manage.py test` ran 127 tests with 15 failures and 3 errors. Seventeen are in `users.tests.test_api_auth`; one is the existing article-model unique-constraint test. These failures exercise code outside this diff. The new Tornado suite is fully green, but the repository's complete historical suite is not.
+
+The formatting hooks also Black-formatted `tornado_server.py` and removed its existing unused imports, so that file's textual diff is larger than the three functional changes. No commit or merge was made. The local Docker stack was left running for inspection.
+
+## 2026-07-27 23:26:35 -04:00
+
+Yes. Every validation level in that list was actually executed from `portingbranch`.
+
+| Validation | Result |
+|---|---|
+| Compose `config --quiet` | Passed |
+| Docker image rebuild | Passed for `web`, `celery`, and `tornado` |
+| Complete stack `up -d` | Passed; all five services are running |
+| Container `py_compile` | Passed |
+| Focused Tornado tests | Passed: 9/9 |
+| Django system check | Passed with no issues |
+| Migration drift check | Passed: no changes detected |
+| Complete `manage.py test` | Executed, but failed: 127 tests, 15 failures, 3 errors |
+| Compose `ps` | Passed; Postgres and Tornado are healthy |
+| Application log inspection | Completed; no `Traceback`, `ERROR`, or `CRITICAL` entries in the final 200 lines |
+| `/api/docs/` | HTTP 200 |
+| Tornado `/health` | HTTP 200 with a raw UTC `+00:00` timestamp |
+
+I also exercised the changed cursor behavior through the live published port; an invalid `last_event_id` returned HTTP 400 with the expected JSON.
+
+The important distinction is: the complete validation workflow was run, and the three-port implementation passed its compile, focused, Docker-runtime, and smoke checks. The repository-wide test suite is not entirely green because of 18 failures/errors outside the changed Tornado code—17 user-auth tests and one article-model constraint test.
+
+The Docker stack remains running for local inspection.
