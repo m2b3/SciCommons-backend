@@ -347,6 +347,37 @@ class ArticleCreateSchema(Schema):
     payload: ArticleCreateDetails
 
 
+class ExternalSource(str, Enum):
+    """Where a feed item came from. Only PubMed today; RSS/preprint servers are next."""
+
+    PUBMED = "pubmed"
+
+
+class ResolveExternalArticleSchema(Schema):
+    """Metadata for an article the user read in the feed and wants to post somewhere.
+
+    The feed serves papers that may or may not already exist in our DB. `create_article`
+    can only create, and rejects an existing article with a bare 400 that carries no slug,
+    which leaves the caller unable to proceed. This schema feeds the resolve endpoint,
+    which returns the slug either way.
+    """
+
+    source: ExternalSource
+    external_id: str
+    title: str
+    abstract: str
+    authors: List[Tag] = []
+    article_link: str
+    pdf_link: Optional[str] = Field(default=None)
+
+
+class ResolvedArticleOut(Schema):
+    slug: str
+    article_id: int
+    #: False when the article already existed, so the caller can adjust its message.
+    created: bool
+
+
 class UpdateArticleDetails(Schema):
     title: str | None
     abstract: str | None
