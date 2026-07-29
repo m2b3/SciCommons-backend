@@ -185,6 +185,14 @@ def create_review(
                 logger.error(f"Error creating anonymous name for review: {e}")
                 # Continue even if anonymous name creation fails
 
+        # Realtime review/review-comment events are published for `private` communities only.
+        # This is a decision, not an oversight: DiscussionSubscription covers private *and*
+        # hidden community articles (see articles/models.py), and the notification paths below
+        # do not gate on community type at all, so hidden could reasonably publish too. The
+        # same `private`-only gate is applied at the other five review call sites in this file
+        # and throughout discussion_api.py. `test_realtime_review_events.py` asserts that
+        # public and hidden publish nothing, so widening the scope means updating that test
+        # deliberately.
         try:
             if review.community and review.community.type == "private":
                 RealtimeEventPublisher.publish_review_created(review, {review.community.id})
