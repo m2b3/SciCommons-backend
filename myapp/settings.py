@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "communities",
     "articles",
     "posts",
+    "integrations",
     "storages",
     "channels",
 ]
@@ -114,8 +115,29 @@ EXTENSION_CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOWED_ORIGINS += EXTENSION_CORS_ALLOWED_ORIGINS
 
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^chrome-extension://[a-p]{32}$",
+# `^chrome-extension://[a-p]{32}$` matches EVERY Chrome extension ID, so combined with
+# CORS_ALLOW_CREDENTIALS it trusts every extension a user has installed. Keep it only as a
+# development convenience: once EXTENSION_CORS_ALLOWED_ORIGINS pins the real extension
+# origins, the regex is dropped so production trusts exactly that list.
+if EXTENSION_CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGIN_REGEXES = []
+else:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^chrome-extension://[a-p]{32}$",
+    ]
+
+# Registered extension clients. `client_id` is caller-supplied, so it has to be checked
+# against this list rather than merely echoed back at token exchange.
+EXTENSION_ALLOWED_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in config("EXTENSION_ALLOWED_CLIENT_IDS", default="scicommons-clipper").split(",")
+    if client_id.strip()
+]
+
+# Exact redirect URIs. When set, these are the only redirects accepted -- no implicit trust
+# of arbitrary chrome-extension:// or *.chromiumapp.org URIs.
+EXTENSION_ALLOWED_REDIRECT_URIS = [
+    uri.strip() for uri in config("EXTENSION_ALLOWED_REDIRECT_URIS", default="").split(",") if uri.strip()
 ]
 
 EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES = [
