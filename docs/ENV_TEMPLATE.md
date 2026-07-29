@@ -33,6 +33,7 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 AWS_STORAGE_BUCKET_NAME=your_bucket_name
 AWS_S3_REGION_NAME=us-east-1
 AWS_S3_CUSTOM_DOMAIN=your_custom_domain
+AWS_S3_ENDPOINT_URL=https://object-arbutus.alliancecan.ca
 
 # Redis Configuration (existing)
 CELERY_BROKER_URL=redis://localhost:6379/0
