@@ -218,7 +218,10 @@ AWS_S3_REGION_NAME = config(
 )  # Arbutus doesn't require region
 AWS_S3_CUSTOM_DOMAIN = config(
     "AWS_S3_CUSTOM_DOMAIN",
-    default=f"{config('AWS_STORAGE_BUCKET_NAME', default='cdn.scicommons.org')}",
+    default=(
+        "object-arbutus.alliancecan.ca/"
+        "56ef6dfb16b64243bb362f8bb7a23da2:cdn.scicommons.org"
+    ),
 )
 AWS_S3_FILE_OVERWRITE = False
 AWS_S3_SIGNATURE_VERSION = "s3"  # Required for Arbutus Object Storage
