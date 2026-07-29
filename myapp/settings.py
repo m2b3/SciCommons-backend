@@ -207,7 +207,9 @@ FRONTEND_URL = config("FRONTEND_URL")
 AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
 AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME")
-AWS_S3_ENDPOINT_URL = config("AWS_S3_ENDPOINT_URL", default="https://object-arbutus.cloud.computecanada.ca")
+AWS_S3_ENDPOINT_URL = config(
+    "AWS_S3_ENDPOINT_URL", default="https://object-arbutus.alliancecan.ca"
+)
 AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME", default="")  # Arbutus doesn't require region
 AWS_S3_CUSTOM_DOMAIN = config(
     "AWS_S3_CUSTOM_DOMAIN",
