@@ -189,7 +189,6 @@ DATABASES = {
 }
 
 if not DEBUG:
-    print(config("DATABASE_URL"))
     DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
 
 
