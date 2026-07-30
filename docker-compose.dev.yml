@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: scicommons_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scicommons_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   web:
     build: .
     command: >
@@ -10,9 +26,14 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - redis
-      - celery
-      - tornado
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      celery:
+        condition: service_started
+      tornado:
+        condition: service_started
     env_file:
       - .env.local
 
@@ -27,7 +48,10 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - .env.local
 
@@ -51,3 +75,6 @@ services:
       - MAX_EVENTS_PER_QUEUE=1000
       - POLL_TIMEOUT_SECONDS=60
       - HEARTBEAT_INTERVAL_SECONDS=60
+
+volumes:
+  postgres_data:
