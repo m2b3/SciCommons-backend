@@ -250,11 +250,12 @@ def extract_image_object_keys(markdown_content: str) -> Set[str]:
     Extract S3 object keys from user-attachment image URLs in markdown content.
 
     Matches URLs like:
-    - https://cdn.scicommons.org/user-attachments/prod/7_user_55b31315_1768284442.jpg
+    - https://object-arbutus.alliancecan.ca/PROJECT:BUCKET/user-attachments/prod/7_user_55b31315_1768284442.jpg
     - https://cdn.scicommons.org/user-attachments/local/123_user_abc12345_1234567890.png?query=param
-    - https://cdn.scicommons.org/user-attachments/test/1_user_def67890_9876543210.gif#anchor
 
     The regex handles:
+    - The configured project-qualified object-storage URL prefix
+    - Legacy CDN URLs retained in previously submitted content
     - Different environments (prod, test, local, etc.)
     - Various image extensions (.jpg, .jpeg, .png, .gif, .webp)
     - Extra URL parameters, query strings, anchors, etc.
@@ -262,8 +263,15 @@ def extract_image_object_keys(markdown_content: str) -> Set[str]:
 
     Returns a set of object keys (e.g., "user-attachments/prod/7_user_55b31315_1768284442.jpg")
     """
+    public_url_prefixes = {
+        settings.AWS_S3_CUSTOM_DOMAIN.rstrip("/"),
+        "cdn.scicommons.org",
+    }
+    public_url_prefix_pattern = "|".join(
+        re.escape(prefix) for prefix in sorted(public_url_prefixes)
+    )
     pattern = re.compile(
-        r"https://cdn\.scicommons\.org/"
+        rf"https://(?:{public_url_prefix_pattern})/"
         r"(user-attachments/[a-zA-Z0-9_-]+/\d+_user_[a-f0-9]+_\d+\.(?:jpg|jpeg|png|gif|webp|avif))"
         r"(?:[?#][^\s\)\"\']*)?",
         re.IGNORECASE,
