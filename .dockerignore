@@ -1,7 +1,13 @@
+.git
+.github
 .vscode
+.env*
+.venv
+venv
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 node_modules
-.env
+logs
+static

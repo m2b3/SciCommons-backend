@@ -1,117 +1,146 @@
-# SciCommons Backend
+# SciCommons backend
 
-## Quick Start (Docker - Recommended)
+Django/ASGI backend for SciCommons, with Celery, Redis, PostgreSQL, and Tornado
+realtime services.
 
-The easiest way to run the backend is using Docker. This sets up everything automatically: the web server, PostgreSQL database, Redis, Celery worker, and Tornado realtime server.
+Backend contributors can clone, run, test, and push this repository without
+access to production infrastructure, Ansible, the deployment Vault, or
+production credentials.
 
-### Prerequisites
+## Local quick start
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed
+Requirements:
 
-### Setup
+- Git;
+- Docker Engine or Docker Desktop;
+- Docker Compose v2 (`docker compose`).
 
-1. **Clone the repository and navigate to the project directory**
+Clone the repository and create an ignored local environment file:
 
-2. **Copy the example environment file**
+```bash
+git clone https://github.com/m2b3/SciCommons-backend.git
+cd SciCommons-backend
+cp .env.example .env.local
+```
 
-   ```bash
-   cp .env.example .env.local
-   ```
+Start the complete development stack:
 
-3. **Start all services with local PostgreSQL**
+```bash
+docker compose \
+  -f docker-compose.dev.yml \
+  --env-file .env.local \
+  up --build
+```
 
-   ```bash
-   docker compose -f docker-compose.dev.yml --profile local-db --env-file .env.local up -d
-   ```
+The development stack includes its own PostgreSQL and Redis services. On first
+startup it waits for PostgreSQL, applies Django migrations, and starts the
+application services.
 
-   This starts:
-   - PostgreSQL database (with persistent data)
-   - Redis
-   - Celery worker
-   - Tornado realtime server
-   - Django web server (with auto-migrations)
+Local endpoints:
 
-4. **Access the application**
+- API: <http://localhost:8000/>
+- API documentation: <http://localhost:8000/api/docs/>
+- Tornado realtime service: <http://localhost:8888/>
+- PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
 
-   - API: http://localhost:8000/
-   - API Documentation: http://localhost:8000/api/docs/
+Stop the stack with `Ctrl+C`, or from another terminal:
 
-### Using an External Database
+```bash
+docker compose -f docker-compose.dev.yml down
+```
 
-If you want to use your own PostgreSQL database instead of the local one:
+The PostgreSQL data is retained in a local Docker volume. To delete only this
+local development data and start again:
 
-1. Edit `.env.local` with your database credentials:
+```bash
+docker compose -f docker-compose.dev.yml down --volumes
+```
 
-   ```
-   DB_HOST=your-db-host
-   DB_NAME=your-db-name
-   DB_USER=your-db-user
-   DB_PASSWORD=your-db-password
-   DB_PORT=5432
-   DATABASE_URL=postgresql://user:password@host:port/dbname
-   ```
+## Local credentials and optional integrations
 
-2. Start services without the local database:
+`.env.example` contains safe development-only values. `.env.local` is ignored
+by Git and must never contain production credentials.
 
-   ```bash
-   docker compose -f docker-compose.dev.yml --env-file .env.local up -d
-   ```
+The default example uses an intentionally invalid object-storage endpoint.
+This allows Django and the test server to run without production S3 access,
+but upload/download integration calls will fail. To test object storage, place
+credentials for a personal or administrator-approved sandbox bucket in your
+local `.env.local`. Never request or use production Vault values for local
+development.
 
----
+Email delivery is also disabled unless you point `.env.local` at a local test
+SMTP service.
 
-## Manual Setup (Alternative)
+## Run tests
 
-If you prefer to run services manually without Docker:
+With the development stack running:
 
-### Prerequisites
+```bash
+docker compose \
+  -f docker-compose.dev.yml \
+  exec web \
+  poetry run python manage.py test
+```
 
-- Python 3.12.3+
-- Poetry
-- PostgreSQL
-- Redis
+Run the pre-commit checks:
 
-### Steps
+```bash
+docker compose \
+  -f docker-compose.dev.yml \
+  exec web \
+  poetry run pre-commit run --all-files
+```
 
-1. **Install dependencies**
+The versioned `poetry.lock` makes clean local and CI builds use the same
+resolved Python dependencies.
 
-   ```bash
-   poetry install
-   ```
+## Work on a contribution
 
-2. **Set up environment variables**
+```bash
+git switch -c your-change
+# edit and test
+git add PATHS_YOU_CHANGED
+git commit -m "Describe the change"
+git push -u origin your-change
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+Open a pull request against the appropriate backend branch. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the contributor/admin boundary and the
+review-to-deployment flow.
 
-   Edit `.env` with your database and Redis configuration.
+## Deployment boundary
 
-3. **Run database migrations**
+Pushing backend code does not grant infrastructure access and does not deploy
+production automatically. A deployment administrator promotes reviewed,
+tested commit SHAs by updating the private infrastructure repository. Its
+GitHub Actions workflow runs Ansible and deploys the exact pinned commits.
 
-   ```bash
-   poetry run python manage.py migrate
-   ```
+Contributors do not need:
 
-4. **Start Redis**
+- the infrastructure repository checkout;
+- the Ansible Vault password;
+- production `.env` files;
+- SSH access to backend or database hosts;
+- Cloudflare or OpenStack credentials.
 
-   ```bash
-   redis-server
-   ```
+The old direct-Docker deployment workflows have been removed. Ansible is the
+only supported production/test deployment path.
 
-5. **Start Celery worker**
+## Run without Docker
 
-   ```bash
-   celery -A myapp worker --loglevel=info --concurrency=5
-   ```
+Docker Compose is the supported contributor path. For a native setup, install
+Python 3.12, Poetry 1.7.1, PostgreSQL 16, and Redis, then adjust the ignored
+`.env.local` so database and Redis hosts are `localhost`:
 
-6. **Start Tornado server (for realtime features)**
+```bash
+poetry install
+poetry run python manage.py migrate
+poetry run uvicorn myapp.asgi:application \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --reload
+```
 
-   ```bash
-   poetry run python tornado_server.py
-   ```
-
-7. **Start the web server**
-
-   ```bash
-   poetry run uvicorn myapp.asgi:application --host 0.0.0.0 --port 8000 --reload
-   ```
+Run Celery and Tornado in separate terminals if the feature under development
+uses background jobs or realtime events.

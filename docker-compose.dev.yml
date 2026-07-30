@@ -1,8 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    profiles:
-      - local-db
     ports:
       - "5432:5432"
     environment:
@@ -12,10 +10,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scicommons_dev"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   web:
     build: .
@@ -29,9 +27,14 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - redis
-      - celery
-      - tornado
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      celery:
+        condition: service_started
+      tornado:
+        condition: service_started
     env_file:
       - .env.local
 
@@ -46,7 +49,10 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - .env.local
 
