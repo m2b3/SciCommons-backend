@@ -34,8 +34,24 @@ class PaperImportIn(Schema):
     pdf_link: Optional[str] = None
     community_id: Optional[int] = None
     community_name: Optional[str] = None
+    #: Zero or more community names to file this paper under. The Zotero plugin sends the
+    #: comma-separated list the user typed. `community_name` / `community_id` remain accepted
+    #: for older clients and are merged into this list.
+    community_names: List[str] = []
     submission_type: Literal["Public", "Private"] = "Public"
     idempotency_key: Optional[str] = None
+
+
+class CommunityImportResult(Schema):
+    """Per-community outcome, so a partial success is reportable rather than all-or-nothing."""
+
+    name: str
+    attached: bool
+    community_article_id: Optional[int] = None
+    status: Optional[str] = None
+    article_url: Optional[str] = None
+    #: Populated when `attached` is False -- unknown community, or no permission to submit.
+    error: Optional[str] = None
 
 
 class PaperLookupOut(Schema):
@@ -61,8 +77,12 @@ class PaperImportOut(Schema):
     doi: Optional[str] = None
     pmid: Optional[str] = None
     arxiv_id: Optional[str] = None
+    #: First successful community attachment. Kept for backwards compatibility with clients
+    #: that predate `communities`.
     community_article_id: Optional[int] = None
     community_submission_status: Optional[str] = None
+    #: One entry per requested community, in request order.
+    communities: List[CommunityImportResult] = []
 
 
 class IntegrationAuthorizeIn(Schema):

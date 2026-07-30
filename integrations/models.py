@@ -66,6 +66,9 @@ class IntegrationDeviceAuth(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
+    #: Last time the client polled /auth/device/token. Needed to enforce `interval_seconds`
+    #: server-side; previously the interval was advertised to clients but never checked.
+    last_polled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -75,6 +78,10 @@ class IntegrationDeviceAuth(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() >= self.expires_at
+
+    def mark_polled(self) -> None:
+        self.last_polled_at = timezone.now()
+        self.save(update_fields=["last_polled_at"])
 
     def approve(self, user) -> None:
         self.user = user

@@ -10,6 +10,8 @@ from integrations.api import router
 from integrations.models import IntegrationDeviceAuth
 from users.models import User
 
+LOCMEM_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
 
 def auth_header(user):
     token = RefreshToken.for_user(user).access_token
@@ -21,7 +23,13 @@ def pkce_challenge(verifier):
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-@override_settings(DEBUG=True, FRONTEND_URL="http://localhost:3000")
+@override_settings(
+    DEBUG=True,
+    FRONTEND_URL="http://localhost:3000",
+    RATELIMIT_ENABLE=False,
+    CACHES=LOCMEM_CACHES,
+    INTEGRATION_ALLOWED_CLIENT_IDS=["scicommons-zotero", "scicommons-clipper"],
+)
 class IntegrationsAPITestCase(TestCase):
     def setUp(self):
         self.client = TestClient(router)
