@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import re
 import secrets
 from datetime import timedelta
 from typing import List, Optional
@@ -51,6 +52,17 @@ DEFAULT_DEVICE_CODE_TTL_SECONDS = 900
 DEFAULT_DEVICE_POLL_INTERVAL_SECONDS = 5
 
 
+PMID_PATTERN = re.compile(r"^\d+$")
+
+
+class InvalidIdentifier(Exception):
+    """A supplied identifier is malformed and must not be silently coerced.
+
+    Raised by the normalizers instead of transforming bad input into something that could match
+    a different paper (e.g. "abc123" -> "123"). Both paper endpoints translate this to a 400.
+    """
+
+
 def _clean_text(value: Optional[str]) -> str:
     return " ".join(str(value or "").split()).strip()
 
@@ -67,10 +79,27 @@ def _normalize_doi(value: Optional[str]) -> Optional[str]:
 
 
 def _normalize_pmid(value: Optional[str]) -> Optional[str]:
+    """Accept a bare PMID, optionally prefixed with `pmid:` / `PMID `.
+
+    Ported from #167 while stacking: this previously only stripped the prefix, so "abc123" and
+    "PMC3456789" were stored verbatim as PMIDs -- the latter is a different identifier space and
+    would make an article match, or claim, an unrelated paper's PMID. Malformed values are
+    rejected rather than coerced.
+    """
     cleaned = _clean_text(value)
     if not cleaned:
         return None
-    return cleaned.replace("PMID:", "").replace("pmid:", "").strip() or None
+
+    lowered = cleaned.lower()
+    for prefix in ("pmid:", "pmid "):
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            break
+
+    if not PMID_PATTERN.match(cleaned):
+        raise InvalidIdentifier(f"'{_clean_text(value)}' is not a valid PubMed ID.")
+
+    return cleaned
 
 
 def _normalize_arxiv_id(value: Optional[str]) -> Optional[str]:
@@ -86,13 +115,26 @@ def _normalize_arxiv_id(value: Optional[str]) -> Optional[str]:
 
 
 def _normalize_url(value: Optional[str]) -> Optional[str]:
+    """Require a real http(s) URL.
+
+    Ported from #167 while stacking: this previously returned any scheme-less or unparseable
+    string verbatim, so "abc", "../../etc/passwd" and "javascript:alert(1)" were stored in
+    `canonical_url` / `article_link` / `ArticlePDF.external_url`. The model only strips these
+    fields and never calls `full_clean()`, so nothing downstream would have caught them.
+    """
     cleaned = _clean_text(value)
     if not cleaned:
         return None
-    parsed = urlparse(cleaned)
-    if not parsed.scheme or not parsed.netloc:
-        return cleaned
-    normalized = parsed._replace(fragment="")
+
+    try:
+        parsed = urlparse(cleaned)
+    except Exception:
+        raise InvalidIdentifier(f"'{cleaned}' is not a valid URL.")
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise InvalidIdentifier(f"'{cleaned}' is not a valid http(s) URL.")
+
+    normalized = parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment="")
     path = normalized.path.rstrip("/") or normalized.path
     normalized = normalized._replace(path=path)
     return urlunparse(normalized)
@@ -515,6 +557,16 @@ def lookup_paper(
     arxiv_id: Optional[str] = None,
     url: Optional[str] = None,
 ):
+    # Normalize before querying so a malformed identifier is a 400 rather than a silent miss
+    # (or, worse, a coerced match against an unrelated paper).
+    try:
+        doi = _normalize_doi(doi)
+        pmid = _normalize_pmid(pmid)
+        arxiv_id = _normalize_arxiv_id(arxiv_id)
+        url = _normalize_url(url)
+    except InvalidIdentifier as exc:
+        return 400, {"message": str(exc)}
+
     user = _auth_user(request)
     article = _visible_articles_for_user(
         _matching_articles(doi=doi, pmid=pmid, arxiv_id=arxiv_id, canonical_url=url, url=url),
@@ -534,11 +586,15 @@ def import_paper(request, payload: PaperImportIn):
         return 400, {"message": "Title is required."}
 
     user = request.auth
-    doi = _normalize_doi(payload.doi)
-    pmid = _normalize_pmid(payload.pmid)
-    arxiv_id = _normalize_arxiv_id(payload.arxiv_id)
-    canonical_url = _normalize_url(payload.canonical_url or payload.url or payload.article_link)
-    article_link = _normalize_url(payload.article_link or payload.url)
+    try:
+        doi = _normalize_doi(payload.doi)
+        pmid = _normalize_pmid(payload.pmid)
+        arxiv_id = _normalize_arxiv_id(payload.arxiv_id)
+        canonical_url = _normalize_url(payload.canonical_url or payload.url or payload.article_link)
+        article_link = _normalize_url(payload.article_link or payload.url)
+        pdf_link = _normalize_url(payload.pdf_link)
+    except InvalidIdentifier as exc:
+        return 400, {"message": str(exc)}
 
     community_names = _requested_community_names(payload)
     visible_community_ids = _allowed_requested_community_ids(community_names, user)
@@ -640,8 +696,9 @@ def import_paper(request, payload: PaperImportIn):
             if changed_fields:
                 article.save(update_fields=changed_fields)
 
-        if payload.pdf_link and not ArticlePDF.objects.filter(article=article, external_url=payload.pdf_link).exists():
-            ArticlePDF.objects.create(article=article, external_url=payload.pdf_link)
+        # Store the validated URL, not the raw payload value.
+        if pdf_link and not ArticlePDF.objects.filter(article=article, external_url=pdf_link).exists():
+            ArticlePDF.objects.create(article=article, external_url=pdf_link)
 
         community_results = _attach_to_communities(article, community_names, user)
 

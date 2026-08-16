@@ -24,7 +24,8 @@ from communities.models import CommunityArticle
 from integrations.api import router
 from ninja.testing import TestClient
 from rest_framework_simplejwt.tokens import RefreshToken
-from users.models import ExtensionAuthCode, User
+from integrations.models import IntegrationAuthCode
+from users.models import User
 
 LOCMEM_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -77,16 +78,23 @@ class PaperImportSecurityTest(TestCase):
             headers=auth_headers(self.stranger),
         )
 
-        self.assertEqual(response.status_code, 409, response.content)
+        # #167 answered this with a 409, relying on a global unique constraint on `doi`. The
+        # stacked importer (#168) instead gives the caller their own row, so the assertion moves
+        # from "refused" to "did not touch or reveal the owner's article" -- which is the
+        # security property this test exists to protect, and it still holds.
+        self.assertEqual(response.status_code, 200, response.content)
+
+        body = response.json()
+        self.assertFalse(body["found_existing"])
+        self.assertNotEqual(body["article_id"], private.id)
 
         # The response must not disclose anything about the private article.
-        body = response.json()
-        self.assertEqual(list(body), ["message"])
-        self.assertNotIn("Owner's unpublished work", body["message"])
-        self.assertNotIn(private.slug, body["message"])
+        self.assertNotIn("Owner's unpublished work", response.content.decode())
+        self.assertNotIn(private.slug, response.content.decode())
 
         # And the article itself must be untouched.
         private.refresh_from_db()
+        self.assertEqual(private.title, "Owner's unpublished work")
         self.assertIsNone(private.pmid)
         self.assertEqual(private.title, "Owner's unpublished work")
         self.assertFalse(ArticlePDF.objects.filter(article=private).exists())
@@ -232,17 +240,22 @@ class PaperImportSecurityTest(TestCase):
 
         from integrations import api as integrations_api
 
-        real_resolve = integrations_api._resolve_identifier_matches
+        # Retargeted while stacking: #168 renamed this helper to `_identifier_matches` and
+        # returns a plain {identifier: article} dict instead of a (article, dict) tuple. The
+        # property under test is unchanged -- the importer must not create a duplicate when the
+        # row materialises between the lookup and the insert. #168 holds that with a Postgres
+        # advisory lock keyed on the identifier rather than with a unique constraint.
+        real_resolve = integrations_api._identifier_matches
         calls = {"n": 0}
 
         def flaky_resolve(*args, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 # Pretend the row is not visible yet, forcing the create path.
-                return None, {}
+                return {}
             return real_resolve(*args, **kwargs)
 
-        with patch.object(integrations_api, "_resolve_identifier_matches", side_effect=flaky_resolve):
+        with patch.object(integrations_api, "_identifier_matches", side_effect=flaky_resolve):
             response = self.client.post(
                 "/papers/import",
                 json={"title": "Loser", "doi": "10.5555/race"},
@@ -302,13 +315,13 @@ class ExtensionAuthSecurityTest(TestCase):
         response = self.authorize(code_challenge_method="plain", code_challenge="verifier-1")
 
         self.assertIn(response.status_code, (400, 422), response.content)
-        self.assertEqual(ExtensionAuthCode.objects.count(), 0)
+        self.assertEqual(IntegrationAuthCode.objects.count(), 0)
 
     def test_unknown_client_id_is_rejected(self):
         response = self.authorize(client_id="somebody-elses-extension")
 
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(ExtensionAuthCode.objects.count(), 0)
+        self.assertEqual(IntegrationAuthCode.objects.count(), 0)
 
     def test_exchange_requires_redirect_uri(self):
         authorize = self.authorize()
@@ -324,7 +337,7 @@ class ExtensionAuthSecurityTest(TestCase):
         )
 
         self.assertIn(response.status_code, (400, 422), response.content)
-        self.assertFalse(ExtensionAuthCode.objects.first().is_used)
+        self.assertFalse(IntegrationAuthCode.objects.first().is_used)
 
     def test_exchange_rejects_mismatched_redirect_uri(self):
         authorize = self.authorize()
@@ -340,12 +353,12 @@ class ExtensionAuthSecurityTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertFalse(ExtensionAuthCode.objects.first().is_used)
+        self.assertFalse(IntegrationAuthCode.objects.first().is_used)
 
     def test_exchange_refuses_a_stored_plain_challenge(self):
         """Defence in depth for codes minted before `plain` was removed."""
         authorize = self.authorize()
-        code_row = ExtensionAuthCode.objects.get()
+        code_row = IntegrationAuthCode.objects.get()
         code_row.code_challenge_method = "plain"
         code_row.code_challenge = "verifier-1"
         code_row.save(update_fields=["code_challenge_method", "code_challenge"])
@@ -370,9 +383,9 @@ class ExtensionAuthSecurityTest(TestCase):
     DEBUG=False,
     RATELIMIT_ENABLE=False,
     CACHES=LOCMEM_CACHES,
-    EXTENSION_ALLOWED_CLIENT_IDS=["scicommons-clipper"],
-    EXTENSION_ALLOWED_REDIRECT_URIS=["https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/scicommons"],
-    EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES=["https://app.example.com/cb"],
+    INTEGRATION_ALLOWED_CLIENT_IDS=["scicommons-clipper"],
+    INTEGRATION_ALLOWED_REDIRECT_URIS=["https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/scicommons"],
+    INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES=["https://app.example.com/cb"],
 )
 class ExtensionRedirectAllowlistTest(TestCase):
     """With an allowlist configured, nothing outside it is accepted -- DEBUG off."""
@@ -411,14 +424,14 @@ class ExtensionRedirectAllowlistTest(TestCase):
                 response = self.authorize(redirect_uri)
                 self.assertEqual(response.status_code, 400, response.content)
 
-        self.assertEqual(ExtensionAuthCode.objects.count(), 0)
+        self.assertEqual(IntegrationAuthCode.objects.count(), 0)
 
     def test_prefix_allowlist_does_not_match_a_sibling_domain(self):
         """`startswith` on the raw URI used to authorise app.example.com.attacker.tld."""
         response = self.authorize("https://app.example.com.attacker.tld/cb")
 
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(ExtensionAuthCode.objects.count(), 0)
+        self.assertEqual(IntegrationAuthCode.objects.count(), 0)
 
     def test_configured_prefix_still_matches_its_own_paths(self):
         response = self.authorize("https://app.example.com/cb/done")

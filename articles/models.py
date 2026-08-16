@@ -19,9 +19,13 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
-    doi = models.CharField(max_length=255, null=True, blank=True, unique=True, db_index=True)
-    pmid = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
-    arxiv_id = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
+    # Indexed but NOT unique. #167 made these globally unique to dedupe imports; #168's importer
+    # deliberately creates a separate row when the only match is another user's *private*
+    # article, so a global unique constraint turns that path into an IntegrityError. Uniqueness
+    # and per-user private copies cannot both hold -- see notes/integrations-pr-review.md.
+    doi = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    pmid = models.CharField(max_length=64, null=True, blank=True, db_index=True)
+    arxiv_id = models.CharField(max_length=64, null=True, blank=True, db_index=True)
     # 1000 rather than the URLField default of 200: publisher landing URLs routinely exceed 200
     # characters. Widened here (from #168) on top of the identifier fields added by #167.
     canonical_url = models.URLField(max_length=1000, null=True, blank=True, db_index=True)
