@@ -37,3 +37,19 @@ sudo docker compose -f docker-compose.dev.yml --env-file .env.local ps
 Develop against the local `scicommons_dev` database, run tests in the `web` container, then commit, push your feature branch, and open a pull request. Production credentials and the real production database are intentionally unavailable here.
 
 One important limitation: this is now a backend-only development server. The frontend checkout was deliberately removed under item 8. Use a frontend running on your workstation, or re-clone it later if you decide this should be a combined full-stack server. Since the service ports bind to `127.0.0.1`, browser access from your workstation still requires the SSH port forwarding discussed earlier.
+
+## 2026-08-21 15:02:28 +0000
+
+Yes—I inspected the new backend-infrastructure commit [`7c5b04e`](https://github.com/m2b3/scicommons-backendinfra/commit/7c5b04eef71af13716d7e6c758154a8b9af0d54a). It adds a guarded [`tools/promote_backend.sh`](https://github.com/m2b3/scicommons-backendinfra/blob/main/tools/promote_backend.sh) deployment-promotion helper and documents it in [`docs/newdeveloper.md`](https://github.com/m2b3/scicommons-backendinfra/blob/main/docs/newdeveloper.md).
+
+The intended flow is now:
+
+1. Develop here, push a backend feature branch, and open/test the pull request.
+2. On a separate deployment-admin/controller checkout, run `tools/promote_backend.sh test [BACKEND_REF]` or `prod [BACKEND_REF]`.
+3. The helper resolves an immutable 40-character backend SHA, verifies `pyproject.toml` and `poetry.lock`, updates only the selected environment pin and lockfile, and creates a local infrastructure commit.
+4. Review that commit. The helper deliberately does **not** push or deploy.
+5. Pushing the reviewed infrastructure commit to `main` triggers the [`Deploy SciCommons backend`](https://github.com/m2b3/scicommons-backendinfra/blob/main/.github/workflows/deploy-backend.yml) workflow, which runs Ansible and deploys the pinned production and test revisions.
+
+So you do **not** merge code manually on the actual application server. Also, pushing `SciCommons-backend/test` alone does not deploy it. Infrastructure currently pins test to `4f82ff69…`, while `origin/test` contains newer commits, including implementation commit `1280c8f`.
+
+My recommendation is to leave this machine unchanged as the isolated development server. Keep the infrastructure checkout and Vault/deployment authority on the admin/controller side. When you want the current backend deployed to test, an administrator should run the new helper there, review its generated commit, and explicitly push infrastructure `main`. I have not triggered that deployment.
