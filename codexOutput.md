@@ -69,3 +69,27 @@ The roles are distinct:
 My preference is to keep the infrastructure checkout on a private administrator workstation. If you intentionally want it here, use a separate Unix account and protected home directory—not merely another folder—and keep all Vault passwords, production `.env` files, SSH deployment keys, and cloud credentials off this machine. Do not register this host as the self-hosted deployment controller.
 
 So: **possible, yes; equivalent security separation, no.** I have not created the checkout. If you choose this arrangement, I can set it up as a promotion-only admin checkout with no Vault or production credentials.
+
+## 2026-08-21 15:16:28 +0000
+
+Yes—but the application is **already behind SSH** in practice.
+
+I verified:
+
+- Django `8000`, Tornado `8888`, PostgreSQL `5432`, and Redis `6379` listen only on `127.0.0.1`.
+- SSH listens publicly on port `22`.
+- SSH key authentication is enabled and password authentication is disabled.
+- SSH TCP forwarding is enabled, while `GatewayPorts` is disabled.
+
+From your workstation, connect to this server's public IP:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 8000:127.0.0.1:8000 \
+  -L 8888:127.0.0.1:8888 \
+  skrishna@SERVER_PUBLIC_IP
+```
+
+Then use `http://127.0.0.1:8000/api/docs/` and `http://127.0.0.1:8888/health` on your workstation. Add `-L 5432:127.0.0.1:5432` only when you need a local database client. Your workstation itself does not need a public IP; it only needs outbound SSH access to this server.
+
+The remaining optional hardening is the host firewall: UFW is currently inactive. The current application ports are still non-public because of their loopback bindings, but enabling a firewall that permits SSH and denies other inbound traffic would protect against a future service accidentally binding to `0.0.0.0`. Disabling SSH root login entirely would also be sensible. I have not made either change because firewall/SSH changes can lock you out and item 2 was excluded.
