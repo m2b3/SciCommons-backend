@@ -7,7 +7,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from articles.models import Article
 from integrations.api import router
-from users.models import ExtensionAuthCode, User
+from integrations.models import IntegrationAuthCode
+from users.models import User
 
 
 def auth_headers(user):
@@ -81,7 +82,7 @@ class PaperIntegrationAPITest(TestCase):
             headers=auth_headers(self.user),
         )
         self.assertEqual(authorize.status_code, 200)
-        self.assertEqual(ExtensionAuthCode.objects.count(), 1)
+        self.assertEqual(IntegrationAuthCode.objects.count(), 1)
 
         exchange_payload = {
             "client_id": "scicommons-clipper",

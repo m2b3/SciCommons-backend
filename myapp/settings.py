@@ -63,8 +63,8 @@ INSTALLED_APPS = [
     "users",
     "communities",
     "articles",
-    "posts",
     "integrations",
+    "posts",
     "storages",
     "channels",
 ]
@@ -113,13 +113,18 @@ EXTENSION_CORS_ALLOWED_ORIGINS = [
     for origin in config("EXTENSION_CORS_ALLOWED_ORIGINS", default="").split(",")
     if origin.strip()
 ]
-CORS_ALLOWED_ORIGINS += EXTENSION_CORS_ALLOWED_ORIGINS
+INTEGRATION_CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in config("INTEGRATION_CORS_ALLOWED_ORIGINS", default="").split(",")
+    if origin.strip()
+]
+CORS_ALLOWED_ORIGINS += EXTENSION_CORS_ALLOWED_ORIGINS + INTEGRATION_CORS_ALLOWED_ORIGINS
 
-# `^chrome-extension://[a-p]{32}$` matches EVERY Chrome extension ID, so combined with
-# CORS_ALLOW_CREDENTIALS it trusts every extension a user has installed. Keep it only as a
-# development convenience: once EXTENSION_CORS_ALLOWED_ORIGINS pins the real extension
-# origins, the regex is dropped so production trusts exactly that list.
-if EXTENSION_CORS_ALLOWED_ORIGINS:
+# `^chrome-extension://[a-p]{32}$` matches EVERY Chrome extension ID, so with
+# CORS_ALLOW_CREDENTIALS=True and `authorization` in CORS_ALLOW_HEADERS it lets any extension a
+# user has installed make credentialed calls to the whole API. Keep it only as a development
+# convenience: once either origins list pins the real origins, drop the regex.
+if EXTENSION_CORS_ALLOWED_ORIGINS or INTEGRATION_CORS_ALLOWED_ORIGINS:
     CORS_ALLOWED_ORIGIN_REGEXES = []
 else:
     CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -146,6 +151,42 @@ EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES = [
     if prefix.strip()
 ]
 EXTENSION_AUTH_CODE_TTL_SECONDS = config("EXTENSION_AUTH_CODE_TTL_SECONDS", default=300, cast=int)
+
+# The generalised integrations layer (#168) reads INTEGRATION_*, while the extension work
+# (#167) shipped EXTENSION_*. Default each new name to the corresponding extension value so a
+# deployment that has already set the EXTENSION_* env vars keeps working untouched.
+INTEGRATION_AUTH_CODE_TTL_SECONDS = config(
+    "INTEGRATION_AUTH_CODE_TTL_SECONDS", default=EXTENSION_AUTH_CODE_TTL_SECONDS, cast=int
+)
+INTEGRATION_DEVICE_CODE_TTL_SECONDS = config("INTEGRATION_DEVICE_CODE_TTL_SECONDS", default=900, cast=int)
+INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS = config("INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS", default=5, cast=int)
+
+# Registered integration clients. `client_id` arrives from the caller, so it has to be checked
+# against a registry rather than trusted or compared only to itself.
+INTEGRATION_ALLOWED_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in config(
+        "INTEGRATION_ALLOWED_CLIENT_IDS", default="scicommons-zotero,scicommons-clipper"
+    ).split(",")
+    if client_id.strip()
+]
+# Union with the extension list so a deployment that registered extra clients via
+# EXTENSION_ALLOWED_CLIENT_IDS does not lose them when the integrations layer takes over.
+INTEGRATION_ALLOWED_CLIENT_IDS += [
+    client_id for client_id in EXTENSION_ALLOWED_CLIENT_IDS if client_id not in INTEGRATION_ALLOWED_CLIENT_IDS
+]
+
+# Exact redirect URIs. When set, these are the only ones accepted -- no implicit trust of
+# arbitrary chrome-extension:// or *.chromiumapp.org URIs.
+INTEGRATION_ALLOWED_REDIRECT_URIS = [
+    uri.strip() for uri in config("INTEGRATION_ALLOWED_REDIRECT_URIS", default="").split(",") if uri.strip()
+] or EXTENSION_ALLOWED_REDIRECT_URIS
+
+INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES = [
+    prefix.strip()
+    for prefix in config("INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES", default="").split(",")
+    if prefix.strip()
+] or EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES
 
 # CORS Additional Settings
 CORS_ALLOW_CREDENTIALS = True
@@ -395,7 +436,7 @@ if DEBUG:
     }
 else:
     # Ensure /logs directory (mounted from host) exists inside container
-    LOG_DIR = Path("/logs")
+    LOG_DIR = Path(config("LOG_DIR", default="/logs"))
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     LOG_FILE_PATH = LOG_DIR / f"{ENVIRONMENT}.log"
     LOGGING = {

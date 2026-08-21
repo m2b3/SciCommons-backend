@@ -62,9 +62,23 @@ JWT_REFRESH_TOKEN_LIFETIME=86400
 
 # CORS Configuration (for development)
 CORS_ALLOW_ALL_ORIGINS=True
+
+# Integrations (Zotero plugin / browser extension)
+INTEGRATION_AUTH_CODE_TTL_SECONDS=300
+INTEGRATION_DEVICE_CODE_TTL_SECONDS=900
+INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS=5
+INTEGRATION_ALLOWED_CLIENT_IDS=scicommons-zotero,scicommons-clipper
+INTEGRATION_ALLOWED_REDIRECT_URIS=
+INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES=
+INTEGRATION_CORS_ALLOWED_ORIGINS=
 ```
 
-## Browser Extension Integration Variables
+## Browser Extension Integration Variables (legacy names, still honoured)
+
+These shipped with the browser-extension work and are still read. Each `INTEGRATION_*` variable
+below falls back to its `EXTENSION_*` counterpart, so an existing deployment keeps working without
+an env change. Prefer the `INTEGRATION_*` names for anything new.
+
 
 1. **EXTENSION_AUTH_CODE_TTL_SECONDS** - lifetime for one-time extension login codes, default `300`.
 2. **EXTENSION_CORS_ALLOWED_ORIGINS** - comma-separated exact extension origins, e.g.
@@ -81,6 +95,27 @@ CORS_ALLOW_ALL_ORIGINS=True
 5. **EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES** - comma-separated redirect URI prefixes for non-Chrome
    test clients. Matched at a path boundary, so `https://app.example.com/cb` authorises
    `https://app.example.com/cb/done` but not `https://app.example.com.attacker.tld/cb`.
+
+## Integration Variables
+
+1. **INTEGRATION_AUTH_CODE_TTL_SECONDS** — lifetime of a one-time authorization code, default `300`.
+2. **INTEGRATION_DEVICE_CODE_TTL_SECONDS** — lifetime of a device authorization, default `900`.
+3. **INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS** — minimum seconds between `/auth/device/token`
+   polls, default `5`. This is now **enforced** server-side: polling faster returns `429`.
+4. **INTEGRATION_ALLOWED_CLIENT_IDS** — comma-separated registered client IDs, default
+   `scicommons-zotero,scicommons-clipper`. A `client_id` outside this list cannot obtain an
+   authorization code or start a device flow.
+5. **INTEGRATION_ALLOWED_REDIRECT_URIS** — comma-separated **exact** redirect URIs.
+   **Set this in production.** Once set it is the only thing accepted. While it is empty *and*
+   `DEBUG=True`, any `chrome-extension://` / `*.chromiumapp.org` / localhost redirect is accepted
+   as a development convenience and a warning is logged; with `DEBUG=False` and nothing
+   configured, all redirects are refused.
+6. **INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES** — prefixes for non-Chrome clients, matched at a
+   path boundary so `https://app.example.com/cb` authorises `https://app.example.com/cb/done`
+   but not `https://app.example.com.attacker.tld/cb`.
+7. **INTEGRATION_CORS_ALLOWED_ORIGINS** — comma-separated exact extension origins.
+   **Set this in production.** While empty, CORS falls back to a regex matching *every* Chrome
+   extension ID; setting it replaces that regex with your exact list.
 
 ## New Environment Variables for Real-time System
 

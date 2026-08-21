@@ -4,319 +4,229 @@ import logging
 import re
 import secrets
 from datetime import timedelta
-from typing import Any, Dict, List, Literal, Optional, Tuple
-from urllib.parse import unquote, urlsplit, urlunsplit
+from typing import List, Optional
+from urllib.parse import quote, urlencode, urlparse, urlunparse
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
-from django.utils.crypto import constant_time_compare
+from django.utils.text import slugify
 from django_ratelimit.decorators import ratelimit
-from ninja import Field, Query, Router, Schema
+from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from articles.cache import invalidate_articles_cache
-from articles.models import Article, ArticlePDF, Discussion, Review
+from articles.models import Article, ArticlePDF
 from communities.models import Community, CommunityArticle
-from myapp.schemas import Message
+from integrations.models import IntegrationAuthCode, IntegrationDeviceAuth, hash_secret
+from integrations.schemas import (
+    DeviceApproveIn,
+    DeviceStartIn,
+    DeviceStartOut,
+    DeviceTokenIn,
+    IntegrationAuthorizeIn,
+    IntegrationAuthorizeOut,
+    IntegrationExchangeIn,
+    IntegrationTokenOut,
+    Message,
+    PaperImportIn,
+    PaperImportOut,
+    PaperLookupOut,
+)
 from users.auth import JWTAuth, OptionalJWTAuth
-from users.models import ExtensionAuthCode, User
 
 router = Router(tags=["Integrations"])
 logger = logging.getLogger(__name__)
 
-#: How long a successful import is remembered per (user, idempotency_key).
+#: How long a successful import is remembered per (user, communities, idempotency_key).
 IMPORT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
 
-PMID_PATTERN = re.compile(r"^\d+$")
+#: Arbitrary namespace for pg_advisory_xact_lock so import locks cannot collide with other
+#: advisory-lock users in the same database.
+IMPORT_LOCK_NAMESPACE = 0x5C10
 
-#: Returned when an identifier matches an article the caller may not see. Deliberately says
-#: nothing about the article -- no title, slug, owner or community. 409 rather than 404 because
-#: the unique identifier columns mean we genuinely cannot create a second row.
-INACCESSIBLE_MATCH_MESSAGE = "This paper already exists on SciCommons and is not available to you."
+DEFAULT_AUTH_CODE_TTL_SECONDS = 300
+DEFAULT_DEVICE_CODE_TTL_SECONDS = 900
+DEFAULT_DEVICE_POLL_INTERVAL_SECONDS = 5
+
+
+PMID_PATTERN = re.compile(r"^\d+$")
 
 
 class InvalidIdentifier(Exception):
     """A supplied identifier is malformed and must not be silently coerced.
 
-    Raised by the normalizers instead of transforming bad input into something that could
-    match a different paper (e.g. "abc123" -> "123"). Both endpoints translate this to 400.
+    Raised by the normalizers instead of transforming bad input into something that could match
+    a different paper (e.g. "abc123" -> "123"). Both paper endpoints translate this to a 400.
     """
 
 
-class PaperImportIn(Schema):
-    title: str
-    abstract: str = ""
-    authors: List[Any] = Field(default_factory=list)
-    doi: Optional[str] = None
-    pmid: Optional[str] = None
-    arxiv_id: Optional[str] = None
-    canonical_url: Optional[str] = None
-    url: Optional[str] = None
-    article_link: Optional[str] = None
-    pdf_link: Optional[str] = None
-    community_name: Optional[str] = None
-    community_id: Optional[int] = None
-    submission_type: Literal["Public", "Private"] = "Public"
-    idempotency_key: Optional[str] = None
-
-
-class PaperImportOut(Schema):
-    found_existing: bool
-    article_id: int
-    slug: str
-    title: str
-    article_url: str
-    doi: Optional[str] = None
-    pmid: Optional[str] = None
-    arxiv_id: Optional[str] = None
-    community_article_id: Optional[int] = None
-    community_submission_status: Optional[str] = None
-
-
-class PaperLookupOut(Schema):
-    found: bool
-    article_id: Optional[int] = None
-    slug: Optional[str] = None
-    title: Optional[str] = None
-    article_url: Optional[str] = None
-    doi: Optional[str] = None
-    pmid: Optional[str] = None
-    arxiv_id: Optional[str] = None
-    total_discussions: int = 0
-    total_reviews: int = 0
-    can_post_discussion: bool = False
-
-
-class ExtensionAuthorizeIn(Schema):
-    client_id: str
-    redirect_uri: str
-    state: str
-    code_challenge: str
-    # S256 only. `plain` was previously accepted, which let a client neutralise PKCE by
-    # sending the verifier as its own challenge.
-    code_challenge_method: Literal["S256"] = "S256"
-
-
-class ExtensionAuthorizeOut(Schema):
-    code: str
-    state: str
-    redirect_uri: str
-    expires_in: int
-
-
-class ExtensionExchangeIn(Schema):
-    client_id: str
-    code: str
-    code_verifier: str
-    # Required: when this was optional, omitting it skipped the redirect-URI comparison
-    # entirely. Both real clients already send it.
-    redirect_uri: str
-
-
-class ExtensionTokenOut(Schema):
-    access_token: str
-    refresh_token: str
-    token_type: str = "Bearer"
-    expires_in: int
-    user: Dict[str, Any]
+def _clean_text(value: Optional[str]) -> str:
+    return " ".join(str(value or "").split()).strip()
 
 
 def _normalize_doi(value: Optional[str]) -> Optional[str]:
-    if not value:
+    cleaned = _clean_text(value)
+    if not cleaned:
         return None
-    normalized = value.strip().lower()
-    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
-        if normalized.startswith(prefix):
-            normalized = normalized[len(prefix) :]
-    return normalized.strip() or None
+    cleaned = cleaned.replace("https://doi.org/", "").replace("http://doi.org/", "")
+    cleaned = cleaned.replace("https://dx.doi.org/", "").replace("http://dx.doi.org/", "")
+    if cleaned.lower().startswith("doi:"):
+        cleaned = cleaned[4:].strip()
+    return cleaned.rstrip(".,;)]").lower() or None
 
 
 def _normalize_pmid(value: Optional[str]) -> Optional[str]:
     """Accept a bare PMID, optionally prefixed with `pmid:` / `PMID `.
 
-    Previously this stripped every non-digit character, so "abc123" became "123" and
-    "PMC3456789" became the unrelated PMID "3456789" -- malformed input silently matched or
-    claimed a real paper's identifier. Malformed values are now rejected instead.
+    Ported from #167 while stacking: this previously only stripped the prefix, so "abc123" and
+    "PMC3456789" were stored verbatim as PMIDs -- the latter is a different identifier space and
+    would make an article match, or claim, an unrelated paper's PMID. Malformed values are
+    rejected rather than coerced.
     """
-    if not value:
+    cleaned = _clean_text(value)
+    if not cleaned:
         return None
 
-    candidate = value.strip()
-    if not candidate:
-        return None
-
-    lowered = candidate.lower()
+    lowered = cleaned.lower()
     for prefix in ("pmid:", "pmid "):
         if lowered.startswith(prefix):
-            candidate = candidate[len(prefix) :].strip()
+            cleaned = cleaned[len(prefix) :].strip()
             break
 
-    if not PMID_PATTERN.match(candidate):
-        raise InvalidIdentifier(f"'{value.strip()}' is not a valid PubMed ID.")
+    if not PMID_PATTERN.match(cleaned):
+        raise InvalidIdentifier(f"'{_clean_text(value)}' is not a valid PubMed ID.")
 
-    return candidate
+    return cleaned
 
 
 def _normalize_arxiv_id(value: Optional[str]) -> Optional[str]:
-    if not value:
+    cleaned = _clean_text(value)
+    if not cleaned:
         return None
-    normalized = value.strip().lower()
-    if normalized.startswith("arxiv:"):
-        normalized = normalized[len("arxiv:") :]
-    if "arxiv.org/abs/" in normalized:
-        normalized = normalized.split("arxiv.org/abs/", 1)[1]
-    if "arxiv.org/pdf/" in normalized:
-        normalized = normalized.split("arxiv.org/pdf/", 1)[1]
-    normalized = normalized.removesuffix(".pdf")
-    if "?" in normalized:
-        normalized = normalized.split("?", 1)[0]
-    if "#" in normalized:
-        normalized = normalized.split("#", 1)[0]
-    # arXiv versions point to the same paper for import/dedup purposes.
-    parts = normalized.rsplit("v", 1)
-    if len(parts) == 2 and parts[1].isdigit():
-        normalized = parts[0]
-    return normalized.strip("/") or None
+    cleaned = cleaned.replace("https://arxiv.org/abs/", "").replace("http://arxiv.org/abs/", "")
+    cleaned = cleaned.replace("https://arxiv.org/pdf/", "").replace("http://arxiv.org/pdf/", "")
+    cleaned = cleaned.replace(".pdf", "")
+    if cleaned.lower().startswith("arxiv:"):
+        cleaned = cleaned[6:]
+    return cleaned.rstrip(".,;)]").lower() or None
 
 
 def _normalize_url(value: Optional[str]) -> Optional[str]:
     """Require a real http(s) URL.
 
-    Previously any unparseable or scheme-less string was returned verbatim, so values like
-    "abc" or "javascript:alert(1)" were stored in `canonical_url` / `article_link` /
-    `ArticlePDF.external_url`. The model only `.strip()`s these fields and never calls
-    `full_clean()`, so nothing else would have caught them.
+    Ported from #167 while stacking: this previously returned any scheme-less or unparseable
+    string verbatim, so "abc", "../../etc/passwd" and "javascript:alert(1)" were stored in
+    `canonical_url` / `article_link` / `ArticlePDF.external_url`. The model only strips these
+    fields and never calls `full_clean()`, so nothing downstream would have caught them.
     """
-    if not value:
-        return None
-    raw = value.strip()
-    if not raw:
+    cleaned = _clean_text(value)
+    if not cleaned:
         return None
 
     try:
-        parsed = urlsplit(raw)
+        parsed = urlparse(cleaned)
     except Exception:
-        raise InvalidIdentifier(f"'{raw}' is not a valid URL.")
+        raise InvalidIdentifier(f"'{cleaned}' is not a valid URL.")
 
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        raise InvalidIdentifier(f"'{raw}' is not a valid http(s) URL.")
+        raise InvalidIdentifier(f"'{cleaned}' is not a valid http(s) URL.")
 
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, parsed.query, ""))
+    normalized = parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment="")
+    path = normalized.path.rstrip("/") or normalized.path
+    normalized = normalized._replace(path=path)
+    return urlunparse(normalized)
 
 
 def _article_url(article: Article) -> str:
-    frontend_url = getattr(settings, "FRONTEND_URL", "").rstrip("/")
-    return f"{frontend_url}/article/{article.slug}" if frontend_url else f"/article/{article.slug}"
+    return f"{settings.FRONTEND_URL.rstrip('/')}/article/{article.slug}"
 
 
-def _normalize_authors(authors: List[Any]) -> List[Dict[str, str]]:
-    normalized = []
+def _community_article_url(article: Article, community: Community) -> str:
+    community_path = quote(community.name, safe="")
+    return f"{settings.FRONTEND_URL.rstrip('/')}/community/{community_path}/articles/{article.slug}"
+
+
+def _auth_user(request):
+    user = getattr(request, "auth", None)
+    return None if user is True else user
+
+
+def _user_payload(user) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+    }
+
+
+def _token_payload(user) -> dict:
+    refresh = RefreshToken.for_user(user)
+    access_lifetime = settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME", timedelta(days=1))
+    return {
+        "access_token": str(refresh.access_token),
+        "refresh_token": str(refresh),
+        "token_type": "Bearer",
+        "expires_in": int(access_lifetime.total_seconds()),
+        "user": _user_payload(user),
+    }
+
+
+def _authors_to_tags(authors) -> list[dict[str, str]]:
+    tags = []
     for author in authors or []:
         if isinstance(author, str):
-            name = author.strip()
-        elif isinstance(author, dict):
-            name = str(
-                author.get("label")
-                or author.get("value")
-                or author.get("name")
-                or author.get("fullName")
-                or ""
-            ).strip()
+            name = _clean_text(author)
         else:
-            name = str(author).strip()
-
+            name = _clean_text(
+                getattr(author, "label", None)
+                or getattr(author, "value", None)
+                or getattr(author, "name", None)
+            )
         if name:
-            normalized.append({"label": name, "value": name})
-    return normalized
+            tags.append({"label": name, "value": name})
+    return tags
 
 
-def _identifier_queries(
-    doi: Optional[str],
-    pmid: Optional[str],
-    arxiv_id: Optional[str],
-    url: Optional[str],
-) -> Dict[str, Q]:
-    """One query per supplied identifier, so each can be resolved independently."""
-    queries: Dict[str, Q] = {}
-    if doi:
-        queries["doi"] = Q(doi=doi)
-    if pmid:
-        queries["pmid"] = Q(pmid=pmid)
-    if arxiv_id:
-        queries["arxiv_id"] = Q(arxiv_id=arxiv_id)
-    if url:
-        queries["url"] = Q(article_link=url) | Q(canonical_url=url)
-    return queries
+def _matching_articles(doi=None, pmid=None, arxiv_id=None, canonical_url=None, url=None):
+    query = Q()
+    has_filter = False
+    for field, value in (
+        ("doi__iexact", _normalize_doi(doi)),
+        ("pmid__iexact", _normalize_pmid(pmid)),
+        ("arxiv_id__iexact", _normalize_arxiv_id(arxiv_id)),
+        ("canonical_url", _normalize_url(canonical_url)),
+        ("article_link", _normalize_url(url)),
+    ):
+        if value:
+            query |= Q(**{field: value})
+            has_filter = True
+    if not has_filter:
+        return Article.objects.none()
+    return Article.objects.filter(query).order_by("id")
 
 
-def _resolve_identifier_matches(
-    doi: Optional[str],
-    pmid: Optional[str],
-    arxiv_id: Optional[str],
-    url: Optional[str],
-) -> Tuple[Optional[Article], Dict[str, Article]]:
-    """Resolve each identifier separately and report disagreement.
+def _visible_articles_for_user(queryset, user, community_ids: Optional[List[int]] = None):
+    if user is None:
+        return queryset.filter(submission_type="Public")
 
-    The previous implementation OR'd every identifier into one query and took
-    `.order_by("id").first()`, so identifiers belonging to *different* articles silently
-    selected the lowest-id match -- which was then mutated and attached to a community. Worse,
-    backfilling the loser's identifier onto the winner violates the unique constraints on
-    doi/pmid/arxiv_id, producing a deterministic conflict with no race involved.
-
-    Returns (article, matches_by_identifier). When the matches do not converge on a single
-    article the caller must refuse rather than guess.
-    """
-    matches: Dict[str, Article] = {}
-    for name, query in _identifier_queries(doi, pmid, arxiv_id, url).items():
-        found = Article.objects.filter(query).select_related("submitter").order_by("id").first()
-        if found:
-            matches[name] = found
-
-    distinct_ids = {article.id for article in matches.values()}
-    if len(distinct_ids) > 1:
-        return None, matches
-
-    return (next(iter(matches.values())) if matches else None), matches
+    visibility_filter = Q(submission_type="Public") | Q(submitter=user)
+    if community_ids:
+        visible_community_articles = CommunityArticle.objects.filter(
+            community_id__in=community_ids,
+        ).values("article_id")
+        visibility_filter |= Q(id__in=visible_community_articles)
+    return queryset.filter(visibility_filter)
 
 
-def _find_article(
-    doi: Optional[str],
-    pmid: Optional[str],
-    arxiv_id: Optional[str],
-    url: Optional[str],
-) -> Optional[Article]:
-    """Single best match, used by lookup where an ambiguous hit is not harmful.
-
-    Kept so `lookup_paper` behaviour is unchanged: it only reads, and returning the
-    lowest-id match for an ambiguous identifier set does not mutate anything.
-    """
-    queries = list(_identifier_queries(doi, pmid, arxiv_id, url).values())
-    if not queries:
-        return None
-
-    combined = Q()
-    for query in queries:
-        combined |= query
-    return Article.objects.filter(combined).select_related("submitter").order_by("id").first()
-
-
-def _current_user(request) -> Optional[User]:
-    return request.auth if request.auth and not isinstance(request.auth, bool) else None
-
-
-def _can_view_article(article: Article, user: Optional[User]) -> bool:
-    if article.submission_type != "Private":
-        return True
-    return bool(user and article.submitter_id == user.id)
-
-
-def _accessible_community_filter(user: Optional[User]) -> Q:
+def _accessible_community_filter(user) -> Q:
+    """Rows with no community, in a public community, or in one the user belongs to."""
     community_filter = Q(community__isnull=True) | Q(community__type=Community.PUBLIC)
-    if user:
+    if user is not None:
         community_filter |= (
             Q(community__members=user)
             | Q(community__admins=user)
@@ -326,146 +236,313 @@ def _accessible_community_filter(user: Optional[User]) -> Q:
     return community_filter
 
 
-def _resolve_community(payload: PaperImportIn, user: User):
-    if not payload.community_id and not payload.community_name:
-        return None, None
+def _identifier_matches(
+    doi=None,
+    pmid=None,
+    arxiv_id=None,
+    canonical_url=None,
+    url=None,
+    user=None,
+    community_ids: Optional[List[int]] = None,
+) -> dict:
+    """Resolve each identifier independently so disagreement is detectable.
 
-    try:
-        if payload.community_id:
-            community = Community.objects.get(id=payload.community_id)
-        else:
-            community = Community.objects.get(name=unquote(payload.community_name or ""))
-    except Community.DoesNotExist:
-        return None, (404, {"message": "Community not found."})
+    `_matching_articles` ORs every identifier and the caller takes `.first()`, so a DOI
+    belonging to one paper and a PMID belonging to another silently selected whichever had the
+    lower id -- and then backfilled identifiers onto it and attached it to a community.
+    """
+    matches = {}
+    for name, field, value in (
+        ("doi", "doi__iexact", _normalize_doi(doi)),
+        ("pmid", "pmid__iexact", _normalize_pmid(pmid)),
+        ("arxiv_id", "arxiv_id__iexact", _normalize_arxiv_id(arxiv_id)),
+        ("canonical_url", "canonical_url", _normalize_url(canonical_url)),
+        ("url", "article_link", _normalize_url(url)),
+    ):
+        if not value:
+            continue
+        found = _visible_articles_for_user(
+            Article.objects.filter(**{field: value}),
+            user,
+            community_ids=community_ids,
+        ).order_by("id").first()
+        if found:
+            matches[name] = found
+    return matches
 
-    has_private_access = (
+
+def _serialize_lookup(article: Optional[Article], user=None) -> dict:
+    if article is None:
+        return {"found": False, "can_post_discussion": user is not None}
+    return {
+        "found": True,
+        "article_id": article.id,
+        "slug": article.slug,
+        "title": article.title,
+        "article_url": _article_url(article),
+        "doi": article.doi,
+        "pmid": article.pmid,
+        "arxiv_id": article.arxiv_id,
+        # Counts are filtered by community visibility. Previously they counted every
+        # discussion/review on the article, so anyone who could see a public paper learned how
+        # much activity existed inside private and hidden communities they had no access to.
+        "total_discussions": article.discussions.filter(deleted_at__isnull=True)
+        .filter(_accessible_community_filter(user))
+        .distinct()
+        .count(),
+        "total_reviews": article.reviews.filter(deleted_at__isnull=True)
+        .filter(_accessible_community_filter(user))
+        .distinct()
+        .count(),
+        "can_post_discussion": user is not None,
+    }
+
+
+def _serialize_import(article: Article, found_existing: bool, community_results: Optional[List[dict]] = None) -> dict:
+    community_results = community_results or []
+    # First successful attachment fills the legacy single-community fields.
+    first_attached = next((result for result in community_results if result.get("attached")), None)
+    return {
+        "found_existing": found_existing,
+        "article_id": article.id,
+        "slug": article.slug,
+        "title": article.title,
+        "article_url": first_attached.get("article_url") if first_attached else _article_url(article),
+        "doi": article.doi,
+        "pmid": article.pmid,
+        "arxiv_id": article.arxiv_id,
+        "community_article_id": first_attached.get("community_article_id") if first_attached else None,
+        "community_submission_status": first_attached.get("status") if first_attached else None,
+        "communities": community_results,
+    }
+
+
+def _find_community(name_or_slug: str) -> Optional[Community]:
+    cleaned = _clean_text(name_or_slug)
+    if not cleaned:
+        return None
+    return Community.objects.filter(Q(name__iexact=cleaned) | Q(slug=slugify(cleaned))).first()
+
+
+def _may_submit_to_community(community: Community, user) -> bool:
+    """Mirrors the membership gate in communities/articles_api.py submit_article.
+
+    Previously absent: `_resolve_community` took no user at all, so ANY authenticated user
+    could attach a paper to ANY community -- and because `_community_status` publishes
+    straight away for private/hidden communities, that paper was immediately visible to a
+    community the caller had no part in. Public communities stay open to any member of the
+    site, matching the existing submit_article policy.
+    """
+    if community.type == Community.PUBLIC:
+        return True
+    return (
         community.is_member(user)
         or community.is_admin(user)
         or community.moderators.filter(id=user.id).exists()
         or community.reviewers.filter(id=user.id).exists()
     )
-    if community.type != Community.PUBLIC and not has_private_access:
-        return None, (403, {"message": "You must be a member of this community to submit articles."})
-
-    return community, None
 
 
-def _ensure_community_article(article: Article, community: Optional[Community], user: User):
-    if not community:
+def _requested_community_names(payload: PaperImportIn) -> List[str]:
+    """Ordered, de-duplicated community names from any of the accepted request shapes.
+
+    `community_names` is the current field; `community_name` (singular) and `community_id`
+    are still honoured so older clients keep working.
+    """
+    names: List[str] = []
+
+    def add(value: Optional[str]):
+        cleaned = _clean_text(value or "")
+        if cleaned and not any(cleaned.lower() == existing.lower() for existing in names):
+            names.append(cleaned)
+
+    for raw in payload.community_names or []:
+        # Tolerate a client sending one comma-joined string in the list.
+        for part in str(raw).split(","):
+            add(part)
+    for part in (payload.community_name or "").split(","):
+        add(part)
+
+    if payload.community_id:
+        community = Community.objects.filter(id=payload.community_id).first()
+        if community:
+            add(community.name)
+        else:
+            # Report explicit bad ids through the same per-community result shape.
+            names.append(f"#{payload.community_id}")
+
+    return names
+
+
+def _community_status(community: Community, user) -> str:
+    if community.type in {Community.PRIVATE, Community.HIDDEN} or community.admins.filter(id=user.id).exists():
+        return CommunityArticle.PUBLISHED
+    return CommunityArticle.SUBMITTED
+
+
+def _ensure_community_article(article: Article, community: Optional[Community], user):
+    if community is None:
         return None
-
-    existing = CommunityArticle.objects.filter(article=article, community=community).first()
-    if existing:
-        return existing
-
-    status = (
-        CommunityArticle.PUBLISHED
-        if community.type in {Community.PRIVATE, Community.HIDDEN} or community.admins.filter(id=user.id).exists()
-        else CommunityArticle.SUBMITTED
-    )
-    return CommunityArticle.objects.create(article=article, community=community, status=status)
-
-
-def _attach_pdf_link(article: Article, normalized_pdf_link: Optional[str]):
-    """Attach an already-normalized PDF URL.
-
-    The caller normalizes so a malformed link surfaces as a 400 alongside the other
-    identifiers, rather than being swallowed here.
-    """
-    if not normalized_pdf_link:
-        return
-    ArticlePDF.objects.get_or_create(article=article, external_url=normalized_pdf_link, defaults={"pdf_file_url": None})
-
-
-def _import_response(
-    article: Article,
-    community_article: Optional[CommunityArticle],
-    *,
-    found_existing: bool,
-) -> "PaperImportOut":
-    return PaperImportOut(
-        found_existing=found_existing,
-        article_id=article.id,
-        slug=article.slug,
-        title=article.title,
-        article_url=_article_url(article),
-        doi=article.doi,
-        pmid=article.pmid,
-        arxiv_id=article.arxiv_id,
-        community_article_id=community_article.id if community_article else None,
-        community_submission_status=community_article.status if community_article else None,
+    community_article = CommunityArticle.objects.filter(article=article, community=community).first()
+    if community_article:
+        return community_article
+    return CommunityArticle.objects.create(
+        article=article,
+        community=community,
+        status=_community_status(community, user),
     )
 
 
-def _hash_code(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+def _attach_to_communities(article: Article, names: List[str], user) -> List[dict]:
+    """Attach the article to each named community the user is allowed to submit to.
 
-
-def _pkce_challenge(verifier: str) -> str:
-    """S256 only.
-
-    The `plain` method used to be accepted, which meant a client could opt out of PKCE
-    entirely by sending the verifier as its own challenge. No client ever used it: the
-    extension hardcodes S256 and the frontend authorize page defaults to S256.
+    Returns one result per requested name. Unknown names and permission failures are reported
+    per name rather than failing the whole import, so typing three names and getting two wrong
+    still files the paper where it can.
     """
-    digest = hashlib.sha256(verifier.encode("utf-8")).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    results = []
+    for name in names:
+        community = _find_community(name) if not name.startswith("#") else None
+        if community is None:
+            results.append({"name": name, "attached": False, "error": "Community not found."})
+            continue
+
+        if not _may_submit_to_community(community, user):
+            results.append(
+                {
+                    "name": community.name,
+                    "attached": False,
+                    "error": "You must be a member of this community to submit articles.",
+                }
+            )
+            continue
+
+        community_article = _ensure_community_article(article, community, user)
+        results.append(
+            {
+                "name": community.name,
+                "attached": True,
+                "community_article_id": community_article.id,
+                "status": community_article.status,
+                "article_url": _community_article_url(article, community),
+            }
+        )
+    return results
+
+
+def _allowed_requested_community_ids(names: List[str], user) -> List[int]:
+    """Community ids that may contribute visible existing articles for this import.
+
+    This keeps the private-article leak closed while still allowing a member to save a paper
+    into a community without duplicating an article already filed there by another member.
+    """
+    community_ids = []
+    for name in names:
+        if name.startswith("#"):
+            continue
+        community = _find_community(name)
+        if community and _may_submit_to_community(community, user):
+            community_ids.append(community.id)
+    return community_ids
+
+
+#: Crockford-style base32 minus vowels and easily-confused glyphs, so codes are safe to read
+#: aloud and retype. 28 symbols over 10 characters is ~48 bits, versus the previous 8 hex
+#: characters (32 bits) which was brute-forceable inside the 15-minute window.
+USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTVWXZ"
+USER_CODE_LENGTH = 10
+
+
+def _generate_user_code() -> str:
+    body = "".join(secrets.choice(USER_CODE_ALPHABET) for _ in range(USER_CODE_LENGTH))
+    return f"{body[:5]}-{body[5:]}"
+
+
+def _normalize_user_code(value: str) -> str:
+    """Uppercase and strip formatting so "abcde-fghjk" and "ABCDEFGHJK" hash alike."""
+    cleaned = _clean_text(value).upper().replace("-", "").replace(" ", "")
+    return f"{cleaned[:5]}-{cleaned[5:]}" if len(cleaned) == USER_CODE_LENGTH else cleaned
 
 
 def _is_allowed_client_id(client_id: str) -> bool:
-    allowed = getattr(settings, "EXTENSION_ALLOWED_CLIENT_IDS", [])
+    """`client_id` is caller-supplied free text, so it must be checked against a registry.
+
+    Previously the only validation anywhere was a single hardcoded `== "scicommons-clipper"`
+    inside the redirect check, which meant any other value was accepted unconditionally.
+    """
+    allowed = getattr(settings, "INTEGRATION_ALLOWED_CLIENT_IDS", [])
     return client_id in allowed if allowed else False
 
 
-def _is_allowed_redirect_uri(redirect_uri: str) -> bool:
+def _is_allowed_redirect_uri(client_id: str, redirect_uri: str) -> bool:
     """Exact-match a configured redirect URI.
 
-    Previously this accepted any `chrome-extension://<host>` and any `*.chromiumapp.org`
-    URI -- i.e. every Chrome extension in existence, not just ours -- and matched the
-    configured list with `startswith`, so `https://app.example.com` also authorised
-    `https://app.example.com.attacker.tld/`.
+    This used to accept ANY `chrome-extension://` URI and ANY `*.chromiumapp.org` host for the
+    clipper client -- i.e. every Chrome extension in existence, since both are derived straight
+    from the extension id. It also matched the configured prefix list with a bare `startswith`,
+    so `https://app.example.com` authorised `https://app.example.com.attacker.tld/`.
 
-    The broad acceptance is retained only as a local-development convenience: it requires
-    DEBUG and an empty allowlist, and warns when it fires.
+    The permissive branches are kept only as a local-development convenience: they need DEBUG
+    and an empty allowlist, and they log a warning.
     """
-    allowed_uris = getattr(settings, "EXTENSION_ALLOWED_REDIRECT_URIS", [])
+    allowed_uris = getattr(settings, "INTEGRATION_ALLOWED_REDIRECT_URIS", [])
     if redirect_uri in allowed_uris:
         return True
 
-    # Legacy prefix list, kept for compatibility but no longer a bare `startswith` on the
-    # whole URI: the prefix must end at a path boundary so a sibling domain cannot match.
-    for prefix in getattr(settings, "EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES", []):
+    # Prefix match anchored at a path boundary, so a sibling domain cannot match.
+    for prefix in getattr(settings, "INTEGRATION_ALLOWED_REDIRECT_URI_PREFIXES", []):
         if redirect_uri == prefix or redirect_uri.startswith(prefix.rstrip("/") + "/"):
             return True
 
     if allowed_uris:
-        # An allowlist is configured; anything outside it is refused, DEBUG or not.
+        # An allowlist is configured, so anything outside it is refused regardless of DEBUG.
         return False
 
     if not settings.DEBUG:
         return False
 
-    try:
-        parsed = urlsplit(redirect_uri)
-    except Exception:
-        return False
-
+    parsed = urlparse(redirect_uri)
     hostname = parsed.hostname or ""
-    is_dev_redirect = (
-        (parsed.scheme == "chrome-extension" and bool(parsed.netloc))
-        # `hostname` rather than `netloc`: netloc includes userinfo/port, so
-        # "https://x@evil.chromiumapp.org" used to pass the suffix test.
-        or (parsed.scheme == "https" and hostname.endswith(".chromiumapp.org"))
-        or (parsed.scheme in {"http", "https"} and hostname in {"localhost", "127.0.0.1"})
+    is_dev_redirect = (parsed.scheme in {"http", "https"} and hostname in {"localhost", "127.0.0.1"}) or (
+        _is_allowed_client_id(client_id)
+        and (
+            parsed.scheme == "chrome-extension"
+            or (parsed.scheme == "https" and hostname.endswith(".chromiumapp.org"))
+        )
     )
 
     if is_dev_redirect:
         logger.warning(
-            "Accepting extension redirect URI %s via the DEBUG-only fallback. "
-            "Set EXTENSION_ALLOWED_REDIRECT_URIS before deploying.",
+            "Accepting integration redirect URI %s via the DEBUG-only fallback. "
+            "Set INTEGRATION_ALLOWED_REDIRECT_URIS before deploying.",
             redirect_uri,
         )
     return is_dev_redirect
+
+
+def _pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _auth_code_ttl_seconds() -> int:
+    return int(getattr(settings, "INTEGRATION_AUTH_CODE_TTL_SECONDS", DEFAULT_AUTH_CODE_TTL_SECONDS))
+
+
+def _acquire_import_lock(lock_key: str) -> None:
+    """Serialize concurrent imports of the same paper for the current transaction.
+
+    Postgres advisory locks are released automatically at commit/rollback. On any other backend
+    (SQLite in some test setups) this is a no-op and the endpoint falls back to the previous
+    best-effort behaviour rather than erroring.
+    """
+    if connection.vendor != "postgresql":
+        return
+    # Two 32-bit keys: a fixed namespace plus a stable hash of the identifier.
+    digest = hashlib.sha256(lock_key.encode("utf-8")).digest()
+    key = int.from_bytes(digest[:4], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [IMPORT_LOCK_NAMESPACE, key])
 
 
 @router.get(
@@ -475,41 +552,27 @@ def _is_allowed_redirect_uri(redirect_uri: str) -> bool:
 )
 def lookup_paper(
     request,
-    doi: Optional[str] = Query(None),
-    pmid: Optional[str] = Query(None),
-    arxiv_id: Optional[str] = Query(None),
-    url: Optional[str] = Query(None),
+    doi: Optional[str] = None,
+    pmid: Optional[str] = None,
+    arxiv_id: Optional[str] = None,
+    url: Optional[str] = None,
 ):
+    # Normalize before querying so a malformed identifier is a 400 rather than a silent miss
+    # (or, worse, a coerced match against an unrelated paper).
     try:
-        normalized_doi = _normalize_doi(doi)
-        normalized_pmid = _normalize_pmid(pmid)
-        normalized_arxiv_id = _normalize_arxiv_id(arxiv_id)
-        normalized_url = _normalize_url(url)
+        doi = _normalize_doi(doi)
+        pmid = _normalize_pmid(pmid)
+        arxiv_id = _normalize_arxiv_id(arxiv_id)
+        url = _normalize_url(url)
     except InvalidIdentifier as exc:
         return 400, {"message": str(exc)}
 
-    article = _find_article(normalized_doi, normalized_pmid, normalized_arxiv_id, normalized_url)
-    user = _current_user(request)
-    if not article or not _can_view_article(article, user):
-        return 200, PaperLookupOut(found=False)
-
-    accessible_filter = _accessible_community_filter(user)
-    total_discussions = Discussion.objects.filter(article=article).filter(accessible_filter).distinct().count()
-    total_reviews = Review.objects.filter(article=article).filter(accessible_filter).distinct().count()
-
-    return 200, PaperLookupOut(
-        found=True,
-        article_id=article.id,
-        slug=article.slug,
-        title=article.title,
-        article_url=_article_url(article),
-        doi=article.doi,
-        pmid=article.pmid,
-        arxiv_id=article.arxiv_id,
-        total_discussions=total_discussions,
-        total_reviews=total_reviews,
-        can_post_discussion=bool(user),
-    )
+    user = _auth_user(request)
+    article = _visible_articles_for_user(
+        _matching_articles(doi=doi, pmid=pmid, arxiv_id=arxiv_id, canonical_url=url, url=url),
+        user,
+    ).first()
+    return _serialize_lookup(article, user)
 
 
 @router.post(
@@ -518,216 +581,320 @@ def lookup_paper(
     auth=JWTAuth(),
 )
 def import_paper(request, payload: PaperImportIn):
-    user = request.auth
+    title = _clean_text(payload.title)
+    if not title:
+        return 400, {"message": "Title is required."}
 
+    user = request.auth
     try:
         doi = _normalize_doi(payload.doi)
         pmid = _normalize_pmid(payload.pmid)
         arxiv_id = _normalize_arxiv_id(payload.arxiv_id)
-        source_url = _normalize_url(payload.article_link or payload.url or payload.canonical_url)
-        canonical_url = _normalize_url(payload.canonical_url or source_url)
+        canonical_url = _normalize_url(payload.canonical_url or payload.url or payload.article_link)
+        article_link = _normalize_url(payload.article_link or payload.url)
         pdf_link = _normalize_url(payload.pdf_link)
     except InvalidIdentifier as exc:
         return 400, {"message": str(exc)}
 
-    if not payload.title.strip():
-        return 400, {"message": "Title is required."}
+    community_names = _requested_community_names(payload)
+    visible_community_ids = _allowed_requested_community_ids(community_names, user)
+    submission_type = "Private" if community_names else "Public"
 
-    community, error = _resolve_community(payload, user)
-    if error:
-        return error
-
-    # Idempotency fast path. The extension retries from a queue persisted in chrome.storage
-    # and reuses the same key, so a retry can arrive long after the original. A cache miss
-    # only degrades to the identifier matching below -- it never turns into an error.
-    # The community is part of the key: replaying the same key against a different community is
-    # a different request, and the fast path skips _ensure_community_article.
+    # Idempotency. The plugin sends a stable key per Zotero item and retries, so a replay must
+    # return the original result rather than creating a second article. The identifier columns
+    # are deliberately non-unique on this branch, so the database will not catch a duplicate for
+    # us -- this cache plus the lock below is what makes the endpoint idempotent.
     idempotency_cache_key = (
-        f"extension-import:{user.id}:{community.id if community else 0}:{payload.idempotency_key}"
+        "integration-import:{}:{}:{}".format(
+            user.id, ",".join(sorted(name.lower() for name in community_names)), payload.idempotency_key
+        )
         if payload.idempotency_key
         else None
     )
     if idempotency_cache_key:
         cached_article_id = cache.get(idempotency_cache_key)
         if cached_article_id:
-            cached = Article.objects.filter(id=cached_article_id).first()
-            if cached and _can_view_article(cached, user):
-                community_article = CommunityArticle.objects.filter(article=cached, community=community).first()
-                return 200, _import_response(cached, community_article, found_existing=True)
+            cached = _visible_articles_for_user(
+                Article.objects.filter(id=cached_article_id),
+                user,
+                community_ids=visible_community_ids,
+            ).first()
+            if cached:
+                return _serialize_import(
+                    cached, True, _attach_to_communities(cached, community_names, user)
+                )
+
+    identifier_matches = _identifier_matches(
+        doi=doi,
+        pmid=pmid,
+        arxiv_id=arxiv_id,
+        canonical_url=canonical_url,
+        url=article_link,
+        user=user,
+        community_ids=visible_community_ids,
+    )
+    if len({match.id for match in identifier_matches.values()}) > 1:
+        conflicting = ", ".join(sorted(identifier_matches))
+        return 409, {
+            "message": (
+                f"The supplied identifiers ({conflicting}) refer to different papers on "
+                "SciCommons. Please resolve the conflict before importing."
+            )
+        }
+
+    # Serialize concurrent imports of the same paper. select_for_update cannot lock a row that
+    # does not exist yet, so without this two simultaneous imports both find nothing and both
+    # insert. An advisory lock keyed on the identifier closes that window without needing unique
+    # constraints (and therefore without a data-cleanup migration).
+    lock_key = doi or pmid or arxiv_id or canonical_url or article_link
 
     with transaction.atomic():
-        article, matches = _resolve_identifier_matches(doi, pmid, arxiv_id, source_url or canonical_url)
+        if lock_key:
+            _acquire_import_lock(lock_key)
 
-        if not article and matches:
-            # The supplied identifiers point at different articles. Guessing one would both
-            # mutate the wrong record and violate the unique identifier constraints.
-            conflicting = ", ".join(sorted(matches))
-            return 409, {
-                "message": (
-                    f"The supplied identifiers ({conflicting}) refer to different papers on "
-                    "SciCommons. Please resolve the conflict before importing."
-                )
-            }
-
-        # Same visibility rule the lookup endpoint applies. Without it, any authenticated user
-        # could reach another user's private article by identifier, have its identifiers and a
-        # PDF link written onto it, attach it to a community, and read back its title/slug.
-        if article and not _can_view_article(article, user):
-            return 409, {"message": INACCESSIBLE_MATCH_MESSAGE}
-
+        article = (
+            _visible_articles_for_user(
+                _matching_articles(
+                    doi=doi,
+                    pmid=pmid,
+                    arxiv_id=arxiv_id,
+                    canonical_url=canonical_url,
+                    url=article_link,
+                ),
+                user,
+                community_ids=visible_community_ids,
+            )
+            .select_for_update()
+            .first()
+        )
         found_existing = article is not None
 
-        if not article:
-            try:
-                with transaction.atomic():
-                    article = Article.objects.create(
-                        title=payload.title.strip(),
-                        abstract=payload.abstract.strip(),
-                        authors=_normalize_authors(payload.authors),
-                        doi=doi,
-                        pmid=pmid,
-                        arxiv_id=arxiv_id,
-                        canonical_url=canonical_url,
-                        article_link=source_url,
-                        submission_type=payload.submission_type,
-                        submitter=user,
-                    )
-            except IntegrityError:
-                # A concurrent import won the race on one of the unique identifier columns.
-                # Return the winning row instead of failing, which is what makes this endpoint
-                # idempotent under concurrency.
-                article, _ = _resolve_identifier_matches(doi, pmid, arxiv_id, source_url or canonical_url)
-                if not article:
-                    raise
-                if not _can_view_article(article, user):
-                    return 409, {"message": INACCESSIBLE_MATCH_MESSAGE}
-                found_existing = True
-            else:
-                invalidate_articles_cache()
-
-        if found_existing:
-            fields_to_update = []
-            for field, value in {
-                "doi": doi,
-                "pmid": pmid,
-                "arxiv_id": arxiv_id,
-                "canonical_url": canonical_url,
-            }.items():
+        if article is None:
+            article = Article.objects.create(
+                title=title,
+                abstract=payload.abstract or "",
+                authors=_authors_to_tags(payload.authors),
+                article_link=article_link,
+                doi=doi,
+                pmid=pmid,
+                arxiv_id=arxiv_id,
+                canonical_url=canonical_url,
+                submission_type=submission_type,
+                submitter=user,
+            )
+        else:
+            changed_fields = []
+            for field, value in (
+                ("doi", doi),
+                ("pmid", pmid),
+                ("arxiv_id", arxiv_id),
+                ("canonical_url", canonical_url),
+            ):
                 if value and not getattr(article, field):
                     setattr(article, field, value)
-                    fields_to_update.append(field)
-            if fields_to_update:
-                try:
-                    with transaction.atomic():
-                        article.save(update_fields=fields_to_update + ["updated_at"])
-                except IntegrityError:
-                    # Another article already claims one of these identifiers. The import
-                    # itself is still valid against the matched article; skip the backfill
-                    # rather than failing the whole request.
-                    logger.warning(
-                        "Skipped identifier backfill on article %s: %s already claimed elsewhere.",
-                        article.id,
-                        fields_to_update,
-                    )
-                    article.refresh_from_db()
+                    changed_fields.append(field)
+            if changed_fields:
+                article.save(update_fields=changed_fields)
 
-        _attach_pdf_link(article, pdf_link)
-        community_article = _ensure_community_article(article, community, user)
+        # Store the validated URL, not the raw payload value.
+        if pdf_link and not ArticlePDF.objects.filter(article=article, external_url=pdf_link).exists():
+            ArticlePDF.objects.create(article=article, external_url=pdf_link)
+
+        community_results = _attach_to_communities(article, community_names, user)
 
     if idempotency_cache_key:
         cache.set(idempotency_cache_key, article.id, IMPORT_IDEMPOTENCY_TTL_SECONDS)
 
-    return 200, _import_response(article, community_article, found_existing=found_existing)
+    return _serialize_import(article, found_existing, community_results)
 
 
 @router.post(
-    "/extension/authorize",
-    response={200: ExtensionAuthorizeOut, codes_4xx: Message, codes_5xx: Message},
+    "/auth/authorize",
+    response={200: IntegrationAuthorizeOut, codes_4xx: Message, codes_5xx: Message},
     auth=JWTAuth(),
 )
-# Keyed by IP, not user: JWT auth populates `request.auth`, while django-ratelimit's "user"
-# key reads `request.user`, which AuthenticationMiddleware only fills from a session cookie.
-# Extension calls carry no session, so "user" would bucket every caller together.
-@ratelimit(key="ip", rate="20/m", method="POST", block=True)
-def authorize_extension(request, payload: ExtensionAuthorizeIn):
-    # `client_id` was previously a free-form string only ever compared against itself at
-    # exchange time, so any value minted a working code. It must name a registered client.
+def authorize_integration(request, payload: IntegrationAuthorizeIn):
+    # `client_id` is caller-supplied and was previously never validated -- any value minted a
+    # usable code, since the only check was a hardcoded string compare inside the redirect test.
     if not _is_allowed_client_id(payload.client_id):
-        return 400, {"message": "Unknown extension client."}
+        return 400, {"message": "Unknown integration client."}
 
-    if not _is_allowed_redirect_uri(payload.redirect_uri):
-        return 400, {"message": "Invalid extension redirect URI."}
+    if not _is_allowed_redirect_uri(payload.client_id, payload.redirect_uri):
+        return 400, {"message": "Redirect URI is not allowed for this integration."}
 
     code = secrets.token_urlsafe(32)
-    ttl_seconds = getattr(settings, "EXTENSION_AUTH_CODE_TTL_SECONDS", 300)
-    ExtensionAuthCode.objects.create(
-        user=request.auth,
+    ttl_seconds = _auth_code_ttl_seconds()
+    IntegrationAuthCode.objects.create(
         client_id=payload.client_id,
-        code_hash=_hash_code(code),
+        user=request.auth,
+        code_hash=hash_secret(code),
         code_challenge=payload.code_challenge,
         code_challenge_method=payload.code_challenge_method,
         redirect_uri=payload.redirect_uri,
         state=payload.state,
         expires_at=timezone.now() + timedelta(seconds=ttl_seconds),
     )
-
-    return 200, ExtensionAuthorizeOut(
-        code=code,
-        state=payload.state,
-        redirect_uri=payload.redirect_uri,
-        expires_in=ttl_seconds,
-    )
+    return {
+        "code": code,
+        "state": payload.state,
+        "redirect_uri": payload.redirect_uri,
+        "expires_in": ttl_seconds,
+    }
 
 
 @router.post(
-    "/extension/exchange",
-    response={200: ExtensionTokenOut, codes_4xx: Message, codes_5xx: Message},
+    "/extension/authorize",
+    response={200: IntegrationAuthorizeOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
 )
-# Unauthenticated by design (it trades a code for tokens), so it is keyed by IP.
+def authorize_extension(request, payload: IntegrationAuthorizeIn):
+    return authorize_integration(request, payload)
+
+
+@router.post(
+    "/auth/exchange",
+    response={200: IntegrationTokenOut, codes_4xx: Message, codes_5xx: Message},
+)
+# Unauthenticated token endpoint: keyed by IP since there is no user yet.
 @ratelimit(key="ip", rate="20/m", method="POST", block=True)
-def exchange_extension_code(request, payload: ExtensionExchangeIn):
-    code_hash = _hash_code(payload.code)
+def exchange_integration_code(request, payload: IntegrationExchangeIn):
+    # The whole read-check-consume sequence must hold a row lock. Without it, two concurrent
+    # exchanges of the same code both saw `used_at IS NULL`, both passed PKCE and both minted a
+    # full token pair -- `mark_used()` is an unconditional UPDATE, so the second was a silent
+    # no-op rather than a conflict.
     with transaction.atomic():
         auth_code = (
-            ExtensionAuthCode.objects.select_for_update().select_related("user").filter(code_hash=code_hash).first()
+            IntegrationAuthCode.objects.select_for_update()
+            .select_related("user")
+            .filter(code_hash=hash_secret(payload.code))
+            .first()
         )
-        if not auth_code:
-            return 400, {"message": "Invalid extension authorization code."}
-        if auth_code.is_used:
-            return 400, {"message": "Extension authorization code has already been used."}
-        if auth_code.is_expired:
-            return 400, {"message": "Extension authorization code has expired."}
-        if auth_code.client_id != payload.client_id:
-            return 400, {"message": "Extension client mismatch."}
-        # Unconditional: this used to be skipped whenever the caller omitted redirect_uri.
-        if payload.redirect_uri != auth_code.redirect_uri:
-            return 400, {"message": "Extension redirect URI mismatch."}
-        # Defensive: rows created before `plain` was removed from the schema may still carry it.
-        if auth_code.code_challenge_method != "S256":
-            return 400, {"message": "Unsupported PKCE method. Please reconnect the extension."}
-
-        expected_challenge = _pkce_challenge(payload.code_verifier)
-        if not constant_time_compare(expected_challenge, auth_code.code_challenge):
-            return 400, {"message": "Invalid extension PKCE verifier."}
+        if (
+            auth_code is None
+            or auth_code.client_id != payload.client_id
+            or auth_code.redirect_uri != payload.redirect_uri
+            or auth_code.is_used
+            or auth_code.is_expired
+        ):
+            return 400, {"message": "Authorization code is invalid or expired."}
+        if not secrets.compare_digest(_pkce_challenge(payload.code_verifier), auth_code.code_challenge):
+            return 400, {"message": "Code verifier is invalid."}
 
         auth_code.mark_used()
         user = auth_code.user
 
-    refresh = RefreshToken.for_user(user)
-    access_token = str(refresh.access_token)
-    refresh_token = str(refresh)
-    access_lifetime = settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME")
-    expires_in = int(access_lifetime.total_seconds()) if access_lifetime else 86400
+    # Minted after the row is committed as used, so a crash cannot leak an unconsumed token.
+    return _token_payload(user)
 
-    return 200, ExtensionTokenOut(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in,
-        user={
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-        },
+
+@router.post(
+    "/extension/exchange",
+    response={200: IntegrationTokenOut, codes_4xx: Message, codes_5xx: Message},
+)
+def exchange_extension_code(request, payload: IntegrationExchangeIn):
+    return exchange_integration_code(request, payload)
+
+
+@router.post(
+    "/auth/device/start",
+    response={200: DeviceStartOut, codes_4xx: Message, codes_5xx: Message},
+)
+# Unauthenticated and it INSERTs a row per call, so it was an open door to flooding the table.
+@ratelimit(key="ip", rate="10/m", method="POST", block=True)
+def start_device_auth(request, payload: DeviceStartIn):
+    if not _is_allowed_client_id(payload.client_id):
+        return 400, {"message": "Unknown integration client."}
+
+    device_code = secrets.token_urlsafe(40)
+    user_code = _generate_user_code()
+    expires_in = int(getattr(settings, "INTEGRATION_DEVICE_CODE_TTL_SECONDS", DEFAULT_DEVICE_CODE_TTL_SECONDS))
+    interval = int(getattr(settings, "INTEGRATION_DEVICE_POLL_INTERVAL_SECONDS", DEFAULT_DEVICE_POLL_INTERVAL_SECONDS))
+
+    IntegrationDeviceAuth.objects.create(
+        client_id=payload.client_id,
+        device_code_hash=hash_secret(device_code),
+        user_code_hash=hash_secret(user_code),
+        expires_at=timezone.now() + timedelta(seconds=expires_in),
+        interval_seconds=interval,
     )
+
+    verification_uri = f"{settings.FRONTEND_URL.rstrip('/')}/auth/device"
+    verification_uri_complete = f"{verification_uri}?{urlencode({'code': user_code})}"
+    return {
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": verification_uri,
+        "verification_uri_complete": verification_uri_complete,
+        "expires_in": expires_in,
+        "interval": interval,
+    }
+
+
+@router.post(
+    "/auth/device/approve",
+    response={200: Message, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+# Rate limited because a wrong user_code is indistinguishable from an expired one, which
+# otherwise makes this a free brute-force oracle for a 10-character code.
+@ratelimit(key="ip", rate="10/m", method="POST", block=True)
+@ratelimit(key="user_or_ip", rate="10/m", method="POST", block=True)
+def approve_device_auth(request, payload: DeviceApproveIn):
+    user_code = _normalize_user_code(payload.user_code)
+    with transaction.atomic():
+        query = IntegrationDeviceAuth.objects.select_for_update().filter(user_code_hash=hash_secret(user_code))
+        if payload.client_id:
+            query = query.filter(client_id=payload.client_id)
+        device_auth = query.first()
+        if device_auth is None or device_auth.is_expired:
+            return 400, {"message": "Device authorization code is invalid or expired."}
+        # Locked, so two users cannot both observe PENDING and race to bind their own account.
+        if device_auth.status != IntegrationDeviceAuth.PENDING:
+            return 400, {"message": "Device authorization code has already been used."}
+
+        device_auth.approve(request.auth)
+    return {"message": "SciCommons access approved."}
+
+
+@router.post(
+    "/auth/device/token",
+    response={200: IntegrationTokenOut, 202: Message, 429: Message, codes_4xx: Message, codes_5xx: Message},
+)
+# Polled in a loop by design; the per-row interval check below is the primary control and
+# this is the backstop against ignoring it entirely.
+@ratelimit(key="ip", rate="60/m", method="POST", block=True)
+def exchange_device_token(request, payload: DeviceTokenIn):
+    with transaction.atomic():
+        device_auth = (
+            # `of=("self",)` because `user` is nullable: select_related would make it the
+            # nullable side of a LEFT JOIN, and Postgres rejects FOR UPDATE against that.
+            IntegrationDeviceAuth.objects.select_for_update(of=("self",))
+            .select_related("user")
+            .filter(client_id=payload.client_id, device_code_hash=hash_secret(payload.device_code))
+            .first()
+        )
+        if device_auth is None or device_auth.is_expired:
+            return 400, {"message": "Device code is invalid or expired."}
+
+        if device_auth.status == IntegrationDeviceAuth.PENDING:
+            # Enforce the advertised poll interval instead of merely advertising it. RFC 8628
+            # calls this `slow_down`; clients that ignore `interval` were previously free to
+            # hammer this unauthenticated endpoint.
+            too_soon = device_auth.last_polled_at and timezone.now() - device_auth.last_polled_at < timedelta(
+                seconds=device_auth.interval_seconds
+            )
+            device_auth.mark_polled()
+            if too_soon:
+                return 429, {"message": "Polling too frequently. Slow down."}
+            return 202, {"message": "Authorization pending."}
+
+        if device_auth.status == IntegrationDeviceAuth.CONSUMED or device_auth.user is None:
+            return 400, {"message": "Device code has already been used."}
+
+        user = device_auth.user
+        # Consume BEFORE minting: previously the token was built first, so two concurrent polls
+        # could both mint before either wrote CONSUMED. Capture the FK object first because
+        # `consume()` saves the row and can invalidate the nullable `user` relation cache.
+        device_auth.consume()
+
+    return _token_payload(user)
