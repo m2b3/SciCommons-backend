@@ -51,11 +51,34 @@ docker compose -f docker-compose.dev.yml down
 ```
 
 The PostgreSQL data is retained in a local Docker volume. To delete only this
-local development data and start again:
+local development data, recreate the schema, and add deterministic synthetic
+records, use the guarded reset command below:
 
 ```bash
-docker compose -f docker-compose.dev.yml down --volumes
+docker compose \
+  -f docker-compose.dev.yml \
+  exec web \
+  poetry run python manage.py reset_dev_data --yes
 ```
+
+To keep existing records and idempotently add the synthetic users, community,
+article, and post:
+
+```bash
+docker compose \
+  -f docker-compose.dev.yml \
+  exec web \
+  poetry run python manage.py seed_dev_data
+```
+
+Both commands refuse to run unless `DEBUG=True`, `ENVIRONMENT` identifies a
+local/development environment, and the database name is exactly
+`scicommons_dev`. The synthetic administrator login is
+`synthetic-admin` / `synthetic-dev-only` and must never be deployed.
+
+For a persistent dedicated development host, including loopback-only ports,
+large-volume Docker storage, and controlled boot startup, see
+[Dedicated development server](docs/DEDICATED_DEVELOPMENT_SERVER.md).
 
 ## Local credentials and optional integrations
 
