@@ -19,6 +19,10 @@ class Article(models.Model):
     abstract = models.TextField()
     # Todo: Add Validator
     authors = models.JSONField(default=list)
+    doi = models.CharField(max_length=255, null=True, blank=True, unique=True, db_index=True)
+    pmid = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
+    arxiv_id = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)
+    canonical_url = models.URLField(null=True, blank=True, db_index=True)
 
     def get_upload_path(instance, filename):
         # Get file extension
@@ -47,6 +51,11 @@ class Article(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        self.doi = self.doi.strip().lower() if self.doi else None
+        self.pmid = self.pmid.strip() if self.pmid else None
+        self.arxiv_id = self.arxiv_id.strip().lower() if self.arxiv_id else None
+        self.canonical_url = self.canonical_url.strip() if self.canonical_url else None
+
         if not self.slug:
             self.slug = slugify(self.title)
             original_slug = self.slug

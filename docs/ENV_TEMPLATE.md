@@ -10,6 +10,11 @@ DEBUG=True
 ENVIRONMENT=local
 FRONTEND_URL=http://localhost:3000
 COOKIE_DOMAIN=localhost
+EXTENSION_AUTH_CODE_TTL_SECONDS=300
+EXTENSION_CORS_ALLOWED_ORIGINS=
+EXTENSION_ALLOWED_CLIENT_IDS=scicommons-clipper
+EXTENSION_ALLOWED_REDIRECT_URIS=
+EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES=
 
 # Database Configuration
 DB_NAME=your_database_name
@@ -58,6 +63,24 @@ JWT_REFRESH_TOKEN_LIFETIME=86400
 # CORS Configuration (for development)
 CORS_ALLOW_ALL_ORIGINS=True
 ```
+
+## Browser Extension Integration Variables
+
+1. **EXTENSION_AUTH_CODE_TTL_SECONDS** - lifetime for one-time extension login codes, default `300`.
+2. **EXTENSION_CORS_ALLOWED_ORIGINS** - comma-separated exact extension origins, e.g.
+   `chrome-extension://abcdefghijklmnopabcdefghijklmnop`. **Set this in production.** While it is
+   empty the CORS config falls back to a regex that matches *every* Chrome extension ID; setting
+   it replaces that regex with your exact list.
+3. **EXTENSION_ALLOWED_CLIENT_IDS** - comma-separated registered client IDs, default
+   `scicommons-clipper`. A `client_id` outside this list cannot obtain an authorization code.
+4. **EXTENSION_ALLOWED_REDIRECT_URIS** - comma-separated **exact** redirect URIs, e.g.
+   `https://<extension-id>.chromiumapp.org/scicommons`. **Set this in production.** Once set, it is
+   the only thing accepted. While it is empty *and* `DEBUG=True`, any `chrome-extension://` or
+   `*.chromiumapp.org` or localhost redirect is accepted as a development convenience and a warning
+   is logged; with `DEBUG=False` and nothing configured, all redirects are refused.
+5. **EXTENSION_ALLOWED_REDIRECT_URI_PREFIXES** - comma-separated redirect URI prefixes for non-Chrome
+   test clients. Matched at a path boundary, so `https://app.example.com/cb` authorises
+   `https://app.example.com/cb/done` but not `https://app.example.com.attacker.tld/cb`.
 
 ## New Environment Variables for Real-time System
 
