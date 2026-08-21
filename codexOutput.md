@@ -53,3 +53,19 @@ The intended flow is now:
 So you do **not** merge code manually on the actual application server. Also, pushing `SciCommons-backend/test` alone does not deploy it. Infrastructure currently pins test to `4f82ff69…`, while `origin/test` contains newer commits, including implementation commit `1280c8f`.
 
 My recommendation is to leave this machine unchanged as the isolated development server. Keep the infrastructure checkout and Vault/deployment authority on the admin/controller side. When you want the current backend deployed to test, an administrator should run the new helper there, review its generated commit, and explicitly push infrastructure `main`. I have not triggered that deployment.
+
+## 2026-08-21 15:04:29 +0000
+
+Yes, technically you can keep a separate `scicommons-backendinfra` checkout on this machine. It could run `tools/promote_backend.sh`, review the generated commit, and push infrastructure `main`.
+
+But a different folder is organization, not security isolation. That would reverse item 8 and give this public development machine deployment-trigger authority through its GitHub credentials. A compromise of the machine could potentially be turned into a deployment.
+
+The roles are distinct:
+
+- `/home/skrishna/SciCommons-backend`: application development.
+- An infrastructure checkout: prepares and pushes promotion commits; it does not need the decrypted Vault password.
+- The existing GitHub self-hosted controller: receives the workflow job and uses the protected Vault secret to run Ansible.
+
+My preference is to keep the infrastructure checkout on a private administrator workstation. If you intentionally want it here, use a separate Unix account and protected home directory—not merely another folder—and keep all Vault passwords, production `.env` files, SSH deployment keys, and cloud credentials off this machine. Do not register this host as the self-hosted deployment controller.
+
+So: **possible, yes; equivalent security separation, no.** I have not created the checkout. If you choose this arrangement, I can set it up as a promotion-only admin checkout with no Vault or production credentials.
