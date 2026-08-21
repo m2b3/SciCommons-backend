@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from typing import List, Optional
 
 from django.core.paginator import Paginator
@@ -51,6 +52,11 @@ router = Router(tags=["Reviews"])
 
 # Module-level logger
 logger = logging.getLogger(__name__)
+DELETE_WINDOW = timedelta(minutes=5)
+
+
+def is_within_delete_window(created_at) -> bool:
+    return timezone.now() <= created_at + DELETE_WINDOW
 
 
 @router.post(
@@ -507,6 +513,9 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
         if review.community and not review.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
 
+        if review.deleted_at:
+            return 403, {"message": "You can't update a deleted review."}
+
         try:
             # Update the review with new data if provided
             review.rating = review_data.rating or review.rating
@@ -558,9 +567,15 @@ def delete_review(request, review_id: int):
         if review.community and not review.community.is_member(user):
             return 403, {"message": "You are not a member of this community."}
 
+        if review.deleted_at:
+            return 403, {"message": "This review is already deleted."}
+
+        if not is_within_delete_window(review.created_at):
+            return 403, {"message": "Reviews can only be deleted within 5 minutes of posting."}
+
         try:
-            review.subject = "[deleted]"
-            review.content = "[deleted]"
+            review.subject = ""
+            review.content = ""
             review.deleted_at = timezone.now()
             review.save()
         except Exception as e:
@@ -1006,6 +1021,12 @@ def delete_comment(request, comment_id: int):
         if comment.author != user:
             return 403, {"message": "You do not have permission to delete this comment."}
 
+        if comment.is_deleted:
+            return 403, {"message": "This comment is already deleted."}
+
+        if not is_within_delete_window(comment.created_at):
+            return 403, {"message": "Comments can only be deleted within 5 minutes of posting."}
+
         try:
             # Delete reactions associated with the comment
             Reaction.objects.filter(content_type__model="reviewcomment", object_id=comment.id).delete()
@@ -1028,8 +1049,8 @@ def delete_comment(request, comment_id: int):
                 else:
                     comment_rating.delete()
 
-            # Logically delete the comment by clearing its content and marking it as deleted
-            comment.content = "[deleted]"
+            # Logically delete only this comment; child replies remain attached.
+            comment.content = ""
             comment.is_deleted = True
             comment.rating = None
             comment.save()

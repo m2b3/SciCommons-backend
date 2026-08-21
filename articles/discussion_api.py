@@ -1,9 +1,11 @@
 import logging
+from datetime import timedelta
 from typing import List, Optional
 
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count
+from django.utils import timezone
 from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
 
@@ -48,6 +50,11 @@ from users.models import Reputation, User
 
 router = Router(tags=["Discussions"])
 logger = logging.getLogger(__name__)
+DELETE_WINDOW = timedelta(minutes=5)
+
+
+def is_within_delete_window(created_at) -> bool:
+    return timezone.now() <= created_at + DELETE_WINDOW
 
 """
 Article discussions API
@@ -196,13 +203,17 @@ def list_discussions(request, article_id: int, community_id: int = None, page: i
             logger.error(f"Error retrieving article: {e}")
             return 500, {"message": "Error retrieving article. Please try again."}
 
+        current_user: Optional[User] = (
+            request.auth if request.auth and not isinstance(request.auth, bool) else None
+        )
+
         community = None
         if community_id:
             try:
                 community = Community.objects.only("id", "type").get(id=community_id)
             except Community.DoesNotExist:
                 return 404, {"message": "Community not found."}
-            if not community.is_member(request.auth) and community.type == "hidden":
+            if community.type == "hidden" and (not current_user or not community.is_member(current_user)):
                 return 403, {"message": "You are not a member of this community."}
 
         # Filter discussions and annotate with comments count
@@ -220,8 +231,6 @@ def list_discussions(request, article_id: int, community_id: int = None, page: i
             page_obj = paginator.page(page)
         except Exception:
             return 400, {"message": "Invalid pagination parameters. Please check page number and size."}
-
-        current_user: Optional[User] = None if not request.auth else request.auth
 
         try:
             discussions_list = list(page_obj.object_list)
@@ -241,8 +250,6 @@ def list_discussions(request, article_id: int, community_id: int = None, page: i
                 )
                 for p in pseudonyms:
                     pseudonym_map[(p.user_id, p.article_id, p.community_id)] = p
-
-            current_user = request.auth if request.auth else None
 
             # Prefetch all flags for discussions in one query (avoids N+1)
             # Returns dict: {discussion_id: ["unread", "pinned"], ...}
@@ -861,6 +868,9 @@ def create_comment(request, discussion_id: int, payload: DiscussionCommentCreate
             try:
                 parent_comment = DiscussionComment.objects.get(id=payload.parent_id)
 
+                if parent_comment.is_deleted:
+                    return 400, {"message": "You can't reply to a deleted comment."}
+
                 if parent_comment.parent and parent_comment.parent.parent:
                     return 400, {"message": "Exceeded maximum comment nesting level of 3"}
             except DiscussionComment.DoesNotExist:
@@ -998,12 +1008,14 @@ def get_comment(request, comment_id: int):
             logger.error(f"Error retrieving comment: {e}")
             return 500, {"message": "Error retrieving comment. Please try again."}
 
-        current_user: Optional[User] = None if not request.auth else request.auth
+        current_user: Optional[User] = (
+            request.auth if request.auth and not isinstance(request.auth, bool) else None
+        )
 
         if (
             comment.discussion.community
-            and not comment.discussion.community.is_member(current_user)
             and comment.discussion.community.type == "hidden"
+            and (not current_user or not comment.discussion.community.is_member(current_user))
         ):
             return 403, {"message": "You are not a member of this community."}
 
@@ -1045,12 +1057,14 @@ def list_discussion_comments(request, discussion_id: int, page: int = 1, size: i
             logger.error(f"Error retrieving discussion: {e}")
             return 500, {"message": "Error retrieving discussion. Please try again."}
 
-        current_user: Optional[User] = None if not request.auth else request.auth
+        current_user: Optional[User] = (
+            request.auth if request.auth and not isinstance(request.auth, bool) else None
+        )
 
         if (
             discussion.community
-            and not discussion.community.is_member(current_user)
             and discussion.community.type == "hidden"
+            and (not current_user or not discussion.community.is_member(current_user))
         ):
             return 403, {"message": "You are not a member of this community."}
 
@@ -1096,6 +1110,9 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
         if comment.discussion.community and not comment.discussion.community.is_member(request.auth):
             return 403, {"message": "You are not a member of this community."}
 
+        if comment.is_deleted:
+            return 403, {"message": "You can't update a deleted comment."}
+
         try:
             comment.content = payload.content or comment.content
             comment.save()
@@ -1140,6 +1157,12 @@ def delete_comment(request, comment_id: int):
         if comment.author != user:
             return 403, {"message": "You do not have permission to delete this comment."}
 
+        if comment.is_deleted:
+            return 403, {"message": "This comment is already deleted."}
+
+        if not is_within_delete_window(comment.created_at):
+            return 403, {"message": "Comments can only be deleted within 5 minutes of posting."}
+
         try:
             # Store parent info before deletion for real-time event
             parent_id = comment.parent.id if comment.parent else None
@@ -1152,8 +1175,8 @@ def delete_comment(request, comment_id: int):
             # Delete reactions associated with the comment
             Reaction.objects.filter(content_type__model="discussioncomment", object_id=comment.id).delete()
 
-            # Logically delete the comment by clearing its content and marking it as deleted
-            comment.content = "[deleted]"
+            # Logically delete only this comment; child replies remain attached.
+            comment.content = ""
             comment.is_deleted = True
             comment.save()
 
