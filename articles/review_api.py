@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional
 
 from django.core.paginator import Paginator
-from django.db.models import Avg, Count, Prefetch, Q
+from django.db.models import Avg, Count, Prefetch
 from django.utils import timezone
 from ninja import Router
 from ninja.responses import codes_4xx, codes_5xx
@@ -32,6 +32,7 @@ from articles.schemas import (
 )
 from communities.models import Community, CommunityArticle
 from myapp.feature_flags import MAX_NESTING_LEVEL
+from myapp.realtime import RealtimeEventPublisher
 from myapp.schemas import UserStats
 from myapp.services.notifications import (
     NotificationCategory,
@@ -183,6 +184,21 @@ def create_review(
             except Exception as e:
                 logger.error(f"Error creating anonymous name for review: {e}")
                 # Continue even if anonymous name creation fails
+
+        # Realtime review/review-comment events are published for `private` communities only.
+        # This is a decision, not an oversight: DiscussionSubscription covers private *and*
+        # hidden community articles (see articles/models.py), and the notification paths below
+        # do not gate on community type at all, so hidden could reasonably publish too. The
+        # same `private`-only gate is applied at the other five review call sites in this file
+        # and throughout discussion_api.py. `test_realtime_review_events.py` asserts that
+        # public and hidden publish nothing, so widening the scope means updating that test
+        # deliberately.
+        try:
+            if review.community and review.community.type == "private":
+                RealtimeEventPublisher.publish_review_created(review, {review.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish review created event: {e}")
+            # Continue even if event publishing fails
 
         # Send notifications to article submitter (only if subscribed for community articles)
         try:
@@ -503,6 +519,13 @@ def update_review(request, review_id: int, review_data: ReviewUpdateSchema):
             return 500, {"message": "Error updating review. Please try again."}
 
         try:
+            if review.community and review.community.type == "private":
+                RealtimeEventPublisher.publish_review_updated(review, {review.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish review updated event: {e}")
+            # Continue even if event publishing fails
+
+        try:
             return 201, ReviewOut.from_orm(review, user)
         except Exception as e:
             logger.error(f"Error formatting review data: {e}")
@@ -543,6 +566,13 @@ def delete_review(request, review_id: int):
         except Exception as e:
             logger.error(f"Error deleting review: {e}")
             return 500, {"message": "Error deleting review. Please try again."}
+
+        try:
+            if review.community and review.community.type == "private":
+                RealtimeEventPublisher.publish_review_deleted(review, {review.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish review deleted event: {e}")
+            # Continue even if event publishing fails
 
         return 201, {"message": "Review deleted successfully."}
     except Exception as e:
@@ -647,6 +677,13 @@ def create_comment(request, review_id: int, payload: ReviewCommentCreateSchema):
             except Exception as e:
                 logger.error(f"Error creating anonymous name for comment: {e}")
                 # Continue even if anonymous name creation fails
+
+        try:
+            if comment.community and comment.community.type == "private":
+                RealtimeEventPublisher.publish_review_comment_created(comment, {comment.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish review comment created event: {e}")
+            # Continue even if event publishing fails
 
         # Send notification to review author and article author (only if subscribed for community articles)
         try:
@@ -806,7 +843,6 @@ def list_review_comments(request, review_id: int):
             # Root comments (parent=None) with replies
             root_comments = list(
                 ReviewComment.objects.filter(review=review, parent=None)
-                .filter(Q(is_deleted=False) | Q(review_replies__isnull=False))
                 .select_related("author")
                 .prefetch_related("review_replies__author", "reactions", "review_replies__reactions")
                 .order_by("-created_at")
@@ -934,6 +970,13 @@ def update_comment(request, comment_id: int, payload: ReviewCommentUpdateSchema)
             return 500, {"message": "Error updating comment. Please try again."}
 
         try:
+            if comment.community and comment.community.type == "private":
+                RealtimeEventPublisher.publish_review_comment_updated(comment, {comment.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish review comment updated event: {e}")
+            # Continue even if event publishing fails
+
+        try:
             return 200, ReviewCommentOut.from_orm_with_replies(comment, request.auth)
         except Exception as e:
             logger.error(f"Error formatting comment data: {e}")
@@ -990,6 +1033,13 @@ def delete_comment(request, comment_id: int):
             comment.is_deleted = True
             comment.rating = None
             comment.save()
+
+            try:
+                if comment.community and comment.community.type == "private":
+                    RealtimeEventPublisher.publish_review_comment_deleted(comment, {comment.community.id})
+            except Exception as e:
+                logger.error(f"Failed to publish review comment deleted event: {e}")
+                # Continue even if event publishing fails
         except Exception as e:
             logger.error(f"Error deleting comment: {e}")
             return 500, {"message": "Error deleting comment. Please try again."}

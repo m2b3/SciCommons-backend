@@ -691,6 +691,13 @@ def update_discussion(request, discussion_id: int, discussion_data: CreateDiscus
             return 500, {"message": "Error updating discussion. Please try again."}
 
         try:
+            if discussion.community and discussion.community.type == "private":
+                RealtimeEventPublisher.publish_discussion_updated(discussion, {discussion.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish discussion updated event: {e}")
+            # Continue even if event publishing fails
+
+        try:
             response_data = DiscussionOut.from_orm(discussion, user)
             return 201, response_data
         except Exception as e:
@@ -731,6 +738,18 @@ def delete_discussion(request, discussion_id: int):
         except Exception as e:
             logger.error(f"Error deleting discussion: {e}")
             return 500, {"message": "Error deleting discussion. Please try again."}
+
+        try:
+            if discussion.community and discussion.community.type == "private":
+                RealtimeEventPublisher.publish_discussion_deleted(
+                    discussion_id=discussion.id,
+                    article_id=discussion.article.id,
+                    community_ids={discussion.community.id},
+                    author_id=discussion.author.id,
+                )
+        except Exception as e:
+            logger.error(f"Failed to publish discussion deleted event: {e}")
+            # Continue even if event publishing fails
 
         return 201, {"message": "Discussion deleted successfully."}
     except Exception as e:
@@ -1083,6 +1102,13 @@ def update_comment(request, comment_id: int, payload: DiscussionCommentUpdateSch
         except Exception as e:
             logger.error(f"Error updating comment: {e}")
             return 500, {"message": "Error updating comment. Please try again."}
+
+        try:
+            if comment.community and comment.community.type == "private":
+                RealtimeEventPublisher.publish_comment_updated(comment, {comment.community.id})
+        except Exception as e:
+            logger.error(f"Failed to publish comment updated event: {e}")
+            # Continue even if event publishing fails
 
         try:
             return 200, DiscussionCommentOut.from_orm_with_replies(comment, request.auth)
