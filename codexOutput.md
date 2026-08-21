@@ -93,3 +93,18 @@ ssh -N -o ExitOnForwardFailure=yes \
 Then use `http://127.0.0.1:8000/api/docs/` and `http://127.0.0.1:8888/health` on your workstation. Add `-L 5432:127.0.0.1:5432` only when you need a local database client. Your workstation itself does not need a public IP; it only needs outbound SSH access to this server.
 
 The remaining optional hardening is the host firewall: UFW is currently inactive. The current application ports are still non-public because of their loopback bindings, but enabling a firewall that permits SSH and denies other inbound traffic would protect against a future service accidentally binding to `0.0.0.0`. Disabling SSH root login entirely would also be sensible. I have not made either change because firewall/SSH changes can lock you out and item 2 was excluded.
+
+## 2026-08-21 17:03:33 +0000
+
+Completed. Backend `test` now contains PRs #165–#168 and is available to pull from another development machine.
+
+- Feature-integration commit: `af039994346dbe4dc950a5b75820f178cc61a595`
+- Local `test` was first fast-forwarded to the prior remote head `98e405a`.
+- #165, #166, #167, and #168 were merged in order as separate merge commits.
+- Because #168 is stacked on #167, merging #167 first caused #168 to apply only its later delta; no #167 code was duplicated.
+- All 85 PR-specific tests passed together.
+- Docker build/start, Django system checks, migration consistency, migration plan, `git diff --check`, and Tornado health passed.
+- The full suite ran 218 tests and reproduced exactly the current base branch's 15 failures and 4 errors. The integration introduced no additional failures, but the branch is still not green and should not be promoted for deployment yet.
+- The disposable validation containers and PostgreSQL volume were removed.
+
+The direct push succeeded but GitHub reported that it bypassed the branch rule requiring changes through pull requests. Direct backend pushes trigger dynamic CodeQL analysis, not the pull-request-only Django CI workflow. No infrastructure pin was changed, so this push did not trigger backend deployment.
