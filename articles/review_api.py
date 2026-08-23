@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import List, Optional
 
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Avg, Count, Prefetch
 from django.utils import timezone
 from ninja import Router
@@ -29,7 +30,7 @@ from articles.schemas import (
     ReviewCommentUpdateSchema,
     ReviewOut,
     ReviewUpdateSchema,
-    ReviewVersionSchema,
+    serialize_review_versions,
 )
 from communities.models import Community, CommunityArticle
 from myapp.feature_flags import MAX_NESTING_LEVEL
@@ -407,9 +408,9 @@ def list_reviews(request, article_id: int, community_id: int = None, page: int =
                         is_admin=is_admin_map.get(review.community_id, False),
                     )
 
-                versions = [
-                    ReviewVersionSchema.from_orm(version) for version in getattr(review, "prefetched_versions", [])[:3]
-                ]
+                # Shares the deleted-review rule with ReviewOut.from_orm; keeps using the
+                # prefetch above so this loop still costs no extra queries.
+                versions = serialize_review_versions(review, getattr(review, "prefetched_versions", []))
 
                 comments_rating = round(comments_ratings_map.get(review.id, 0) or 0, 1)
 
@@ -574,10 +575,19 @@ def delete_review(request, review_id: int):
             return 403, {"message": "Reviews can only be deleted within 5 minutes of posting."}
 
         try:
-            review.subject = ""
-            review.content = ""
-            review.deleted_at = timezone.now()
-            review.save()
+            with transaction.atomic():
+                review.subject = ""
+                review.content = ""
+                review.deleted_at = timezone.now()
+                review.save()
+
+                # Review.save() snapshots the *previous* subject/content into ReviewVersion
+                # whenever either changes, so the two assignments above archive the very text
+                # they blank - and any earlier edit left its own row. Every one of those is
+                # readable through ReviewOut.versions, so the delete has to take the history
+                # with it, the same way Review.delete() does for a hard delete (models.py).
+                # Atomic so a failure can never leave the row blanked with its history intact.
+                ReviewVersion.objects.filter(review=review).delete()
         except Exception as e:
             logger.error(f"Error deleting review: {e}")
             return 500, {"message": "Error deleting review. Please try again."}

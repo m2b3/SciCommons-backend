@@ -6,7 +6,15 @@ from django.test import TestCase
 from django.utils import timezone
 
 from articles import discussion_api, review_api
-from articles.models import Article, Discussion, DiscussionComment, Review, ReviewComment
+from articles.models import (
+    Article,
+    Discussion,
+    DiscussionComment,
+    Review,
+    ReviewComment,
+    ReviewVersion,
+)
+from articles.schemas import ReviewOut
 
 User = get_user_model()
 
@@ -52,6 +60,60 @@ class DeleteWindowApiTest(TestCase):
         self.assertEqual(self.review.subject, "")
         self.assertEqual(self.review.content, "")
         self.assertIsNotNone(self.review.deleted_at)
+
+    def test_review_delete_takes_the_version_history_with_it(self):
+        """
+        Review.save() snapshots the previous subject/content into ReviewVersion whenever they
+        change, so blanking the fields during a delete archives the very text being removed -
+        on top of whatever earlier edits already left behind. Both have to go.
+        """
+        self.review.subject = "Edited subject"
+        self.review.content = "Edited content"
+        self.review.save()
+        self.assertTrue(ReviewVersion.objects.filter(review=self.review).exists())
+
+        status, _ = review_api.delete_review(self.request_for(self.user), self.review.id)
+
+        self.assertEqual(status, 201)
+        self.assertFalse(ReviewVersion.objects.filter(review=self.review).exists())
+
+    def test_from_orm_withholds_versions_for_a_deleted_review(self):
+        self.review.deleted_at = timezone.now()
+        self.review.save(update_fields=["deleted_at"])
+        # Force history back in so this covers the serializer guard, not just the purge above.
+        ReviewVersion.objects.create(
+            review=self.review,
+            rating=5,
+            subject="Secret subject",
+            content="Secret content",
+            version=1,
+        )
+
+        payload = ReviewOut.from_orm(self.review, self.user)
+
+        self.assertEqual(payload.versions, [])
+
+    def test_list_reviews_withholds_versions_for_a_deleted_review(self):
+        """
+        list_reviews builds ReviewOut inline off a prefetch instead of calling from_orm, so it
+        needs its own coverage - the leak lived in this path and the article page uses it.
+        """
+        self.review.deleted_at = timezone.now()
+        self.review.save(update_fields=["deleted_at"])
+        ReviewVersion.objects.create(
+            review=self.review,
+            rating=5,
+            subject="Secret subject",
+            content="Secret content",
+            version=1,
+        )
+
+        status, payload = review_api.list_reviews(self.request_for(self.user), self.article.id)
+
+        self.assertEqual(status, 200)
+        listed = [item for item in payload.items if item.id == self.review.id]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0].versions, [])
 
     def test_review_delete_after_window_is_rejected(self):
         Review.objects.filter(id=self.review.id).update(created_at=timezone.now() - timedelta(minutes=6))

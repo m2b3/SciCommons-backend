@@ -391,6 +391,28 @@ class ReviewVersionSchema(ModelSchema):
         ]
 
 
+REVIEW_VERSION_LIMIT = 3
+
+
+def serialize_review_versions(review, prefetched_versions=None):
+    """
+    The newest few revisions of a review - and nothing at all once it is deleted.
+
+    Deleting a review blanks its subject/content but every revision keeps a full copy, so
+    returning the history would hand back exactly the text the delete was meant to remove.
+    ReviewOut is built in two places (ReviewOut.from_orm, and inline in review_api.list_reviews
+    off a prefetch), so the rule lives here rather than being written out twice and drifting.
+
+    Pass `prefetched_versions` to reuse an existing prefetch instead of querying again.
+    """
+    if review.deleted_at:
+        return []
+
+    versions = review.versions.all().order_by("-version") if prefetched_versions is None else prefetched_versions
+
+    return [ReviewVersionSchema.from_orm(version) for version in versions[:REVIEW_VERSION_LIMIT]]
+
+
 class ReviewOut(ModelSchema):
     is_author: bool = Field(default=False)
     versions: List[ReviewVersionSchema] = Field(...)
@@ -431,7 +453,7 @@ class ReviewOut(ModelSchema):
         flags: Optional[List[str]] = None,
     ):
         comments_count = ReviewComment.objects.filter(review=review, is_deleted=False).count()
-        versions = [ReviewVersionSchema.from_orm(version) for version in review.versions.all().order_by("-version")[:3]]
+        versions = serialize_review_versions(review)
         is_pseudonymous = review.is_pseudonymous
         # if is_pseudonymous:
         #     pseudonym = AnonymousIdentity.objects.get(
