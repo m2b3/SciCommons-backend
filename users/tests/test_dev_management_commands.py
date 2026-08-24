@@ -13,7 +13,7 @@ from users.models import User
 
 @override_settings(ENVIRONMENT="local", DEBUG=True)
 class SeedDevDataCommandTest(TestCase):
-    @patch(
+    @patch.dict(
         "users.management.dev_database.connection.settings_dict",
         {"NAME": "scicommons_dev"},
     )
@@ -43,7 +43,7 @@ class SeedDevDataCommandTest(TestCase):
         with self.assertRaises(CommandError):
             call_command("seed_dev_data", stdout=StringIO())
 
-    @patch(
+    @patch.dict(
         "users.management.dev_database.connection.settings_dict",
         {"NAME": "scicommons_dev"},
     )
