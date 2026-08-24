@@ -123,3 +123,17 @@ Recovery complete. The corrected work is now on local `test`, with no `sureshBac
 Validation passed: Docker Compose configuration, Django system checks, migration drift checks, the applied `0037 → 0038` chain, `git diff --check`, and all 224 backend tests (`OK`, 52.603s). The documented pre-commit command could not run because the existing web image does not contain the `pre-commit` executable.
 
 Local `test` contains five scoped functional/documentation commits plus a separate required `codexOutput.md` operation-log commit. `origin/test` remains unchanged at `9867080`; nothing was pushed or deployed. The working tree is clean.
+
+## 2026-08-24 00:45:10 +0000
+
+Yes. The regression suites were both **included and executed**:
+
+- PR #169's deleted-review/version-history regressions in [test_delete_window_api.py](/home/skrishna/SciCommons-backend/articles/tests/test_delete_window_api.py).
+- The anonymous-identity uniqueness regression in [test_articles_models.py](/home/skrishna/SciCommons-backend/articles/tests/test_articles_models.py).
+- The repaired activation, password-reset, and asynchronous-email API tests in [test_api_auth.py](/home/skrishna/SciCommons-backend/users/tests/test_api_auth.py).
+- Direct email-worker rendering/sending regressions in [test_send_emails.py](/home/skrishna/SciCommons-backend/myapp/tests/test_send_emails.py).
+- Development management-command regressions in [test_dev_management_commands.py](/home/skrishna/SciCommons-backend/users/tests/test_dev_management_commands.py).
+
+The complete corrected-branch run discovered **224 tests** and finished `OK` in 52.603 seconds. It created a fresh test database and ran the `0037 → 0038` migrations, so these regression files were part of the actual green run—not merely present in the branch.
+
+Only the separate `pre-commit` lint command was unavailable because that executable is missing from the current container; that does not reduce the 224/224 regression-test result.
