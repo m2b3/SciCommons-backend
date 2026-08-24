@@ -29,7 +29,7 @@ def remove_duplicate_global_identities(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("articles", "0036_reconcile_article_identifiers"),
+        ("articles", "0037_purge_deleted_review_versions"),
     ]
 
     operations = [
