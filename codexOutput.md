@@ -108,3 +108,18 @@ Completed. Backend `test` now contains PRs #165–#168 and is available to pull 
 - The disposable validation containers and PostgreSQL volume were removed.
 
 The direct push succeeded but GitHub reported that it bypassed the branch rule requiring changes through pull requests. Direct backend pushes trigger dynamic CodeQL analysis, not the pull-request-only Django CI workflow. No infrastructure pin was changed, so this push did not trigger backend deployment.
+
+## 2026-08-24 00:38:55 +0000
+
+Recovery complete. The corrected work is now on local `test`, with no `sureshBack` history included.
+
+- Started cleanly from `test`/`origin/test` at `9867080`.
+- Applied PR #169 as its direct child commit `a8e9b48`.
+- Applied only the intended identity repair (`e53e012`), repaired tests (`5d8f9e4`), and extension documentation (`a07b530`).
+- Renumbered the identity migration to `0038` after PR #169's `0037` in `7473c13`.
+- Confirmed that `origin/sureshBack` is not an ancestor of the corrected `test` branch. Its nine old deltas and ancient merge history are absent.
+- Preserved the mistaken local `sureshBack` branch at `171f0ea` as a safety copy; it was not merged or pushed.
+
+Validation passed: Docker Compose configuration, Django system checks, migration drift checks, the applied `0037 → 0038` chain, `git diff --check`, and all 224 backend tests (`OK`, 52.603s). The documented pre-commit command could not run because the existing web image does not contain the `pre-commit` executable.
+
+Local `test` contains five scoped functional/documentation commits plus a separate required `codexOutput.md` operation-log commit. `origin/test` remains unchanged at `9867080`; nothing was pushed or deployed. The working tree is clean.
