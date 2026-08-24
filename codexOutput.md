@@ -137,3 +137,32 @@ Yes. The regression suites were both **included and executed**:
 The complete corrected-branch run discovered **224 tests** and finished `OK` in 52.603 seconds. It created a fresh test database and ran the `0037 → 0038` migrations, so these regression files were part of the actual green run—not merely present in the branch.
 
 Only the separate `pre-commit` lint command was unavailable because that executable is missing from the current container; that does not reduce the 224/224 regression-test result.
+
+## 2026-08-24 00:46:58 +0000
+
+Yes—the next phase is **publish the backend `test` commit, then pin that exact remote SHA in backendinfra**.
+
+1. Push the corrected local backend `test` branch using your normal backend Git process. The infrastructure repository cannot deploy a commit that exists only locally.
+2. On the trusted laptop, update the clean backendinfra `main` checkout ([localdeploy.md](/home/skrishna/localdeploy.md:7)).
+3. After the backend push, resolve the remote `test` tip rather than copying a local SHA in advance:
+
+   ```bash
+   BACKEND_TEST_SHA="$(gh api repos/m2b3/SciCommons-backend/commits/test --jq .sha)"
+   gh api "repos/m2b3/SciCommons-backend/commits/${BACKEND_TEST_SHA}" --jq .sha
+   ```
+
+4. Change only `backend_test_ref` in backendinfra's `group_vars/all.yml` to that full SHA ([pin instructions](/home/skrishna/localdeploy.md:20)). If the current backendinfra checkout contains `tools/promote_backend.sh`, `tools/promote_backend.sh test "${BACKEND_TEST_SHA}"` is the guarded equivalent; otherwise use the documented `yq` command.
+5. In the same release, configure the Test extension allowlists under `vault_test_env`:
+
+   ```yaml
+   INTEGRATION_CORS_ALLOWED_ORIGINS: "chrome-extension://gcoffiocepphklfgmpaclpkeejdamlld"
+   INTEGRATION_ALLOWED_REDIRECT_URIS: "https://gcoffiocepphklfgmpaclpkeejdamlld.chromiumapp.org/scicommons"
+   ```
+
+   Also add both key names to `expected_env_keys` in `validate_backend_vault.yml` and matching documented placeholders to `group_vars/vault.yml.example`, as required by the [deployment-state checklist](/home/skrishna/deploystate.md:244).
+6. Run the three documented validations: Vault validation, Ansible syntax check, and preflight.
+7. Review and commit the backendinfra changes, then push or merge them into backendinfra `main`.
+
+That final push/merge to backendinfra `main` **automatically triggers** `deploy-backend.yml`. Do not also dispatch it manually ([trigger instructions](/home/skrishna/localdeploy.md:59)). A manual dispatch is only for redeploying the SHAs already pinned; it does not discover the new backend `test` tip ([rerun warning](/home/skrishna/localdeploy.md:152)). If the protected GitHub Environment pauses for approval, approving that job is the only “activation” you may remember.
+
+Then watch the workflow through validation, deployment, health checks, and smoke tests. After it succeeds, confirm the integration endpoint no longer returns 404 and proceed to the frontend PR #363/Test deployment. I have not pushed the backend, edited backendinfra, or triggered a deployment.
