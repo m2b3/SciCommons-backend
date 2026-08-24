@@ -108,6 +108,13 @@ class AnonymousIdentity(models.Model):
 
     class Meta:
         unique_together = ("user", "article", "community")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "article"],
+                condition=models.Q(community__isnull=True),
+                name="unique_global_anonymous_identity",
+            )
+        ]
 
     @staticmethod
     def generate_reddit_style_username():

@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.test import TestCase
 from django.utils.text import slugify
@@ -165,12 +166,12 @@ class AnonymousIdentityModelTest(TestCase):
         fake_name = AnonymousIdentity.get_or_create_fake_name(self.user, self.article)
         self.assertEqual(fake_name, "ExistingFakeName")
 
-    def test_unique_together_constraint(self):
+    def test_unique_without_community_constraint(self):
         AnonymousIdentity.objects.create(
             user=self.user, article=self.article, fake_name="UniqueName1"
         )
 
-        with self.assertRaises(IntegrityError):  # Use the appropriate exception
+        with self.assertRaises(IntegrityError), transaction.atomic():
             AnonymousIdentity.objects.create(
                 user=self.user, article=self.article, fake_name="UniqueName2"
             )
