@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from ninja.testing import TestClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -88,3 +88,60 @@ class FeedPreferencesAPITestCase(TestCase):
         response = self.client.get("/preferences")
 
         self.assertEqual(response.status_code, 401)
+
+
+class MainFeedItemsAPITestCase(SimpleTestCase):
+    def setUp(self):
+        self.client = TestClient(router)
+
+    def test_returns_static_handoff_feed_shape(self):
+        response = self.client.get("/main/items")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["feed"]["slug"], "u1-main")
+        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["generation"], 1)
+        self.assertEqual(data["counts"]["pubmed"], 2)
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["artifact_version"], "legacy")
+        self.assertIsNotNone(data["completed_at"])
+        self.assertEqual(len(data["items"]), 2)
+        self.assertEqual(data["items"][0]["paper_key"], "pubmed:dev-002")
+
+    def test_filters_items_by_source(self):
+        pubmed_response = self.client.get("/main/items?source=pubmed")
+        arxiv_response = self.client.get("/main/items?source=arxiv")
+
+        self.assertEqual(pubmed_response.status_code, 200)
+        self.assertEqual(pubmed_response.json()["total"], 2)
+        self.assertEqual({item["source"] for item in pubmed_response.json()["items"]}, {"pubmed"})
+
+        self.assertEqual(arxiv_response.status_code, 200)
+        self.assertEqual(arxiv_response.json()["total"], 0)
+        self.assertEqual(arxiv_response.json()["items"], [])
+
+    def test_limits_items_and_returns_an_opaque_cursor(self):
+        first_response = self.client.get("/main/items?source=pubmed&limit=1")
+
+        self.assertEqual(first_response.status_code, 200)
+        first_page = first_response.json()
+        self.assertEqual(first_page["total"], 2)
+        self.assertEqual(len(first_page["items"]), 1)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(first_page["next_cursor"], "static:1")
+
+        second_response = self.client.get(
+            f"/main/items?source=pubmed&limit=1&cursor={first_page['next_cursor']}"
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        second_page = second_response.json()
+        self.assertEqual([item["paper_key"] for item in second_page["items"]], ["pubmed:dev-004"])
+        self.assertFalse(second_page["has_more"])
+        self.assertIsNone(second_page["next_cursor"])
+
+    def test_rejects_invalid_cursor(self):
+        response = self.client.get("/main/items?cursor=not-a-static-cursor")
+
+        self.assertEqual(response.status_code, 400)
