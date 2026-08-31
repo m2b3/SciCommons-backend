@@ -65,6 +65,8 @@ INSTALLED_APPS = [
     "articles",
     "integrations",
     "posts",
+    # Added by Claude on 2026-08-10: per-user feed preferences (see feeds/models.py).
+    "feeds",
     "storages",
     "channels",
 ]

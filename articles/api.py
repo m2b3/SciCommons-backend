@@ -32,6 +32,8 @@ from articles.schemas import (
     Message,
     OfficialArticleStatsResponse,
     PaginatedArticlesListResponse,
+    ResolvedArticleOut,
+    ResolveExternalArticleSchema,
     ReviewExcerpt,
 )
 from communities.models import Community, CommunityArticle
@@ -204,6 +206,60 @@ def create_article(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
         return 500, {"message": "An unexpected error occurred. Please try again later."}
+
+
+@router.post(
+    "/articles/resolve-external/",
+    response={200: ResolvedArticleOut, codes_4xx: Message, codes_5xx: Message},
+    auth=JWTAuth(),
+)
+def resolve_external_article(request, payload: ResolveExternalArticleSchema):
+    """Get-or-create an Article for an external record (currently a PubMed paper).
+
+    The feed lists papers from PubMed, not from our DB. When a user posts one to a
+    community we need its slug, but it may already have been ingested by someone else.
+    `create_article` cannot serve this: it returns a bare 400 "already been submitted"
+    with no slug, so the second person to post a popular paper is simply stuck.
+
+    `article_link` is already `unique=True` on Article, and the canonical
+    https://pubmed.ncbi.nlm.nih.gov/{pmid}/ form makes it a usable external key, so no new
+    model is needed yet. When the proper (source, external_id) record table lands -- the
+    one the private-notes work also needs -- this becomes a thin wrapper over it.
+
+    Deliberately skips create_article's (title, abstract) duplicate check: hitting an
+    existing row is the normal path here, not an error.
+    """
+    try:
+        article_link = payload.article_link.strip()
+        if not article_link:
+            return 400, {"message": "An article link is required."}
+
+        with transaction.atomic():
+            # select_for_update guards against two users posting the same paper at once.
+            existing = Article.objects.select_for_update().filter(article_link=article_link).first()
+            if existing:
+                return 200, {"slug": existing.slug, "article_id": existing.id, "created": False}
+
+            article = Article.objects.create(
+                title=payload.title.strip(),
+                abstract=payload.abstract.strip(),
+                authors=[author.dict() for author in payload.authors],
+                article_link=article_link,
+                # Visibility within a community is decided by that community, matching
+                # how the existing community-article creation flow behaves.
+                submission_type="Private",
+                submitter=request.auth,
+            )
+
+            if payload.pdf_link:
+                ArticlePDF.objects.create(article=article, pdf_file_url=None, external_url=payload.pdf_link)
+
+        invalidate_articles_cache()
+        return 200, {"slug": article.slug, "article_id": article.id, "created": True}
+
+    except Exception as e:
+        logger.error(f"Error resolving external article: {e}")
+        return 500, {"message": "Could not resolve this article. Please try again."}
 
 
 # Todo: Make this Endpoint partially protected

@@ -1,0 +1,81 @@
+{
+  "feed": {
+    "id": "feed-u1-main",
+    "slug": "u1-main",
+    "display_name": "main",
+    "privacy": "public",
+    "configuration_version": 2,
+    "generation_status": "ready",
+    "interests": [
+      "biology",
+      "public health"
+    ],
+    "authors": [],
+    "user_id": "u1",
+    "feed_slug": "main",
+    "follower_count": 0,
+    "created_at": "2026-08-23T19:56:45.452139+00:00",
+    "updated_at": "2026-08-23T19:56:55.743946+00:00",
+    "can_edit": true,
+    "links": {
+      "public": "/u1/main",
+      "rss": "/u1/main/rss.xml"
+    }
+  },
+  "generation": 1,
+  "status": "ready",
+  "counts": {
+    "all": 2,
+    "arxiv": 0,
+    "pubmed": 2
+  },
+  "items": [
+    {
+      "id": "pubmed:dev-002",
+      "paper_key": "pubmed:dev-002",
+      "source": "pubmed",
+      "title": "Community health interventions and longitudinal outcomes",
+      "authors": [
+        "Grace Sample"
+      ],
+      "abstract": "A deterministic PubMed fixture about public health, medicine, and longitudinal studies.",
+      "tags": [],
+      "url": "https://example.invalid/pubmed/dev-002",
+      "score": 0.666667,
+      "categories": [
+        "public health",
+        "medicine"
+      ],
+      "external_id": "dev-002",
+      "available_date": "2026-08-21",
+      "published_date": "2026-08-19",
+      "rank": 1
+    },
+    {
+      "id": "pubmed:dev-004",
+      "paper_key": "pubmed:dev-004",
+      "source": "pubmed",
+      "title": "Cell signaling in a synthetic biology model",
+      "authors": [
+        "Charles Mock"
+      ],
+      "abstract": "A development fixture about cellular biology, signaling, and synthetic systems.",
+      "tags": [],
+      "url": "https://example.invalid/pubmed/dev-004",
+      "score": 0.333333,
+      "categories": [
+        "biology",
+        "cell signaling"
+      ],
+      "external_id": "dev-004",
+      "available_date": "2026-08-20",
+      "published_date": "2026-08-17",
+      "rank": 2
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false,
+  "total": 2,
+  "artifact_version": "legacy",
+  "completed_at": "2026-08-23T19:57:34.831513+00:00"
+}
