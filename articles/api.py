@@ -981,10 +981,8 @@ def get_relevant_articles(request, article_id: int, filters: ArticleFilters = Qu
 
             if filters.community_id:
                 try:
-                    queryset = queryset.filter(
-                        communityarticle__community_id=filters.community_id,
-                        communityarticle__community__type__ne="hidden",
-                    )
+                    # Hidden communities are already excluded above.
+                    queryset = queryset.filter(communityarticle__community_id=filters.community_id)
                 except Exception as e:
                     logger.error(f"Error filtering by community: {e}")
                     return 500, {"message": "Error filtering by community. Please try again."}
