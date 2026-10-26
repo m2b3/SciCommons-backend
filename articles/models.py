@@ -196,8 +196,12 @@ class Review(models.Model):
     def save(self, *args, **kwargs):
         if self.pk is not None:
             old_review = Review.objects.get(pk=self.pk)
-            # if either the subject or content has changed, create a new version
-            if old_review.subject != self.subject or old_review.content != self.content:
+            # Preserve the previous version whenever a review field changes.
+            if (
+                old_review.rating != self.rating
+                or old_review.subject != self.subject
+                or old_review.content != self.content
+            ):
                 ReviewVersion.objects.create(
                     review=self,
                     rating=old_review.rating,
