@@ -63,11 +63,12 @@ class Article(models.Model):
         self.canonical_url = self.canonical_url.strip() if self.canonical_url else None
 
         if not self.slug:
-            self.slug = slugify(self.title)
+            max_length = self._meta.get_field("slug").max_length
+            self.slug = (slugify(self.title) or "article")[:max_length]
             original_slug = self.slug
             while Article.objects.filter(slug=self.slug).exists():
                 unique_id = uuid.uuid4().hex[:8]  # Generate a short unique ID
-                self.slug = f"{original_slug}-{unique_id}"
+                self.slug = f"{original_slug[:max_length - len(unique_id) - 1]}-{unique_id}"
         super(Article, self).save(*args, **kwargs)
 
     def __str__(self):
