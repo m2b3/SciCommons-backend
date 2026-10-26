@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Avg, Count, Q
 from ninja import File, Query, Router, UploadedFile
 from ninja.errors import HttpRequest
@@ -792,17 +793,20 @@ def update_user_settings(request, payload: UserSettingsBulkUpdateSchema):
             if not is_valid:
                 return 400, {"message": error_message}
 
-            # Update or create the setting
-            try:
-                user_setting, created = UserSetting.objects.update_or_create(
-                    user=user,
-                    config_name=config_name,
-                    defaults={"value": value},
-                )
-                updated_count += 1
-            except Exception as e:
-                logger.error(f"Error updating setting {config_name}: {e}")
-                return 500, {"message": f"Error updating setting {config_name}. Please try again."}
+        # Apply the validated batch together, rolling back if any write fails.
+        try:
+            with transaction.atomic():
+                for setting_update in payload.settings:
+                    config_name = setting_update.config_name
+                    UserSetting.objects.update_or_create(
+                        user=user,
+                        config_name=config_name,
+                        defaults={"value": setting_update.value},
+                    )
+                    updated_count += 1
+        except Exception as e:
+            logger.error(f"Error updating setting {config_name}: {e}")
+            return 500, {"message": f"Error updating setting {config_name}. Please try again."}
 
         # Invalidate cache immediately so changes take effect right away
         invalidate_user_settings_cache(user.id)
