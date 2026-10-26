@@ -152,19 +152,17 @@ def get_user_settings(user_id: int) -> Dict[str, Any]:
     # Get user's custom settings from database
     try:
         user_settings = UserSetting.objects.filter(user_id=user_id)
-        user_settings_dict = {
-            setting.config_name: setting.value for setting in user_settings
-        }
+        user_settings_dict = {setting.config_name: setting.value for setting in user_settings}
     except Exception as e:
         logger.error(f"Error fetching user settings from DB: {e}")
-        user_settings_dict = {}
+        # Use defaults for this request without caching a failed database read.
+        # The next request should retry so saved preferences recover promptly.
+        return {config_name: metadata["default_value"] for config_name, metadata in config_metadata.items()}
 
     # Merge with defaults (user settings override defaults)
     all_settings = {}
     for config_name, metadata in config_metadata.items():
-        all_settings[config_name] = user_settings_dict.get(
-            config_name, metadata["default_value"]
-        )
+        all_settings[config_name] = user_settings_dict.get(config_name, metadata["default_value"])
 
     # Cache the result
     set_user_settings_in_cache(user_id, all_settings)
@@ -216,9 +214,7 @@ def is_sound_on_discussion_notification_enabled(user_id: int) -> bool:
     Returns:
         True if sound is enabled, False otherwise
     """
-    return bool(
-        get_user_setting(user_id, UserConfigKey.ENABLE_SOUND_ON_DISCUSSION_NOTIFICATION)
-    )
+    return bool(get_user_setting(user_id, UserConfigKey.ENABLE_SOUND_ON_DISCUSSION_NOTIFICATION))
 
 
 # ============================================================================
@@ -275,9 +271,7 @@ def prefetch_user_settings(user_ids: list[int]) -> Dict[int, Dict[str, Any]]:
         all_user_settings = UserSetting.objects.filter(user_id__in=users_to_fetch)
 
         # Group by user_id
-        settings_by_user: Dict[int, Dict[str, Any]] = {
-            user_id: {} for user_id in users_to_fetch
-        }
+        settings_by_user: Dict[int, Dict[str, Any]] = {user_id: {} for user_id in users_to_fetch}
         for setting in all_user_settings:
             settings_by_user[setting.user_id][setting.config_name] = setting.value
 
@@ -285,9 +279,7 @@ def prefetch_user_settings(user_ids: list[int]) -> Dict[int, Dict[str, Any]]:
         for user_id in users_to_fetch:
             user_settings = {}
             for config_name, metadata in config_metadata.items():
-                user_settings[config_name] = settings_by_user[user_id].get(
-                    config_name, metadata["default_value"]
-                )
+                user_settings[config_name] = settings_by_user[user_id].get(config_name, metadata["default_value"])
             result[user_id] = user_settings
             set_user_settings_in_cache(user_id, user_settings)
 
@@ -297,8 +289,7 @@ def prefetch_user_settings(user_ids: list[int]) -> Dict[int, Dict[str, Any]]:
         for user_id in users_to_fetch:
             if user_id not in result:
                 result[user_id] = {
-                    config_name: metadata["default_value"]
-                    for config_name, metadata in config_metadata.items()
+                    config_name: metadata["default_value"] for config_name, metadata in config_metadata.items()
                 }
 
     return result
